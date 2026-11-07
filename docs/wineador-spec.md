@@ -789,6 +789,7 @@ is its most wearing event.
 | Minimum on | 1 min — anti-flap backstop only |
 | Maximum continuous run | 60 min, then rest ≥ minimum off |
 | Startup delay after power restore | 5 min |
+| Crossover delay since compressor stopped | 10 min |
 | Interlock | Heating position |
 | Fan | Tach non-zero with PWM asserted |
 | **Ceiling, cabinet** | Any healthy cabinet sensor above **setpoint + 3°C** — protects the cigars, so it follows the setpoint |
@@ -1136,7 +1137,8 @@ hold and lock-out times start over.
 - Watchdog enabled, **5 s** timeout
 - **Heap monitoring:** take the baseline after all initialisation completes, and never sample
   during a file write
-- **Weekly maintenance task:** exercise the interlock relay, three full cycles with both loads off.
+- **Weekly maintenance task:** exercise the interlock relay, three full cycles with both loads off —
+  each cycle 1 s energised, 1 s released, ending on the cooling side.
   Log it as an event
 
 **Minimum job each pass, regardless of any other failure:** evaluate compressor, heater and
@@ -1646,7 +1648,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 |---|---|---|---|---|
 | 1 | Guard timing | Rapid on/off demands against a clock | Min-off, min-on and max-run enforced | Pending |
 | 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass | Pending |
-| 3 | Interlock impossibility | Command both loads on; meter J10 pins 1 and 3 | Only one load has a 12V feed | Pending |
+| 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | Pending |
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | Pending |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | Pending |
 | 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero) | Compressor and heater off; humidifier unaffected; one kickstart attempted | Pending |
