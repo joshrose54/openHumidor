@@ -1,0 +1,66 @@
+#pragma once
+// TEST BUILDS ONLY — the simple cabinet model (spec B3, "Scripted readings
+// respond to the loads"). Compiled out of the cabinet build entirely: without
+// WINEADOR_TEST_BUILD this header declares nothing and cabinet_model.cpp is
+// empty, so any use of the model in a cabinet build fails to compile.
+//
+// Heating raises the scripted chamber and cabinet temperatures, cooling lowers
+// them, humidifying raises cabinet RH; otherwise temperatures drift back towards
+// the room value. Each response can be switched off to test the ineffective checks.
+//
+// The model honours the K1 interlock like the real board: cooling only acts
+// when the relay is on the cooling side, heating only on the heating side.
+
+#if defined(WINEADOR_TEST_BUILD)
+
+#include "wineador/types.h"
+
+namespace wineador {
+
+// Default rates. Cooling and drift follow Track A (A2), room 20 C to match;
+// heating and humidifying are chosen to pass the ineffective checks clearly
+// (heater: 1.5 C in 15 min vs 0.5 needed; humidifier: 2 points in 20 min vs 0.5).
+// Chamber rates equal the cabinet's until stage 4 sets them.
+struct ModelRates {
+  float coolCPerMin      = -0.1f;
+  float heatCPerMin      = +0.1f;
+  float humidPctPerMin   = +0.1f;
+  float driftCPerMin     = 0.006f;   // magnitude, towards the room value
+  float roomC            = 20.0f;
+  bool  coolResponds     = true;
+  bool  heatResponds     = true;
+  bool  humidResponds    = true;
+};
+
+class CabinetModel {
+ public:
+  void begin(const ModelRates& rates, float startC = 20.0f, float startRhPct = 62.0f,
+             float ambientC = 20.0f, float ambientRhPct = 50.0f);
+
+  // Advance the model by dtMs with the loads as they are now.
+  void step(uint32_t dtMs, const LoadOutputs& loads);
+
+  // Scripted value for a sensor index 0..5 (includes its offset).
+  float tempC(int index) const;
+  float rhPct(int index) const;
+
+  // Per-sensor offset, so a scenario can push one sensor away from the rest.
+  void setOffset(int index, float dC, float dRhPct);
+
+  ModelRates& rates() { return rates_; }
+
+ private:
+  ModelRates rates_;
+  float cabinetC_ = 20.0f, chamberC_ = 20.0f, cabinetRh_ = 62.0f;
+  float ambientC_ = 20.0f, ambientRh_ = 50.0f;
+  float offC_[kNumSensors] = {};
+  float offRh_[kNumSensors] = {};
+};
+
+// Replace the values of every sensor whose bus read SUCCEEDED with the scripted
+// values. Failed bus reads stay failed — the bus checks remain real (spec B3).
+void applyScripted(Readings& r, const CabinetModel& m);
+
+}  // namespace wineador
+
+#endif  // WINEADOR_TEST_BUILD
