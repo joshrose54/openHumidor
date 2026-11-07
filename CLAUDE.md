@@ -35,6 +35,8 @@ fix. Josh takes it to that chat, which updates the spec. Don't work around a spe
   on the board is then fine.
 - **Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.** Tell Josh this
   explicitly every time.
+- **Plugging USB in restarts the board** (POWERON). To read a running board, keep USB in and open the
+  monitor; never re-plug USB to look at it.
 - Bench instructions to Josh always state the power-up order.
 
 ### Test sketches and test builds
@@ -48,7 +50,9 @@ fix. Josh takes it to that chat, which updates the spec. Don't work around a spe
 
 - pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5). Board
   `esp32dev`. `platformio.ini` is set up for this, plus a `native` environment for the Mac-side tests.
-- `monitor_rts = 0` and `monitor_dtr = 0`: opening the monitor must not reset the board.
+- `monitor_rts = 1` and `monitor_dtr = 1`: opening or closing the monitor must not reset the board
+  (proved on the bench; at 0 it resets). Any serial script of your own clears RTS before DTR.
+- `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
 - Arduino-ESP32 3.x attaches PWM by pin: `ledcAttach(25, 25000, 8)`, `ledcWrite(25, duty)`.
 - **Build and run the native tests before every hand-over.** Nothing goes to Josh that doesn't build.
 
@@ -84,8 +88,8 @@ the credentials from the same file.
 
 | Stage | Adds | B3 tests |
 |---|---|---|
-| 1 | Drivers from the reference sketches, settings struct, real/bench profiles, test-build switch, boot banner, non-blocking loop, watchdog | 11, 12, 14 |
-| 2 | Runtime guards, interlock switching sequence, relay exercise | 1, 2, 3, 13 |
+| 1 | Drivers from the reference sketches, settings struct, real/bench profiles, test-build switch, boot banner, non-blocking loop, watchdog | 11, 14 (run, not logged: 11 at stage 2, 14 at stage 6) |
+| 2 | Runtime guards, interlock switching sequence, relay exercise | 1, 2, 3, 13, plus 11 (a load held off) and 12 (new method) |
 | 3 | Sensor health, serial check, calibration, fan monitoring, I²C bus recovery, RTC lost-time and NTP | 4, 5, 6, 15, 16 |
 | 4 | Temperature control: deadband, run-end rules, crossover, harvest, RH stripping, ineffective checks | 7, 8, 9, 10, 17, 23 |
 | 5 | Humidifier | 19, 20, 21, 22 |

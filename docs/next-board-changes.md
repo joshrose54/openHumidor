@@ -20,6 +20,11 @@ Draft, to send after B4. Compared with **Rev P**.
   flash and crystal from scratch, unless you think it's worth it.
 - **A USB-C socket for flashing and the serial monitor.** USB and 12V must still be safe to plug in
   and pull out in any order, protecting the board and the laptop, as Rev P does with D7.
+- **Plugging USB into a running board must not restart it,** and nor must opening or closing the
+  serial monitor. On the current board (DevKit with a CP2102 and its auto-reset transistors),
+  plugging USB in restarts the ESP32. In the cabinet that means connecting a laptop restarts the
+  controller and its lock-out timers. Flashing should still work without pressing buttons if
+  possible; if that needs auto-reset, please explain the trade-off and we'll decide.
 - This removes the DevKit's AMS1117 regulator and D7's voltage drop. Please give the board a proper
   3.3V regulator with good headroom.
 - **Question:** which SMD module do you recommend? An ESP32-S3 module has USB built into the chip,
@@ -36,7 +41,7 @@ Draft, to send after B4. Compared with **Rev P**.
     feeds the laptop
   - Strapping pins held in their correct boot states
   - If the original ESP32 is used instead of the S3: a USB-to-serial chip and the auto-reset
-    transistors for flashing
+    transistors for flashing, designed so plugging in doesn't restart the board (above)
 - **Question:** we'd like the **RTC on its own I²C bus**, separate from the mux and sensors, so a
   faulty sensor holding the bus low can't take the clock down with it. Both the ESP32 and the
   ESP32-S3 have two I²C controllers. Is that worth doing?

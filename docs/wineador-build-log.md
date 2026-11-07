@@ -55,6 +55,7 @@ the serial, on each probe.
 |---|---|---|
 | 2026-10-08 10:44 | −0.0s | Baseline |
 | 2026-10-08 10:54 | −0.3s | 11 min, after a 10-minute unplug |
+| 2026-11-07 | Time lost | Read 2000-01-01 after the J9 lead was reseated; then kept counting through a 12V cut. Not reset — the DS3231 is replaced on the next board |
 
 ### SD card
 
@@ -72,9 +73,29 @@ above 32GB, and the ESP32 library needs MBR not GPT.
 |---|---|
 | 10kΩ P26, P27, P32 to GND | 9.5–10kΩ each |
 | 1kΩ P34 to 3.3V | Just under 1kΩ; 3.29V at the pin, power on |
+| Plenum fan at 20%, Rev N | 414–426 RPM, steady — against 438–450 in B1.1.8 |
 
 **Wire colours:** green SDA · yellow SCL · red 3.3V or 5V · black GND · white NC1 output · orange
 NO2 output.
+
+### Firmware — measured on Rev N
+
+| Item | Value |
+|---|---|
+| SD mount at boot | 60 ms |
+| Loop pass, longest per status interval | 1.2–4.5 ms; 2.7–3.1 ms with the RTC lead out |
+| Build size, each ESP32 build | ~8% RAM, ~31% flash |
+
+**Cabinet model rates** (test builds only, B3):
+
+| Response | Rate | Source |
+|---|---|---|
+| Room value drifted towards | 20°C | A2 room, 20.3°C mean |
+| Drift back | +0.006°C/min | A2 |
+| Cooling | −0.1°C/min | A2 |
+| Heating | +0.1°C/min | Chosen: 1.5°C in 15 min against the 0.5°C check |
+| Humidifying | +0.1 points/min | Chosen: 2 points in 20 min against the 0.5-point check |
+| Chamber | As the cabinet until stage 4 sets its own rates for harvest | — |
 
 ### Bench thermometer
 
@@ -662,6 +683,11 @@ hold a day, and compare that level's dip against its A2 average.
 
 ## 4. Open issues
 
+**BP16(b) may fail on Rev P.** On Rev N, plugging USB into a running board restarts it. If the
+cause is the DevKit's auto-reset circuit rather than power, D7 won't stop it, and BP16(b)'s "no
+reset" fails. If so: accept it and change the pass criterion, or change the board (a capacitor on
+EN, or a way to disconnect auto-reset).
+
 **RTC lost ~2h27m before 2026-10-07.** Found at a calibration pre-flight. The cell held the clock
 through a deliberate 10-minute unplug, so the cause is unknown — possibly intermittent cell contact
 while the board was handled. Run `set_rtc.py --check` after each unplug and note what happened to
@@ -678,6 +704,15 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **Floating outputs read stray volts.** With nothing on J10, pin 3 (K1's open NO side) reads ~0.9V on a 10MΩ meter. Load it with 10kΩ and it reads 0V. Probably flux trapped under K1.
 - **Mux board (HW-617) pull-ups, measured:** SDA–VIN and SCL–VIN 10kΩ; SD2–VIN and SC2–VIN open. The main bus has 10kΩ on the mux plus 4.7kΩ on the DS3231; the channels have only the probes' own.
 - **Female sockets:** probe their solder joints underneath; meter tips don't reach the contacts from above.
+- **USB into a running DevKit restarts it,** even with 12V on (POWERON). Never re-plug USB to read a running board; leave it in and open the monitor.
+- **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.
+- **ESP32 core error messages can stall the loop.** With the RTC not answering, the core's I²C error print waited behind the boot banner and held a loop pass for 175 ms. The firmware turns them off; the watchdog, panic and reset-reason output are kept. Proved with J9 unplugged while running.
+- **Arduino-ESP32 3.3.11 I²C default timeout is 50 ms.** Set it explicitly (the firmware uses 20 ms).
+- **The core's task watchdog already exists** (5 s, panic, core 0 idle watched): reconfigure it, don't re-create it, and keep core 0's idle watch.
+- **Header names clash with ESP-IDF** (`settings.h`, `types.h`): the firmware's core headers sit in their own `wineador/` folder.
+- **iCloud makes "name 2" copies** in a synced folder, including inside `.git` (it broke `git log --all`) and the build folder. The project lives in the home folder, outside iCloud; `workspace_dir = .pio.nosync` as well.
+- **pio isn't on the shell path:** `~/.platformio/penv/bin/pio`.
+- **J9 lead:** on the first firmware boot the RTC didn't answer until the lead was reseated.
 - **ESP32 seating:** after refitting the DevKit, press both rows home. A half-seated right-hand row kills I²C and the SD card together (pins 17–23 are all on that row).
 
 **Parasitic powering of SHT40s.** Connecting SDA and SCL before VCC powers the sensor through its

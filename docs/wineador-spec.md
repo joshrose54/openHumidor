@@ -1097,15 +1097,23 @@ monitor_speed = 115200
 upload_port = /dev/cu.SLAB_USBtoUART
 monitor_port = /dev/cu.SLAB_USBtoUART
 monitor_filters = time
-monitor_rts = 0
-monitor_dtr = 0
+monitor_rts = 1
+monitor_dtr = 1
 ```
 
-`monitor_rts` and `monitor_dtr` at 0 stop the monitor resetting the board when opened or closed —
-essential for long runs. Pin the platform to a release tag so a rebuild years later matches. Use a
+`monitor_rts` and `monitor_dtr` at **1** stop the monitor resetting the board when opened or closed —
+essential for long runs. On the DevKit, EN is pulled low only when RTS is on and DTR off; at 0 the
+monitor turns DTR off first, leaving RTS on alone for a moment, which resets the board. A custom
+serial script must likewise clear RTS before DTR. Pin the platform to a release tag so a rebuild years later matches. Use a
 data-capable USB cable. If auto-reset fails: hold BOOT, tap EN, release BOOT, flash. Close the
 monitor before uploading. On Rev P, flash and monitor with the ESP32 on the board, USB and 12V in any
 order (2.4). **Rev N** has no D7: **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine. Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.
+
+**Plugging USB into a running board restarts it** (reported as POWERON) — seen on Rev N, most
+likely the DevKit's auto-reset circuit as its USB chip comes up. The power order is still right;
+expect a restart each time USB goes in. To watch a running board, leave USB in and open the monitor;
+never re-plug USB to look at it. In service, connecting a laptop restarts the controller: the boot
+hold and lock-out times start over.
 
 ## 5.2 Non-blocking architecture
 
@@ -1520,7 +1528,7 @@ parts** — Q1–Q5, U8, U9, K1, D1–D7 and the 12V path. Parts carried over fr
 wiring. A failure here is a board, assembly or design fault, never a firmware one. **B3 starts on
 the PCB.** Same sketches as B1/B2 unless named.
 
-**Bench unit is Rev N** (no D7, no R17–R20, no TP7): on it **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine. Any test that cuts the 12V (B3 test 12) runs with USB unplugged first (5.1) — and the D7, R17–R20, TP7, BP15-with-D7
+**Bench unit is Rev N** (no D7, no R17–R20, no TP7): on it **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine; plugging USB in restarts the board (5.1). Any test that cuts the 12V (B3 test 12) runs with USB unplugged first (5.1) — and the D7, R17–R20, TP7, BP15-with-D7
 and BP16 checks wait for Rev P. See the build log.
 
 **Three phases, in order:** A nothing fitted · B everything fitted, no power · C power. **Nothing is
@@ -1596,7 +1604,8 @@ its version string.
 
 **Status line:** one every 15 s (the sensor read rate), and at once whenever a load changes state.
 Each carries the profile, test build if it is one, the boot reason, uptime and the boot-hold state
-(counting down, or when it ended), so a boot that happened with USB unplugged can be read later.
+(counting down, or when it ended). A boot that happened with USB unplugged is read later from the
+SD log, not the status line — plugging USB in restarts the board (5.1).
 The `boot` command reprints the banner and boot reason.
 
 **Version string:** `0.1.0-stage<n>` during B3, with `-BENCH` and `-TEST` added when they apply;
@@ -1626,9 +1635,8 @@ run a **simple cabinet model**: heating raises the scripted chamber and cabinet 
 rate, cooling lowers them, humidifying raises cabinet RH, and otherwise they drift back towards a
 set room value. Loads then start, stop and harvest by the real rules. A scenario can switch a
 response off on purpose — heater on, chamber not rising — to test the ineffective checks.
-**Rates are test-only and set per scenario.** The default set, used for B4, follows Track A (A2):
-cabinet about −0.1°C/min while cooling and about +0.006°C/min drifting back. Logic scenarios may use
-faster rates to run in minutes. Values chosen are recorded in the build log.
+**Rates are test-only and set per scenario.** The default set, used for B4, follows Track A (A2).
+Logic scenarios may use faster rates to run in minutes. Values chosen are in the build log.
 
 **Which checks use scripted values:** the **bus checks stay real** in a test build — CRC failures,
 timeouts, sensor absent, wrong serial — so unplugging a sensor or shorting SDA still works. **Value
@@ -1647,7 +1655,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |
 | 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | Pending |
 | 11 | Watchdog | `stall` command (test builds only) locks the main loop | Reset by the watchdog, reason shown; boot hold applies — a load demanding to run is held off | Pending |
-| 12 | Power interruption | **USB unplugged first** (Rev N, 5.1). Cut the 12V mid-cycle; restore; then reconnect USB, type `boot` and read the status line | Clean power-on boot; boot hold ran on all three loads | Pending |
+| 12 | Power interruption | Test build, scenario demanding heat and humidification from boot. 12V bulb (KSD in series) on J10 pins 3–4, humidifier fan on J11. **USB unplugged first** (5.1). Cut the 12V; restore it; stopwatch from the moment it returns | Bulb and humidifier fan both stay off for the boot hold (30 s, bench), then start. Cooling shares the same boot-hold code (native tests, test 11) | Pending |
 | 13 | Relay exercise | Trigger the maintenance cycle | Three cycles logged; both loads off throughout | Pending |
 | 14 | Profile safeguard | Boot the bench build | Banner printed and logged; profile on every status line | Pending |
 | 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | Pending |
