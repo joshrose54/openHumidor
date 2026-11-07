@@ -8,7 +8,10 @@ Stage 1 of six (CLAUDE.md): drivers, settings struct, real and bench profiles, t
 switch, boot banner, non-blocking loop, watchdog.
 
 - **Mac side:** done. All four ESP32 builds compile with no warnings; native tests 42/42 pass.
-- **Board:** nothing flashed yet. No B3 test run yet.
+- **Core error messages silenced** (2026-11-07): one loop pass took 175 ms with the RTC not
+  answering, waiting on the ESP32 core's error print. Fixed (`src/drivers/core_log.h`); proved by
+  unplugging J9 with the board running: RTC FAIL shown, loop max 2.7–3.1 ms.
+- **Step 2 (test 14) seen passing** on the board; logged at stage 6.
 - **Loads:** stage 1 cannot switch any load on. Only the plenum fan runs (1 s kickstart, then 20%).
 
 ## Next: the stage 1 board steps

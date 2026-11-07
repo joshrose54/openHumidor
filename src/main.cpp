@@ -28,6 +28,7 @@
 #include "drivers/i2c_bus.h"
 #include "drivers/sd_card.h"
 #include "drivers/watchdog.h"
+#include "drivers/core_log.h"
 #include "app/console.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
@@ -152,6 +153,9 @@ void setup() {
   fan::begin();
   gFan.command(gSettings.tuning.fanIdlePct, millis());
   fan::setDuty(gFan.output(millis()));
+
+  // The core's own error messages must never hold up the loop (core_log.h).
+  corelog::silence();
 
   // Serial output goes into this buffer and the UART sends it in the background.
   // A print only waits if the buffer is full. The biggest burst (the 'boot'
