@@ -26,6 +26,9 @@ struct StatusInfo {
   const char* guardText = nullptr;      // demand and held loads (formatGuardText); nullptr = left out
   uint8_t     fanDutyPct = 0;
   uint32_t    fanRpm     = 0;
+  int32_t     fanPwmReadback = -1;      // 0-255 from the PWM hardware; -1 = left out
+  uint32_t    fanPulses  = 0;           // last tach window: accepted pulses...
+  uint32_t    fanEdges   = 0;           // ...and every edge (chatter included)
   CabinetSummary cab;
   uint32_t    loopMaxUs  = 0;
   uint32_t    heapFree   = 0;

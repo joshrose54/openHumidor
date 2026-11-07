@@ -13,5 +13,8 @@ void update(uint32_t nowMs, uint32_t windowMs);   // works out RPM once per wind
 uint32_t rpm();                        // last window; exactly 0 for a stopped fan
 uint32_t pulsesTotal();                // accepted pulses (low >= 1 ms)
 uint32_t transitionsTotal();           // every edge, chatter included
+uint32_t pwmReadback();                // duty 0-255 as the PWM hardware holds it now (ledcRead), not what was asked
+uint32_t lastPulses();                 // accepted pulses in the last window
+uint32_t lastTransitions();            // every edge in the last window
 
 }  // namespace fan

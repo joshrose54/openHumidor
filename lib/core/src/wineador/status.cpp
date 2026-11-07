@@ -44,6 +44,13 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
         onOff(s.loads.cool), onOff(s.loads.heat), onOff(s.loads.humid));
   if (s.guardText && s.guardText[0]) o.add(" | %s", s.guardText);
   o.add(" | fan %u%% %lurpm", (unsigned)s.fanDutyPct, (unsigned long)s.fanRpm);
+  if (s.fanPwmReadback >= 0) {
+    // What the PWM hardware is really set to (0-255; 20% = 51), and edges per real pulse.
+    o.add(" pwm-hw %ld/255", (long)s.fanPwmReadback);
+    if (s.fanPulses) o.add(" e/p %lu.%lu", (unsigned long)(s.fanEdges / s.fanPulses),
+                           (unsigned long)((s.fanEdges * 10 / s.fanPulses) % 10));
+    else o.add(" e/p -- (%lu edges)", (unsigned long)s.fanEdges);
+  }
   o.add(" | %s", s.testBuild ? "scripted" : "raw");
   if (s.cab.cabinetOk > 0)
     o.add(" cab %.2fC %.1f%% (%d/4, %.2f-%.2f)", s.cab.meanC, s.cab.meanRhPct, s.cab.cabinetOk, s.cab.minC, s.cab.maxC);

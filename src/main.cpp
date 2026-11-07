@@ -95,6 +95,9 @@ static void printStatus() {
   s.guardText = guards;
   s.fanDutyPct = fan::duty();
   s.fanRpm = fan::rpm();
+  s.fanPwmReadback = (int32_t)fan::pwmReadback();
+  s.fanPulses = fan::lastPulses();
+  s.fanEdges = fan::lastTransitions();
   s.cab = summarise(gReadings);
   s.loopMaxUs = gLoopMax.take();
   s.heapFree = ESP.getFreeHeap();
@@ -124,7 +127,8 @@ static void setClockFromRtc() {
   gClockSet = true;
 }
 
-static void handleCommand(Command c, int arg) {
+// nowMs: this pass's time, the same clock the scenario is then updated with.
+static void handleCommand(Command c, int arg, uint32_t nowMs) {
   (void)arg;
   switch (c) {
     case Command::None: break;
@@ -137,7 +141,7 @@ static void handleCommand(Command c, int arg) {
       console::printHelp(kTestBuild);
       break;
     case Command::Exercise:
-      if (gCtl.requestExercise(millis()))
+      if (gCtl.requestExercise(nowMs))
         Serial.println("  Relay exercise requested: compressor and heater held off, 3 cycles of K1, ends on the cooling side.");
       else
         Serial.println("  A relay exercise is already under way. Nothing more done.");
@@ -163,12 +167,12 @@ static void handleCommand(Command c, int arg) {
       } else if (!ScenarioRunner::exists(n)) {
         Serial.println("  Stage 2 scenarios: run 1, run 2, run 3, run 13. Nothing started.");
       } else {
-        gScenario.start(n, millis(), gModel);
+        gScenario.start(n, nowMs, gModel);
       }
       break;
     }
     case Command::Stop:
-      if (gScenario.running()) gScenario.stop(millis(), gModel);
+      if (gScenario.running()) gScenario.stop(nowMs, gModel);
       else Serial.println("  No scenario is running.");
       break;
 #else
@@ -351,7 +355,7 @@ void loop() {
     if (gLine.feed((char)Serial.read())) {
       int arg = -1;
       Command c = parseCommand(gLine.line(), kTestBuild, &arg);
-      handleCommand(c, arg);
+      handleCommand(c, arg, now);
     }
   }
 

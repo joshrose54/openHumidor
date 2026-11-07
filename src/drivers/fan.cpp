@@ -39,6 +39,7 @@ static bool gDutyWritten = false;
 static uint32_t gRpm = 0;
 static uint32_t gWindowStartMs = 0;
 static uint32_t gPulsesTotal = 0, gEdgesTotal = 0;
+static uint32_t gLastPulses = 0, gLastEdges = 0;
 
 void begin() {
   pinMode(pins::kFanTach, INPUT);            // mandatory: GPIO34's input buffer is off by default
@@ -69,11 +70,16 @@ void update(uint32_t nowMs, uint32_t windowMs) {
   gWindowStartMs = nowMs;
   gPulsesTotal += p;
   gEdgesTotal += e;
+  gLastPulses = p;
+  gLastEdges = e;
   gRpm = (uint32_t)((uint64_t)p * 60000ULL / 2 / dt);   // two pulses per revolution
 }
 
 uint32_t rpm() { return gRpm; }
 uint32_t pulsesTotal() { return gPulsesTotal; }
 uint32_t transitionsTotal() { return gEdgesTotal; }
+uint32_t pwmReadback() { return ledcRead(pins::kFanPwm); }
+uint32_t lastPulses() { return gLastPulses; }
+uint32_t lastTransitions() { return gLastEdges; }
 
 }  // namespace fan

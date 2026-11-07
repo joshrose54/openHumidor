@@ -7,14 +7,35 @@
 Tests 11 and 14 run and seen passing. Test 11 is logged at stage 2 (needs a load held off),
 14 at stage 6. Spec findings went to the spec chat; its updates are committed (`3d87c1c`, `f2b2e9a`).
 
-## Stage 2 — built; board tests next
+## Stage 2 — board tests done except test 12 (hardware fault); waiting on the spec chat
 
-Runtime guards, interlock switching sequence, relay exercise. **Code not committed yet.**
+Runtime guards, interlock switching sequence, relay exercise. Committed (`019a368` + the fan readback).
 
-- **Mac side:** five ESP32 builds compile with no warnings; native tests **97/97** pass (55 new).
+- **Mac side:** five ESP32 builds compile with no warnings; native tests **100/100** pass.
 - **Cabinet and `bench` builds:** no control logic yet, so nothing asks a load to run — all off.
 - **Test builds:** `run 1`, `run 2`, `run 3`, `run 13` ask for loads; the guards decide.
 - **`bench_test_boot`:** heat + humidify asked for from boot (tests 11 and 12).
+
+### Board results (2026-11-07)
+
+| B3 test | Build | Result | Logged at |
+|---|---|---|---|
+| 13 relay exercise | `bench_test` | Passed: 3 x 1.0 s energised / 1.0 s released, loads off throughout, ended cooling; 6 clicks, bulb dark | Stage 6 |
+| 3 interlock | `bench_test` | Passed: cooling J10 pin 1 12 V / pin 3 0 V, bulb dark; heating pin 1 0 V / pin 3 12 V, bulb lit; checked every pass | Stage 2 |
+| 1 guard timing | `bench_test` | Passed twice: min on / min off / max run exact for all three loads; crossover 30 s | Stage 2 |
+| 2 heater guards | `bench_test` | Passed: off next pass for cabinet ceiling, chamber ceiling, fan (J2 pulled) | Stage 3 (with the sensor guard) |
+| 11 watchdog | `bench_test_boot` | Passed: `stall` -> `task_wdt` ~5 s, `TASK_WATCHDOG`, heat + humid held 30 s then on | Stage 2 |
+| 12 power interruption | `bench_test_boot` | **Failed — hardware: the ESP32 does not run without USB** (EN held low by the DevKit) | After the fix |
+
+### Found on the board
+
+- **Rev N does not run without USB.** USB out: EN 0 V (cold start) or 2.37 V (unplugged while
+  running) — the ESP32 held in reset, loads off, fan full speed. USB in: EN 3.3 V, runs. Cause
+  inferred: the DevKit's auto-reset circuit. Spec finding; suggested bench fix 4.7 kOhm EN to 3V3.
+- **Plenum fan ran at full speed ~2 min** with 20% commanded (first `run 1`). Not repeated in a
+  wiggle test or a second `run 1`. Josh: a bad connection. The status line now shows the PWM
+  hardware readback (`pwm-hw 51/255`) and tach edges per pulse, so a repeat can be told apart.
+- Uncalibrated room RH read 68-71% raw; the 70% humidifier ceiling uses raw RH until stage 3.
 
 ### What was added (lib/core unless noted)
 
@@ -38,23 +59,17 @@ Runtime guards, interlock switching sequence, relay exercise. **Code not committ
 - **Exercise waiting** lets a running compressor/heater finish by its own rules (at most its
   max run); it only stops new starts.
 - **`stall`** now leaves the outputs as they are (a real lock-up); the watchdog reset turns them off.
+- **Run 2 at stage 3:** keep the heater on 5 s before each ceiling trip, so the bulb is seen to
+  go out (this time it tripped the instant the heater started).
 - **`run 1`** freezes the cabinet model so the real profile's 60 min heater run doesn't hit the
   cabinet ceiling. **`run 2`** kicks the fan every 10 s after J2 is replugged (stage 3 does this
   by itself).
 
-### Board tests (one at a time, in this order)
+### Next
 
-| Order | B3 test | Build | Wiring | Result |
-|---|---|---|---|---|
-| 1 | 13 relay exercise | `bench_test` | bulb (KSD in series) J10 3–4, humid fan J11 | — |
-| 2 | 3 interlock | `bench_test` | same; meter J10 1 and 3 | — |
-| 3 | 1 guard timing | `bench_test` | same | — |
-| 4 | 2 heater guards (logged at stage 3, with the sensor guard) | `bench_test` | same; unplug J2 when told | — |
-| 5 | 11 watchdog, load held off | `bench_test_boot` | same | — |
-| 6 | 12 power interruption | `bench_test_boot` | same; **USB unplugged first** | — |
-
-Test 13 is checked on serial at stage 2 and logged at stage 6. Test 2 is logged at stage 3, once
-the sensor guard can be tripped on the board; same for any test needing a sensor fault.
+1. Spec chat: test 12 / USB finding and the fix (4.7 kOhm EN pull-up to try on the bench, or other).
+2. After the fix: repeat the USB-out check (EN ~3.3 V, loads keep running), then test 12.
+3. Josh calls stage 2 passed -> stage 3.
 
 ## Talking to the board
 

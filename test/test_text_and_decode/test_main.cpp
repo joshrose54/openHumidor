@@ -165,6 +165,17 @@ void test_status_line_guard_text_and_boot_demand() {
   TEST_ASSERT_TRUE(has(b, "| demand heat+humid | held: heat boot-hold 12s |"));
 }
 
+void test_status_fan_readback() {
+  StatusInfo s;
+  s.fanDutyPct = 20; s.fanRpm = 420; s.fanPwmReadback = 51; s.fanPulses = 70; s.fanEdges = 777;
+  char b[600];
+  formatStatusLine(b, sizeof(b), s);
+  TEST_ASSERT_TRUE(has(b, "fan 20% 420rpm pwm-hw 51/255 e/p 11.1"));
+  s.fanPwmReadback = -1;
+  formatStatusLine(b, sizeof(b), s);
+  TEST_ASSERT_FALSE(has(b, "pwm-hw"));
+}
+
 void test_summary_max_rh() {
   Readings r;
   for (int i = 0; i < kNumSensors; i++) { r.s[i].bus = BusResult::Ok; r.s[i].rhRawPct = 60.0f; }
@@ -287,6 +298,7 @@ int main() {
   RUN_TEST(test_stage2_commands);
   RUN_TEST(test_status_line_guard_text_and_boot_demand);
   RUN_TEST(test_summary_max_rh);
+  RUN_TEST(test_status_fan_readback);
   RUN_TEST(test_sht40_crc_datasheet_example);
   RUN_TEST(test_sht40_measurement);
   RUN_TEST(test_sht40_rh_not_clamped);
