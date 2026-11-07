@@ -74,6 +74,8 @@ const char* validateSettings(const Settings& s) {
   if (f.minHealthyCabinet > kCabinetSensors)      return "more healthy cabinet sensors required than exist";
   if (f.relaySettleMs < 20)                       return "relay settle shorter than 20 ms";
   if (f.watchdogMs != 5000)                       return "watchdog is not 5 s";
+  if (f.relayExerciseCycles == 0 || f.relayExerciseOnMs < f.relaySettleMs || f.relayExerciseOffMs < f.relaySettleMs)
+    return "relay exercise cycles or times wrong";
   return nullptr;
 }
 

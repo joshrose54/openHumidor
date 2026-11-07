@@ -15,9 +15,22 @@ void begin() {
   gNow = wineador::LoadOutputs{};
 }
 
+void apply(const wineador::LoadOutputs& w) {
+  if (w == gNow) return;
+  // 1. Load signals going off
+  if (gNow.cool && !w.cool)   digitalWrite(pins::kCoolingSsr, LOW);
+  if (gNow.heat && !w.heat)   digitalWrite(pins::kHeater, LOW);
+  if (gNow.humid && !w.humid) digitalWrite(pins::kHumidifier, LOW);
+  // 2. The interlock
+  if (gNow.relayHeating != w.relayHeating) digitalWrite(pins::kRelayK1, w.relayHeating ? HIGH : LOW);
+  // 3. Load signals going on
+  if (!gNow.cool && w.cool)   digitalWrite(pins::kCoolingSsr, HIGH);
+  if (!gNow.heat && w.heat)   digitalWrite(pins::kHeater, HIGH);
+  if (!gNow.humid && w.humid) digitalWrite(pins::kHumidifier, HIGH);
+  gNow = w;
+}
+
 void allOff() {
-  // Load signals first, then the interlock. With both loads already off the
-  // relay can drop at once: there is nothing to settle for.
   digitalWrite(pins::kCoolingSsr, LOW);
   digitalWrite(pins::kHeater, LOW);
   digitalWrite(pins::kHumidifier, LOW);

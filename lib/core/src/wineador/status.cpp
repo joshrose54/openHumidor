@@ -36,11 +36,13 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   o.add("%s up %s | %s", s.timestamp, formatDuration(up, sizeof(up), s.uptimeMs),
         s.profile == Profile::Bench ? "BENCH-PROFILE" : "REAL");
   if (s.testBuild) o.add(" TEST-BUILD");
+  if (s.bootDemand) o.add(" BOOT-DEMAND");
   o.add(" | boot %s | ", s.bootReason);
   if (s.holdActive) o.add("hold %s left", formatDuration(t, sizeof(t), s.holdRemainingMs));
   else              o.add("hold ended at %s", formatDuration(t, sizeof(t), s.holdLengthMs));
   o.add(" | relay %s cool %s heat %s humid %s", s.loads.relayHeating ? "HEAT" : "COOL",
         onOff(s.loads.cool), onOff(s.loads.heat), onOff(s.loads.humid));
+  if (s.guardText && s.guardText[0]) o.add(" | %s", s.guardText);
   o.add(" | fan %u%% %lurpm", (unsigned)s.fanDutyPct, (unsigned long)s.fanRpm);
   o.add(" | %s", s.testBuild ? "scripted" : "raw");
   if (s.cab.cabinetOk > 0)

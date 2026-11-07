@@ -2,58 +2,65 @@
 
 *Updated 2026-11-07.*
 
-## Stage 1 — board steps done; waiting for Josh to call it passed
+## Stage 1 — passed (Josh, 2026-11-07)
 
-Stage 1 of six (CLAUDE.md): drivers, settings struct, real and bench profiles, test-build
-switch, boot banner, non-blocking loop, watchdog.
+Tests 11 and 14 run and seen passing. Test 11 is logged at stage 2 (needs a load held off),
+14 at stage 6. Spec findings went to the spec chat; its updates are committed (`3d87c1c`, `f2b2e9a`).
 
-- **Mac side:** all four ESP32 builds compile with no warnings; native tests 42/42 pass.
-- **Loads:** stage 1 cannot switch any load on. Only the plenum fan runs (1 s kickstart, then 20%).
+## Stage 2 — built; board tests next
 
-### Board results (2026-11-07)
+Runtime guards, interlock switching sequence, relay exercise. **Code not committed yet.**
 
-| Step | Build | B3 test | Result | Logged at |
+- **Mac side:** five ESP32 builds compile with no warnings; native tests **97/97** pass (55 new).
+- **Cabinet and `bench` builds:** no control logic yet, so nothing asks a load to run — all off.
+- **Test builds:** `run 1`, `run 2`, `run 3`, `run 13` ask for loads; the guards decide.
+- **`bench_test_boot`:** heat + humidify asked for from boot (tests 11 and 12).
+
+### What was added (lib/core unless noted)
+
+| File | What |
+|---|---|
+| `guards.h/.cpp` | Runtime guards (4.4): stop guards (settings, boot hold, exercise, sensors, fan, ceilings, max run, stripping, compressor run, disabled) and start guards (min off, crossover both ways, other load, exercise waiting); min on only against a dropped demand |
+| `interlock.h/.cpp` | Switching sequence (3.2): drop load → move K1 → 20 ms settle (a state) → assert. K1 rests on the cooling side |
+| `relay_exercise.h/.cpp` | Weekly, or `exercise`: waits for compressor and heater off, 3 × (1 s energised, 1 s released), ends cooling |
+| `controller.h/.cpp` | The minimum job each pass: boot hold → exercise → guards → sequence. Guard text for the status line |
+| `scenario.h/.cpp` | Test builds only: `run 1/2/3/13`, `stop`; prints PASS/FAIL itself |
+| `src/drivers/outputs` | `apply()`: loads going off → K1 → loads going on |
+| `src/main.cpp` | Minimum job first in every pass; status line shows demand and why a load is held |
+
+### Decisions taken in building (worth knowing)
+
+- **Stage 2 "healthy sensor"** = its last bus read was OK, and the readings are under 30 s old.
+  The 4.3 health rules replace this at stage 3.
+- **Both asked for at once:** cooling goes first (the safe, de-energised side); heat waits.
+- **At boot every load counts as just stopped** (spec 4.4, updated): boot hold, min off and
+  crossover all run from boot. Real profile: compressor and heater first allowed at 10 min, humidifier at 5.
+- **Exercise waiting** lets a running compressor/heater finish by its own rules (at most its
+  max run); it only stops new starts.
+- **`stall`** now leaves the outputs as they are (a real lock-up); the watchdog reset turns them off.
+- **`run 1`** freezes the cabinet model so the real profile's 60 min heater run doesn't hit the
+  cabinet ceiling. **`run 2`** kicks the fan every 10 s after J2 is replugged (stage 3 does this
+  by itself).
+
+### Board tests (one at a time, in this order)
+
+| Order | B3 test | Build | Wiring | Result |
 |---|---|---|---|---|
-| 2 | `bench` | 14 | Seen passing: banner, bench warning, `BENCH-PROFILE` on every status line. Also: six serials match, pull-ups OFF, SD 60 ms, loop max 1.2–4.5 ms | Stage 6 |
-| 3 | `bench_test` | 11 | Watchdog part passed: `stall` → `task_wdt` + backtrace, `Boot reason: TASK_WATCHDOG`, boot hold ran. "Load held off" needs stage 2 | Stage 2 |
-| 4 | — | 12 | **Moved to stage 2** (spec finding 1) | Stage 2 |
+| 1 | 13 relay exercise | `bench_test` | bulb (KSD in series) J10 3–4, humid fan J11 | — |
+| 2 | 3 interlock | `bench_test` | same; meter J10 1 and 3 | — |
+| 3 | 1 guard timing | `bench_test` | same | — |
+| 4 | 2 heater guards (logged at stage 3, with the sensor guard) | `bench_test` | same; unplug J2 when told | — |
+| 5 | 11 watchdog, load held off | `bench_test_boot` | same | — |
+| 6 | 12 power interruption | `bench_test_boot` | same; **USB unplugged first** | — |
 
-### Fixed during the board steps
-
-- **Core error messages could hold up the loop** — one pass took 175 ms with the RTC not
-  answering. Fixed (`src/drivers/core_log.h`, `CORE_DEBUG_LEVEL=0`). Proved: J9 unplugged with the
-  board running → `RTC FAIL`, loop max 2.7–3.1 ms; RTC back on replug. Commit `80581e4`.
-- **Opening the monitor reset the board** with `monitor_rts = 0` / `monitor_dtr = 0`. Changed to
-  `1` / `1`. Proved: `pio device monitor` opened and closed twice, uptime carried on every time
-  (4:08 → 5:45 → 6:51 → 7:15 → 8:03, no `rst:` line).
-
-### Spec findings (agreed with Josh; spec chat to update the spec and CLAUDE.md)
-
-1. **B3 test 12 can't be done as written on Rev N**: plugging USB in restarts the board, so the
-   power-cut boot can't be read afterwards. Agreed: moved to stage 2 — a test build with heat and
-   humidify demand from boot, bulb on J10 3–4, humidifier fan on J11; USB unplugged first, cut and
-   restore 12 V; both must stay off for the 30 s hold, then start. No stored boot history (the
-   stage 6 SD log covers it).
-2. **Spec 5.1 power rules**: plugging USB into a running controller restarts it (seen: 2:45 → 0:06
-   with 12 V on throughout). Applies in service too.
-3. **Spec 5.1 / CLAUDE.md monitor settings**: should be `monitor_rts = 1`, `monitor_dtr = 1`.
-
-### For the build log (Josh)
-
-- RTC lost its time (reads 2000-01-01) — first boot showed `RTC FAIL`; after reseating the lead it
-  read 2000-01-01. Then held time through a 12 V cut.
-- Fan at 20%: 414–426 RPM, against 438–450 baseline.
-
-## Next
-
-1. Stage 1 report to the spec chat.
-2. Josh calls stage 1 passed → stage 2 (guards, interlock sequence, relay exercise; B3 1, 2, 3, 13,
-   plus 11 and 12 re-run).
+Test 13 is checked on serial at stage 2 and logged at stage 6. Test 2 is logged at stage 3, once
+the sensor guard can be tripped on the board; same for any test needing a sensor fault.
 
 ## Talking to the board
 
 - `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
-- Plugging USB in restarts the board. Opening `pio device monitor` does not (since the fix).
+- Plugging USB in restarts the board. Opening `pio device monitor` does not.
+- My own serial script (`$CLAUDE_JOB_DIR/tmp/noreset.py`) clears RTS before DTR.
 
 ## Builds
 
@@ -62,12 +69,8 @@ switch, boot banner, non-blocking loop, watchdog.
 | `esp32dev` | real | real | **The only build for the cabinet** |
 | `bench` | bench | real | B3 physical tests |
 | `bench_test` | bench | scripted | B3 scenario tests |
+| `bench_test_boot` | bench | scripted | B3 tests 11, 12: heat + humidify from boot |
 | `real_test` | real | scripted | B4 soak |
 | `native` | — | — | Mac tests: `pio test -e native` |
 
 Build output goes to `.pio.nosync/` so iCloud Drive doesn't copy it.
-
-## Waiting on the spec chat
-
-Findings 1–3 above. Stage 2 notes already agreed: a settings problem keeps all loads off and
-shows on every status line.

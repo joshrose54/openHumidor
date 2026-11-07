@@ -1,6 +1,7 @@
 #pragma once
-// The small serial command reader for stage 1: "boot", "help", and "stall"
-// (test builds only). The full serial interface arrives at stage 6.
+// The small serial command reader: "boot", "help", "exercise" (every build),
+// and "stall", "run <n>", "stop" (test builds only). The full serial interface
+// arrives at stage 6.
 // Characters are fed one at a time, so reading never waits.
 
 #include "wineador/types.h"
@@ -13,6 +14,10 @@ enum class Command : uint8_t {
   Help,
   Stall,             // TEST BUILDS ONLY: lock the main loop so the watchdog fires (B3 test 11)
   StallNotAllowed,   // "stall" typed in a cabinet build
+  Exercise,          // start the relay exercise now (every build; loads held off)
+  Run,               // TEST BUILDS ONLY: "run <n>" plays B3 test n's scenario
+  Stop,              // TEST BUILDS ONLY: end the scenario early
+  TestOnly,          // "run" or "stop" typed in a cabinet build
   Unknown,
 };
 
@@ -30,7 +35,8 @@ class LineReader {
   bool overflow_ = false;
 };
 
-// Trims spaces, ignores case.
-Command parseCommand(const char* line, bool testBuild);
+// Trims spaces, ignores case. For Run, *arg gets the test number (-1 if missing
+// or not a number).
+Command parseCommand(const char* line, bool testBuild, int* arg = nullptr);
 
 }  // namespace wineador

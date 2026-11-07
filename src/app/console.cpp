@@ -58,6 +58,14 @@ void printBanner(const Settings& s, const BootInfo& b) {
     Serial.println("**   NOT FOR THE CABINET.                                          **");
     Serial.println("*********************************************************************");
   }
+  if (kBootDemand) {
+    Serial.println("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+    Serial.println("++   BOOT-DEMAND BUILD  -  HEAT AND HUMIDIFY ASKED FOR FROM BOOT    ++");
+    Serial.println("++   For B3 tests 11 and 12. The bulb (J10 3-4) and the humidifier ++");
+    Serial.println("++   fan (J11) start when the boot hold ends, then cycle by their  ++");
+    Serial.println("++   guards (max run, min off) until power is removed.             ++");
+    Serial.println("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+  }
 
   if (b.settingsProblem)
     Serial.printf("\n  !! SETTINGS PROBLEM: %s. All loads stay off.\n", b.settingsProblem);
@@ -71,6 +79,9 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.printf ("    humidifier  min off %-7s                max run %s\n", a, d);
   secs(a, sizeof(a), f.bootHoldMs); secs(c, sizeof(c), s.tuning.crossoverDelayMs);
   Serial.printf ("    boot hold   %-7s crossover %s\n", a, c);
+  Serial.printf ("    relay exercise every %lu days: %u cycles, %lu ms energised / %lu ms released\n",
+                 (unsigned long)(f.relayExercisePeriodMs / 86400000UL), (unsigned)f.relayExerciseCycles,
+                 (unsigned long)f.relayExerciseOnMs, (unsigned long)f.relayExerciseOffMs);
 
   Serial.println("\n  Hardware:");
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
@@ -80,7 +91,12 @@ void printBanner(const Settings& s, const BootInfo& b) {
                             (unsigned long long)b.sdMB, (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms (logging arrives at stage 6; control unaffected)\n",
                             (unsigned long)b.sdMountMs);
-  Serial.println("    loads       ALL OFF. Stage 1 cannot switch a load on (stage 2 adds the guards)");
+  if (kBootDemand)
+    Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
+  else if (kTestBuild)
+    Serial.println("    loads       off. Only a scenario (run <n>) asks for a load; guards and interlock decide");
+  else
+    Serial.println("    loads       off. Stage 2 has no control logic, so nothing asks for a load");
   Serial.printf ("    plenum fan  kickstart 100%% for 1 s, then idle %u%%\n", (unsigned)s.tuning.fanIdlePct);
   Serial.println();
   printHelp(kTestBuild);
@@ -111,15 +127,20 @@ void printSensorCheck() {
     if (rd.bus == BusResult::Ok) Serial.printf("   %6.2f C  %6.2f %%RH\n", rd.tempC, rd.rhRawPct);
     else                         Serial.printf("   reading: %s\n", busResultName(rd.bus));
   }
-  Serial.println("    (Stage 1 only reports. Excluding a wrong or missing sensor arrives at stage 3.)");
+  Serial.println("    (Reported only. Excluding a wrong sensor arrives at stage 3; until then a sensor counts as healthy if it answers.)");
   Serial.println();
 }
 
 void printHelp(bool testBuild) {
   Serial.println("  Commands (type, then Enter):");
-  Serial.println("    boot   reprint this banner and the boot reason");
-  Serial.println("    help   this list");
-  if (testBuild) Serial.println("    stall  TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
+  Serial.println("    boot      reprint this banner and the boot reason");
+  Serial.println("    help      this list");
+  Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
+  if (testBuild) {
+    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (stage 2: 1, 2, 3, 13)");
+    Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
+    Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
+  }
 }
 
 }  // namespace console

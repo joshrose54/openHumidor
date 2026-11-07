@@ -128,6 +128,12 @@ struct SafetySettings {
   uint32_t fanKickstartMs      = 1000;  // 100% for 1 s on every start from 0%
   uint32_t fanTachWindowMs     = 5000;  // RPM measured over 5 s
   uint32_t relaySettleMs       = 20;    // 3.2
+
+  // Weekly relay exercise (5.2): three full cycles, both loads off, end on the cooling side
+  uint32_t relayExercisePeriodMs = hours(24 * 7);
+  uint32_t relayExerciseOnMs     = 1000;  // energised (heating side)
+  uint32_t relayExerciseOffMs    = 1000;  // released (cooling side)
+  uint8_t  relayExerciseCycles   = 3;
   uint32_t watchdogMs          = 5000;  // 5.2
 };
 

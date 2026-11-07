@@ -10,9 +10,10 @@ CabinetSummary summarise(const Readings& r) {
     if (s.bus != BusResult::Ok) continue;
     c.sensorsOk++;
     if (i < kCabinetSensors) {
-      if (c.cabinetOk == 0) { c.minC = c.maxC = s.tempC; }
+      if (c.cabinetOk == 0) { c.minC = c.maxC = s.tempC; c.maxRhPct = s.rhRawPct; }
       if (s.tempC < c.minC) c.minC = s.tempC;
       if (s.tempC > c.maxC) c.maxC = s.tempC;
+      if (s.rhRawPct > c.maxRhPct) c.maxRhPct = s.rhRawPct;
       sumC += s.tempC;
       sumRh += s.rhRawPct;
       c.cabinetOk++;

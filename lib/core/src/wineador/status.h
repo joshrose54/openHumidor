@@ -17,11 +17,13 @@ struct StatusInfo {
   uint64_t    uptimeMs   = 0;
   Profile     profile    = Profile::Real;
   bool        testBuild  = false;
+  bool        bootDemand = false;       // the bench_test_boot build: adds "BOOT-DEMAND"
   const char* bootReason = "?";
   bool        holdActive = true;
   uint32_t    holdRemainingMs = 0;
   uint32_t    holdLengthMs    = 0;      // the hold ended this long after boot
   LoadOutputs loads;
+  const char* guardText = nullptr;      // demand and held loads (formatGuardText); nullptr = left out
   uint8_t     fanDutyPct = 0;
   uint32_t    fanRpm     = 0;
   CabinetSummary cab;

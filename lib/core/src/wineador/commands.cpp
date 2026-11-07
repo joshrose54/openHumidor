@@ -19,7 +19,8 @@ bool LineReader::feed(char c) {
   return false;
 }
 
-Command parseCommand(const char* line, bool testBuild) {
+Command parseCommand(const char* line, bool testBuild, int* arg) {
+  if (arg) *arg = -1;
   char w[16];
   size_t n = 0;
   while (*line == ' ' || *line == '\t') line++;
@@ -28,9 +29,21 @@ Command parseCommand(const char* line, bool testBuild) {
   w[n] = 0;
   while (*line == ' ' || *line == '\t') line++;
   if (n == 0) return Command::None;
+
+  // "run <n>": the only command that takes a word after it.
+  if (strcmp(w, "run") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    int v = 0, digits = 0;
+    while (*line >= '0' && *line <= '9' && digits < 4) { v = v * 10 + (*line++ - '0'); digits++; }
+    while (*line == ' ' || *line == '\t') line++;
+    if (arg) *arg = (digits > 0 && *line == 0) ? v : -1;
+    return Command::Run;
+  }
   if (*line) return Command::Unknown;   // anything after the word
 
   if (strcmp(w, "boot") == 0) return Command::Boot;
+  if (strcmp(w, "exercise") == 0) return Command::Exercise;
+  if (strcmp(w, "stop") == 0) return testBuild ? Command::Stop : Command::TestOnly;
   if (strcmp(w, "help") == 0) return Command::Help;
   if (strcmp(w, "stall") == 0) return testBuild ? Command::Stall : Command::StallNotAllowed;
   return Command::Unknown;

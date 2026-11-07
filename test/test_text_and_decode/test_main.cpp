@@ -136,6 +136,44 @@ void test_line_reader_and_commands() {
   TEST_ASSERT_TRUE(parseCommand("", false) == Command::None);
 }
 
+void test_stage2_commands() {
+  int arg = 0;
+  TEST_ASSERT_TRUE(parseCommand("exercise", false) == Command::Exercise);   // every build
+  TEST_ASSERT_TRUE(parseCommand("EXERCISE", true) == Command::Exercise);
+  TEST_ASSERT_TRUE(parseCommand("run 2", true, &arg) == Command::Run);
+  TEST_ASSERT_EQUAL_INT(2, arg);
+  TEST_ASSERT_TRUE(parseCommand("  run   13 ", true, &arg) == Command::Run);
+  TEST_ASSERT_EQUAL_INT(13, arg);
+  TEST_ASSERT_TRUE(parseCommand("run", true, &arg) == Command::Run);
+  TEST_ASSERT_EQUAL_INT(-1, arg);
+  TEST_ASSERT_TRUE(parseCommand("run x", true, &arg) == Command::Run);
+  TEST_ASSERT_EQUAL_INT(-1, arg);
+  TEST_ASSERT_TRUE(parseCommand("run 2", false, &arg) == Command::TestOnly);   // never in a cabinet build
+  TEST_ASSERT_TRUE(parseCommand("stop", true) == Command::Stop);
+  TEST_ASSERT_TRUE(parseCommand("stop", false) == Command::TestOnly);
+  TEST_ASSERT_TRUE(parseCommand("exercise now", false) == Command::Unknown);
+}
+
+void test_status_line_guard_text_and_boot_demand() {
+  StatusInfo s;
+  s.testBuild = true;
+  s.bootDemand = true;
+  s.guardText = "demand heat+humid | held: heat boot-hold 12s";
+  char b[600];
+  formatStatusLine(b, sizeof(b), s);
+  TEST_ASSERT_TRUE(has(b, "TEST-BUILD BOOT-DEMAND"));
+  TEST_ASSERT_TRUE(has(b, "| demand heat+humid | held: heat boot-hold 12s |"));
+}
+
+void test_summary_max_rh() {
+  Readings r;
+  for (int i = 0; i < kNumSensors; i++) { r.s[i].bus = BusResult::Ok; r.s[i].rhRawPct = 60.0f; }
+  r.s[2].rhRawPct = 71.0f;
+  r.s[kAmbientIndex].rhRawPct = 90.0f;   // room air: never counts
+  CabinetSummary c = summarise(r);
+  TEST_ASSERT_EQUAL_FLOAT(71.0f, c.maxRhPct);
+}
+
 void test_line_reader_overflow() {
   LineReader lr;
   for (int i = 0; i < 100; i++) lr.feed('s');
@@ -246,6 +284,9 @@ int main() {
   RUN_TEST(test_summary_cabinet_is_ch2_to_ch5_only);
   RUN_TEST(test_line_reader_and_commands);
   RUN_TEST(test_line_reader_overflow);
+  RUN_TEST(test_stage2_commands);
+  RUN_TEST(test_status_line_guard_text_and_boot_demand);
+  RUN_TEST(test_summary_max_rh);
   RUN_TEST(test_sht40_crc_datasheet_example);
   RUN_TEST(test_sht40_measurement);
   RUN_TEST(test_sht40_rh_not_clamped);
