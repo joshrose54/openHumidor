@@ -818,9 +818,11 @@ No hardware interlock: software is the only guard. Fail-safe is off, so every ru
 
 ### Timing state at boot
 
-Last-off times are **not** saved across a restart. On every boot, assume worst case for all three
-loads and apply the full startup delay (boot hold). Saved times could only shorten the hold, and a
-power cut costs one short wait.
+Last-off times are **not** saved across a restart. On every boot, assume worst case: **treat every
+load as having just stopped**, so the boot hold, minimum-off and crossover delay all run from boot.
+On the real profile the compressor and heater are first allowed 10 min after boot (the crossover
+delay), the humidifier after 5. Saved times could only shorten the wait, and a power cut costs one
+short wait.
 
 ## 4.5 Deadband and crossover
 
