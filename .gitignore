@@ -3,6 +3,7 @@ include/wifi_time.h
 
 # PlatformIO build output
 .pio/
+.pio.nosync/
 .cache
 .dummy
 .vscode/.browse.c_cpp.db*
