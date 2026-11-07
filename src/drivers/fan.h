@@ -6,7 +6,7 @@
 
 namespace fan {
 
-void begin();                          // tach input + interrupt, then ledcAttach (P25 untouched until here)
+void begin();                          // BOOT ONLY. Tach input + interrupt, then ledcAttach (P25 untouched until here)
 void setDuty(uint8_t pct);             // writes only when it changes
 uint8_t duty();
 void update(uint32_t nowMs, uint32_t windowMs);   // works out RPM once per window

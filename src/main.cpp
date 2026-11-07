@@ -153,7 +153,10 @@ void setup() {
   gFan.command(gSettings.tuning.fanIdlePct, millis());
   fan::setDuty(gFan.output(millis()));
 
-  Serial.setTxBufferSize(4096);           // the banner fits, so printing it never waits
+  // Serial output goes into this buffer and the UART sends it in the background.
+  // A print only waits if the buffer is full. The biggest burst (the 'boot'
+  // command: banner + sensor check + status, ~3.5 KB) fits twice over.
+  Serial.setTxBufferSize(8192);
   Serial.begin(115200);
 
   gBoot.watchdogOk = watchdog::begin(gSettings.safety.watchdogMs);
@@ -168,8 +171,11 @@ void setup() {
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
 
+  // SLOW, BOOT ONLY: mounting the SD card. Timed, and shown in the banner.
   watchdog::feed();
-  gBoot.sdOk = sdcard::begin();           // the one slow step, boot only; well inside 5 s
+  const uint32_t sdStart = millis();
+  gBoot.sdOk = sdcard::begin();
+  gBoot.sdMountMs = millis() - sdStart;
   gBoot.sdMB = sdcard::cardMB();
   watchdog::feed();
 

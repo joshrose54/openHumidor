@@ -10,7 +10,7 @@
 
 namespace outputs {
 
-void begin();                         // all four OUTPUT, LOW
+void begin();                         // BOOT ONLY, first instruction. All four OUTPUT, LOW
 void allOff();                        // load signals low first, then the relay
 wineador::LoadOutputs current();      // what is being driven right now
 

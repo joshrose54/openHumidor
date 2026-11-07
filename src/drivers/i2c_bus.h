@@ -8,6 +8,14 @@
 // serial as well as a measurement. After that, startSweep() reads the RTC and
 // all six sensors.
 //
+// How long one step can take, at 25 kHz (one bit = 40 us, one byte + ACK = 360 us):
+//   mux select / SHT40 command / RTC pointer   ~0.8 ms     mux deselect ~0.8 ms
+//   SHT40 read, 6 bytes                        ~2.6 ms     RTC read, 7 bytes ~2.9 ms
+//   sensor absent (NACK on the address)        ~0.4 ms
+//   bus stuck (a line held low)                up to the 20 ms Wire timeout — the longest any step can be
+// Waiting for the SHT40 to measure (10 ms) is a state checked on later passes, not a wait.
+// begin() is BOOT ONLY.
+//
 // Stage 1 only reports results. Sensor health, serial checking, calibration and
 // bus-fault recovery arrive at stage 3.
 
@@ -22,7 +30,7 @@ struct SerialResult {
   uint32_t serial = 0;
 };
 
-void begin(uint32_t nowMs);          // RST low, Wire at 25 kHz, internal pull-ups off
+void begin(uint32_t nowMs);          // BOOT ONLY. RST low, Wire at 25 kHz, internal pull-ups off
 void update(uint32_t nowMs);         // call every pass
 bool idle();
 bool startSweep();                   // false if busy

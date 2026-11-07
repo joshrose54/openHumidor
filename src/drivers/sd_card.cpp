@@ -9,7 +9,11 @@ namespace sdcard {
 static SPIClass gSpi(VSPI);
 static bool gMounted = false;
 
+// BOOT ONLY — see sd_card.h. Refuses to run a second time.
 bool begin() {
+  static bool ran = false;
+  if (ran) return gMounted;
+  ran = true;
   gSpi.begin(pins::kSdSck, pins::kSdMiso, pins::kSdMosi, pins::kSdCs);
   gMounted = SD.begin(pins::kSdCs, gSpi, 4000000);
   return gMounted;

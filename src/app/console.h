@@ -15,6 +15,7 @@ struct BootInfo {
   bool pullupsOff = false;
   bool sdOk = false;
   uint64_t sdMB = 0;
+  uint32_t sdMountMs = 0;   // how long the boot-time mount took
 };
 
 void printBanner(const wineador::Settings& s, const BootInfo& b);

@@ -6,7 +6,7 @@
 
 namespace watchdog {
 
-bool begin(uint32_t timeoutMs);   // subscribes the loop task
+bool begin(uint32_t timeoutMs);   // BOOT ONLY. Subscribes the loop task
 void feed();
 
 }  // namespace watchdog

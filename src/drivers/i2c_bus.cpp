@@ -20,7 +20,7 @@ constexpr uint8_t kCmdMeasure = 0xFD;
 constexpr uint8_t kCmdSerial = 0x89;
 
 enum class St : uint8_t {
-  ResetLow, ResetRecover, Idle, Rtc, Select,
+  ResetLow, ResetRecover, Idle, RtcPointer, RtcRead, Select,
   SerialCmd, SerialWait, SerialRead, MeasCmd, MeasWait, MeasRead, Deselect,
 };
 
@@ -62,11 +62,14 @@ static BusResult shtRead6(uint8_t b[6]) {
   return BusResult::Ok;
 }
 
-static void readRtc() {
-  gRtcOk = false;
+// RTC in two steps, one transaction each: point at register 0x00, then read 7 bytes.
+static bool rtcPointer() {
   Wire.beginTransmission(i2caddr::kRtc);
   Wire.write((uint8_t)0x00);
-  if (Wire.endTransmission() != 0) return;
+  return Wire.endTransmission() == 0;
+}
+
+static void rtcRead() {
   if (Wire.requestFrom(i2caddr::kRtc, (size_t)7) != 7) {
     while (Wire.available()) Wire.read();
     return;
@@ -148,13 +151,18 @@ void update(uint32_t nowMs) {
       if (gSweepRequested) {
         gSweepRequested = false;
         gWork = wineador::Readings{};
-        gSt = St::Rtc;
+        gSt = St::RtcPointer;
       }
       break;
 
-    case St::Rtc:
-      readRtc();
+    case St::RtcPointer:
+      gRtcOk = false;
       gIdx = 0;
+      gSt = rtcPointer() ? St::RtcRead : St::Select;   // no ACK: skip the read, go on to the sensors
+      break;
+
+    case St::RtcRead:
+      rtcRead();                        // sets gRtcOk on a good read
       gSt = St::Select;
       break;
 

@@ -76,8 +76,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
   Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
-  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB (logging arrives at stage 6)\n", (unsigned long long)b.sdMB);
-  else        Serial.println("    SD card     NOT MOUNTED (logging arrives at stage 6; control unaffected)");
+  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, mount took %lu ms at boot (logging arrives at stage 6)\n",
+                            (unsigned long long)b.sdMB, (unsigned long)b.sdMountMs);
+  else        Serial.printf("    SD card     NOT MOUNTED after %lu ms (logging arrives at stage 6; control unaffected)\n",
+                            (unsigned long)b.sdMountMs);
   Serial.println("    loads       ALL OFF. Stage 1 cannot switch a load on (stage 2 adds the guards)");
   Serial.printf ("    plenum fan  kickstart 100%% for 1 s, then idle %u%%\n", (unsigned)s.tuning.fanIdlePct);
   Serial.println();
