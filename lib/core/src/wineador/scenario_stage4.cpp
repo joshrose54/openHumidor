@@ -165,7 +165,6 @@ void ScenarioRunner::run8(const ScenarioView& v, Controller& ctl, CabinetModel& 
     case 0:
       say(now, "TEST 8 - crossover delay (%s). Cabinet scripted to 21.0 C: cooling will be asked for.",
           secs4(a, sizeof(a), delay));
-      count0_ = tc.crossovers();
       phase(1, now);
       break;
 
@@ -183,6 +182,7 @@ void ScenarioRunner::run8(const ScenarioView& v, Controller& ctl, CabinetModel& 
         }
         markMs_ = now;
         flag_ = false;
+        count0_ = tc.crossovers();   // counted from here: the start above may itself have been a crossover
         model.setCabinetC(18.0f);
         say(now, "compressor OFF at %.2f C. Cabinet now scripted to 18.0 C: heating asked for at the next read. "
                  "The heater must stay off until %s after the compressor stopped", x, secs4(a, sizeof(a), delay));

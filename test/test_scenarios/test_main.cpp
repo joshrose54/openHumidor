@@ -333,6 +333,26 @@ void test_run23_fails_if_harvest_profile_wrong() {
   TEST_ASSERT_TRUE(m.run(23, minutes(15)) == ScenarioRunner::Result::Fail);
 }
 
+void test_run8_after_heating_ran_last() {
+  // On the board run 8 followed run 7, which ended with heating: its first cooling
+  // start is itself a crossover. The scenario must still count only its own two.
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(7, minutes(15)) == ScenarioRunner::Result::Pass);
+  m.settle(minutes(2));
+  TEST_ASSERT_TRUE(m.run(8, minutes(10)) == ScenarioRunner::Result::Pass);
+}
+
+void test_stage4_runs_back_to_back() {
+  // Every stage 4 scenario, one after another, as on the board.
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  for (int n : {7, 8, 9, 10, 17, 23, 8, 7}) {
+    TEST_ASSERT_TRUE_MESSAGE(m.run(n, minutes(15)) == ScenarioRunner::Result::Pass, "a scenario failed in sequence");
+    m.settle(minutes(2));
+  }
+}
+
 void test_idle_control_asks_nothing_when_settled() {
   // After a stage 4 scenario the model is back at 20 C / 62 %: the control idles.
   Sim m(Profile::Bench);
@@ -386,6 +406,8 @@ int main(int, char**) {
   RUN_TEST(test_run17_fails_if_retry_wrong);
   RUN_TEST(test_run23_fan_rules_passes);
   RUN_TEST(test_run23_fails_if_harvest_profile_wrong);
+  RUN_TEST(test_run8_after_heating_ran_last);
+  RUN_TEST(test_stage4_runs_back_to_back);
   RUN_TEST(test_idle_control_asks_nothing_when_settled);
   RUN_TEST(test_stop_ends_with_no_demand);
   RUN_TEST(test_unknown_scenario_not_started);

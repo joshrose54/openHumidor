@@ -605,6 +605,14 @@ void test_event_and_status_text() {
   formatControlEvent(buf, sizeof(buf), e, s);
   TEST_ASSERT_NOT_NULL(strstr(buf, "HEATER INEFFECTIVE"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "120 s"));                // bench retry
+  TEST_ASSERT_NOT_NULL(strstr(buf, "changed +0.10 C"));
+  e.a = -1.16f;                                              // chamber fell: reads as a change, not a "rise"
+  formatControlEvent(buf, sizeof(buf), e, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "changed -1.16 C"));
+  e.type = ControlEvent::Type::CoolingIneffective;
+  e.a = 0.44f;                                               // a fall of 0.44
+  formatControlEvent(buf, sizeof(buf), e, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "changed -0.44 C in 60 s (needs -1.0)"));
   e = ControlEvent{};
   e.type = ControlEvent::Type::HarvestEnd;
   e.kind = HarvestKind::Cooling;

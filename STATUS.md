@@ -69,33 +69,43 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
   cabinet ceiling. **`run 2`** kicks the fan every 10 s after J2 is replugged (stage 3 does this
   by itself).
 
-### Stage 4 — built, board tests next
+### Stage 4 — board tests done, waiting for Josh's verdict
 
-Temperature control. Spec answers committed (`73f9687`).
+Temperature control. Spec answers committed (`73f9687`, `f10b7af`); stage 4 checkpoint `7d30b47`.
 
 - **Mac side:** five ESP32 builds compile with no warnings (cabinet 77.6 %, test builds 81.1 % flash);
-  native tests **187/187** pass.
+  native tests **189/189** pass.
 - **New:** `temp_control.h/.cpp` (deadband + run ends, crossover count, harvest + fan duty, RH
   stripping, ineffective checks, events), `psychro.h` (Magnus vapour pressure), `heater_pwm.h`
   (1 Hz cap, default 100 %), `scenario_stage4.cpp` (`run 7, 8, 9, 10, 17, 23`), guard
   `heater-ineffective`, test-build `fan <n>|auto`, status line control part, model with chamber
   swing and vapour pressure.
-- **Board tests:** 7, 8, 9, 10, 17, 23 — all scenarios on `bench_test`, bulb on J10 3-4, SSR input on
-  J10 1-2, humidifier fan on J11, USB in.
+
+### Board results (bench_test, bulb J10 3-4, SSR input J10 1-2, no mains, USB in)
+
+| B3 test | Result |
+|---|---|
+| 7 deadband | PASS 8:24. Heater on 17.37, off 19.23; compressor on 20.71, max-run cut, on 21.57, off 19.71; heater on 18.22. Nothing started 18.5-20.5 |
+| 8 crossover | PASS 3:48. Heater held by crossover, on exactly 30.0 s after cooling stopped; cooling likewise; 2 crossovers counted. (First attempt stopped: scenario baseline bug, fixed `run 8` and re-flashed) |
+| 9 stripping | PASS 5:26. Persistence 30.0 s, reset by a dip; strip released at vp 1.441 <= 1.447 with RH 64.7 % |
+| 10 floor | PASS 5:09. Floor stop at ch2 17.88 (mean 18.63); no persistence for 60 s below; restart exactly 30 s after floor cleared |
+| 17 ineffective | PASS 5:16. Heater off at 1:00.0, held 2:00.0, retried, flag cleared; cooling flagged at 1:00.0 and kept running |
+| 23 fan rules | PASS 5:09. 3 kickstarts each 1.0 s; 40 % / 60 % with loads; cooling harvest 100-75-55-45 %, both harvests ended on convergence (59.9 s); 10 % refused (scenario and console) |
 
 ### Decisions taken in building
 
 - Stage 2-3 scenarios ask for loads directly: the control then asks for nothing, and stripping and
   the ineffective checks are suspended (run 1 freezes the model, which would trip the heater check).
-- Idle fan duty 0 (B6 option / `fan 0`): an asked-for load gets its fan duty before it starts, or
-  the fan guard would hold it for ever. No change at the 20 % default.
+- Idle fan duty 0 (B6 option / `fan 0`): an asked-for load gets its fan duty before it starts
+  (now spec 4.6). No change at the 20 % default.
 - Cooling harvest fan in 5 % steps, never rising; holds its duty if the chamber is unreadable.
 - Stripping won't start if vapour pressure is already at target (it would release at once).
 - Fan-only changes print one short line, not the live block.
+- Ineffective event text says "chamber changed +/-x C" (after the board run; not yet flashed).
 
 ## Next
 
-Stage 4 board tests, one at a time.
+Josh's verdict on stage 4; then stage 5 (humidifier: B3 19-22), plan first.
 
 ## Talking to the board
 

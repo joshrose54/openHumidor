@@ -372,7 +372,7 @@ int formatControlEvent(char* out, size_t n, const ControlEvent& e, const Setting
     case ControlEvent::Type::HeaterIneffective:
       if (isnan(e.a)) o.add("HEATER INEFFECTIVE: chamber unreadable at the end of the %lu s window. ",
                             (unsigned long)(t.heaterIneffectiveWindowMs / 1000));
-      else o.add("HEATER INEFFECTIVE: chamber rose %.2f C in %lu s (needs %.1f). ", e.a,
+      else o.add("HEATER INEFFECTIVE: chamber changed %+.2f C in %lu s (needs +%.1f). ", e.a,
                  (unsigned long)(t.heaterIneffectiveWindowMs / 1000), t.heaterIneffectiveRiseC);
       o.add("Heater off, flagged; tried again in %lu s. Check the KSD9700 cut-out first",
             (unsigned long)(t.heaterIneffectiveRetryMs / 1000));
@@ -383,7 +383,7 @@ int formatControlEvent(char* out, size_t n, const ControlEvent& e, const Setting
     case ControlEvent::Type::CoolingIneffective:
       if (isnan(e.a)) o.add("COOLING INEFFECTIVE: chamber unreadable at the end of the %lu s window. ",
                             (unsigned long)(t.coolingIneffectiveWindowMs / 1000));
-      else o.add("COOLING INEFFECTIVE: chamber fell %.2f C in %lu s (needs %.1f). ", e.a,
+      else o.add("COOLING INEFFECTIVE: chamber changed %+.2f C in %lu s (needs -%.1f). ", -e.a,
                  (unsigned long)(t.coolingIneffectiveWindowMs / 1000), t.coolingIneffectiveFallC);
       o.add("Flagged; cooling still called");
       break;
