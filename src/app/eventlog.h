@@ -5,7 +5,7 @@
 //
 // Types: compressor · heater · humidifier · interlock · harvest · guard · crc ·
 // timeout · sensor · fan · settings · boot · sd · i2c · rtc · ntp · crossover ·
-// strip · humidify · exercise · ineffective · (disturbance: off until B6)
+// strip · humidify · exercise · ineffective · scenario (test builds) · (disturbance: off until B6)
 
 #include <stdint.h>
 #include <stddef.h>

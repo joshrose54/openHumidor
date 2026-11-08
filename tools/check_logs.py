@@ -17,7 +17,7 @@ What it checks
               1980); loop_max_ms present (its maximum is reported).
   --test24    every 5.4 event type present (disturbance exempt until B6), the RTC
               lost-time and NTP-correction events, the retention deletion.
-  --soak      no reset (one boot); the guard audit again from the events file
+  --soak      no reset (one boot); the 24 h NTP resync inside the soak; the guard audit again from the events file
               (min off, min on, max run, crossover, interlock side) using
               uptime_ms; the load counts; heap, SD write time and loop time not
               creeping (first vs last 2 hours); CRC failures on the real sensors.
@@ -283,8 +283,26 @@ def main():
         report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
 
     if a.soak:
+        verdicts = [e for e in events if e["type"] == "scenario" and "========" in e["detail"]]
+        if verdicts:
+            last = verdicts[-1]["detail"]
+            report("PASS:" in last, "the soak scenario's own verdict (from the events file)", last.split("========")[-1].strip())
+        else:
+            report(False, "the soak scenario's own verdict", "no scenario PASS/FAIL line in the events file")
         boots = [e for e in events if e["type"] == "boot"]
         report(len(boots) == 1, "no resets: one boot in the events file", f"{len(boots)} boots")
+        # The 24 h NTP resync (5.4): a second sync, ~24 h after the first, while the soak still ran.
+        syncs = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("NTP SYNC")]
+        soak = [e for e in events if e["type"] == "scenario"]
+        soak_end = soak[-1]["up"] if soak else 0
+        if len(syncs) >= 2:
+            gap_h = (syncs[1]["up"] - syncs[0]["up"]) / 3600000.0
+            inside = syncs[1]["up"] <= soak_end
+            report(23.5 <= gap_h <= 24.5 and inside, "24 h NTP resync: a second sync inside the soak",
+                   f"syncs at uptime {syncs[0]['up'] / 3600000.0:.2f} h and {syncs[1]['up'] / 3600000.0:.2f} h "
+                   f"(gap {gap_h:.2f} h); soak ended at {soak_end / 3600000.0:.2f} h")
+        else:
+            report(False, "24 h NTP resync: a second sync inside the soak", f"{len(syncs)} NTP sync event(s)")
         breaches, starts, maxstops = audit(events, TIMERS[a.profile])
         report(not breaches, "no guard ever breached (min off, min on, max run, crossover, interlock side)",
                "; ".join(breaches[:5]) + (f" (+{len(breaches) - 5} more)" if len(breaches) > 5 else ""))

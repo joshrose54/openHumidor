@@ -184,7 +184,8 @@ log file would pass 3.9 GB (Mac-tested; never near it in practice).
 
 ## Next
 
-The B4 soak (`run soak`, real_test build, 24 h), after tidying the card.
+The B4 soak (`run soak`, real_test build, 24 h): card reformatted, bench wired; scenario lines now logged as
+`scenario` events (the card holds the verdict); checker also confirms the 24 h NTP resync inside the soak.
 
 ## Talking to the board
 

@@ -1038,7 +1038,13 @@ void loop() {
   view.hc = &gHc;
   const bool wasRunning = gScenario.running();
   gScenario.update(view, gCtl, gModel, gTc);
-  for (const char* l; (l = gScenario.takeLine()) != nullptr;) Serial.println(l);
+  // Every scenario line also goes to the card (quietly: it is printed here already), so a
+  // long run's progress and its PASS / FAIL survive a lost USB link (B4).
+  for (const char* l; (l = gScenario.takeLine()) != nullptr;) {
+    Serial.println(l);
+    while (*l == ' ') l++;
+    eventlog::logQuiet("scenario", "%s", l);
+  }
   if (wasRunning && !gScenario.running()) printNow = true;
 #endif
 
