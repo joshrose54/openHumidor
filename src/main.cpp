@@ -179,11 +179,15 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
   (void)arg;
   switch (c) {
     case Command::None: break;
-    case Command::Boot:
+    case Command::Boot: {
       console::printBanner(gSettings, gBoot);
       console::printSensorCheck();
+      char clock[240];
+      formatClockSummary(clock, sizeof(clock), gClock);
+      Serial.printf("  CLOCK: %s\n\n", clock);
       printStatus();
       break;
+    }
     case Command::Help:
       console::printHelp(kTestBuild);
       break;
@@ -422,6 +426,8 @@ static bool afterNtp(uint32_t now) {
   bool printed = false;
   if (timesync::takeSync()) {
     gClock.ntpSynced = true;
+    gClock.syncs++;
+    if (gClock.firstSyncAtMs == 0) gClock.firstSyncAtMs = uptimeMs();
     gClockSet = true;                     // the system clock now has NTP's time
     char ts[24];
     timestamp(ts, sizeof(ts));
@@ -438,6 +444,8 @@ static bool afterNtp(uint32_t now) {
       gRtcWriteArmed = true;              // written at the next whole second
     } else {
       gClock.corrected = true;
+      gClock.lastCorrectionS = gRtcErrorS;
+      gClock.correctedAtMs = uptimeMs();
       Serial.printf("  NTP: DS3231 within 2 s (%+lld s); not written\n", (long long)gRtcErrorS);
       printed = true;
     }
@@ -458,6 +466,8 @@ static bool afterNtp(uint32_t now) {
       const bool hadOsf = gClock.osfAtBoot && !gClock.corrected;
       gClock.corrected = true;
       gClock.lastCorrectionS = gRtcErrorS;
+      gClock.rtcWritten = true;
+      gClock.correctedAtMs = uptimeMs();
       char ts[24];
       timestamp(ts, sizeof(ts));
       Serial.printf("  NTP: DS3231 was %+lld s out; set to %s%s\n", (long long)gRtcErrorS, ts,

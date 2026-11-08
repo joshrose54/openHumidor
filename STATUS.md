@@ -73,38 +73,27 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
 
 Stage 3 — in progress (see below).
 
-## Stage 3 — built, native tests pass; board tests next (code not committed yet)
+## Stage 3 — board tests done (2026-11-08); waiting for Josh to call it passed
 
 Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan stall
-kickstarts (5.6), I2C stuck-bus recovery (5.6), RTC lost time (OSF) and NTP (5.4, 5.6).
+kickstarts (5.6), I2C stuck-bus recovery (5.6), RTC lost time (OSF) and NTP (5.4, 5.6), clock
+summary on `boot`.
 
-- **Mac side:** five ESP32 builds, no warnings; native tests **133/133** (31 new).
-- **Flash use ~77-78%** (WiFi + SNTP). Fine now; stage 6 / dashboard will need a bigger app
-  partition — for the spec chat (5.1 platformio block).
+- **Mac side:** five ESP32 builds, no warnings; native tests **138/138**.
+- **Flash ~78%** (WiFi + SNTP); partition decision at stage 6 (agreed).
 
-### Added (lib/core unless noted)
+### Board results
 
-| File | What |
+| B3 test | Result |
 |---|---|
-| `sensor_health.h/.cpp` | Exclusion (CRC x3, timeout x3, absent, implausible raw, divergence cabinet-only, bus fault, wrong serial, manual); recovery after 10 good reads (+ within 5 C after divergence) and a serial re-read; corrected RH; summary from healthy sensors with spread and control source; `RequirementGate` (4.3 + recovery hold, none at boot) |
-| `fan_monitor.h/.cpp` | Stall: kickstart at once, then every 5 min / 30 s bench; recovered when the tach reads |
-| `clock_state.h` | Trusted timestamps (OSF until corrected); write the DS3231 if > 2 s out |
-| `decode` | `encodeDs3231`, `fromUnixSeconds` |
-| `src/drivers/i2c_bus` | Stuck-bus probe -> mux RST + Wire restart (pull-ups off again) -> `BusStuck`; serial re-reads; OSF read at boot; DS3231 write + OSF clear |
-| `src/drivers/time_sync` | WiFi + SNTP in the background; credentials only from `include/wifi_time.h` |
-| `scenario` | `run 2` (5 s show, sensors step, real kickstarts), new `run 4`, `run 5`, `run 6`, `run 15` |
+| 2 heater guards | PASS: off next pass (from the reading reaching the guards) for cabinet ceiling, chamber ceiling, sensors (chamber implausible; recovery + 30 s hold), fan |
+| 4 sensor failure | PASS: (a) run 4 chamber/3-of-4/2-of-4 + recovery hold; (b) swapped plugs -> wrong-serial both; (c) run 41 heater off at 2 of 4; (d) run 42 cooling off with chamber out, J10 1-2 12.3 V / 0 V |
+| 5 divergence | PASS: excluded after 10:15 diverging (first sweep at/after 10 min), recovered 2:45 later |
+| 6 fan failure | PASS: kickstart at once and 30.0 s later; heater off, humidifier unaffected; resumed on replug |
+| 15 I2C bus fault | PASS after a fix: internal pull-ups now switched off after every bus step (ESP-IDF re-enables them on a bus reset) |
+| 16 RTC lost time | PASS: cell out, 12 V cut, booted with USB out: OSF set, NTP at 15 s, DS3231 26.9 years out written, OSF cleared, hold 30 s; cell refitted with power on, OSF clear after |
 
-### Board tests (one at a time)
-
-| Order | B3 test | Build | Wiring |
-|---|---|---|---|
-| 0 | Boot check: health, calibration, OSF, WiFi/NTP, RTC correction | `bench_test` | bulb J10 3-4, humid fan J11 |
-| 1 | 2 heater guards (+ sensors) | `bench_test` | same |
-| 2 | 4 sensor failure (+ swapped plugs) | `bench_test` | same |
-| 3 | 5 divergence (~13 min, no loads) | `bench_test` | same |
-| 4 | 6 fan failure | `bench_test` | same |
-| 5 | 15 I2C bus fault (short SDA) | `bench_test` | same |
-| 6 | 16 RTC lost time (cell out, power cut, USB out) | `bench_test_boot` | heater pad (not the bulb) |
+All logged at the end of stage 3 by the spec chat ("logged" proven once in test 24).
 
 ## Talking to the board
 

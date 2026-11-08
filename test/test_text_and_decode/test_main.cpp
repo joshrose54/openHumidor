@@ -8,6 +8,8 @@
 #include "wineador/sensor_table.h"
 #include "wineador/summary.h"
 #include "wineador/reset_log.h"
+#include "wineador/clock_state.h"
+#include "wineador/decode.h"
 
 using namespace wineador;
 
@@ -220,6 +222,49 @@ void test_reset_log_ring_and_format() {
   TEST_ASSERT_EQUAL_STRING("boot 7  POWERON       previous boot: heartbeat lost", b);
 }
 
+void test_clock_summary_lost_time_corrected() {
+  ClockState c;
+  c.osfKnown = true; c.osfAtBoot = true;
+  char b[240];
+  formatClockSummary(b, sizeof(b), c);
+  TEST_ASSERT_EQUAL_STRING("OSF SET at this boot (the DS3231 lost time) | NTP not synced yet | timestamps UNTRUSTED", b);
+  c.ntpSynced = true; c.syncs = 1; c.firstSyncAtMs = 3000;
+  c.corrected = true; c.rtcWritten = true; c.correctedAtMs = 4000;
+  c.lastCorrectionS = -841234567;
+  formatClockSummary(b, sizeof(b), c);
+  TEST_ASSERT_EQUAL_STRING("OSF SET at this boot (the DS3231 lost time) | NTP first sync at 0:00:03, 1 sync | "
+                           "DS3231 was -841234567 s (about 26.7 years) out; written at 0:00:04, OSF cleared | timestamps trusted", b);
+}
+
+void test_clock_summary_normal_boot() {
+  ClockState c;
+  c.osfKnown = true;
+  c.ntpSynced = true; c.syncs = 2; c.firstSyncAtMs = 2000;
+  c.corrected = true; c.lastCorrectionS = -1;
+  char b[240];
+  formatClockSummary(b, sizeof(b), c);
+  TEST_ASSERT_EQUAL_STRING("OSF clear at this boot | NTP first sync at 0:00:02, 2 syncs | DS3231 within 2 s (-1 s), not written | timestamps trusted", b);
+  ClockState u;                                  // status register never read
+  formatClockSummary(b, sizeof(b), u);
+  TEST_ASSERT_EQUAL_STRING("OSF not read this boot | NTP not synced yet | timestamps trusted", b);
+}
+
+void test_rtc_needs_write_and_ds3231_round_trip() {
+  int64_t e = 0;
+  TEST_ASSERT_FALSE(rtcNeedsWrite(1000, 998, &e));   // 2 s: not more than 2
+  TEST_ASSERT_TRUE(rtcNeedsWrite(1000, 997, &e));
+  TEST_ASSERT_EQUAL_INT64(3, e);
+  TEST_ASSERT_TRUE(rtcNeedsWrite(946684800, 1794186000, &e));   // 2000-01-01 against 2026-11-08
+  DateTime dt = fromUnixSeconds(1794186061);          // 2026-11-08T...
+  uint8_t r[7];
+  encodeDs3231(dt, r);
+  DateTime back;
+  TEST_ASSERT_TRUE(decodeDs3231(r, back));
+  TEST_ASSERT_EQUAL_INT64(1794186061, toUnixSeconds(back));
+  TEST_ASSERT_EQUAL_UINT16(2026, back.year);
+  TEST_ASSERT_EQUAL_UINT8(11, back.month);
+}
+
 void test_summary_max_rh() {
   Readings r;
   for (int i = 0; i < kNumSensors; i++) { r.s[i].bus = BusResult::Ok; r.s[i].rhRawPct = 60.0f; }
@@ -345,6 +390,9 @@ int main() {
   RUN_TEST(test_status_fan_readback);
   RUN_TEST(test_status_line_clock_health_and_net);
   RUN_TEST(test_resets_commands);
+  RUN_TEST(test_clock_summary_lost_time_corrected);
+  RUN_TEST(test_clock_summary_normal_boot);
+  RUN_TEST(test_rtc_needs_write_and_ds3231_round_trip);
   RUN_TEST(test_reset_log_ring_and_format);
   RUN_TEST(test_sht40_crc_datasheet_example);
   RUN_TEST(test_sht40_measurement);

@@ -21,10 +21,20 @@ struct ClockState {
   bool ntpSynced = false;       // NTP has set the system clock at least once this boot
   bool corrected = false;       // the DS3231 was written (or found within 2 s) after NTP
   int64_t lastCorrectionS = 0;  // how far out it was, seconds (DS3231 minus true time)
+  bool rtcWritten = false;      // the DS3231 was written (it was more than 2 s out, or OSF was set)
+  uint32_t syncs = 0;           // NTP syncs this boot
+  uint64_t firstSyncAtMs = 0;   // uptime of the first NTP sync (0 = none yet)
+  uint64_t correctedAtMs = 0;   // uptime when the DS3231 was checked or written after NTP
 
   // Timestamps are trusted unless the clock lost time and hasn't been put right yet.
   bool trusted() const { return !osfAtBoot || corrected; }
 };
+
+// One line for the 'boot' command, so a boot that happened with USB unplugged can
+// be read afterwards (B3 status line rule), e.g.
+// "OSF set at this boot (lost time) | NTP first sync at 0:00:03, 1 sync | DS3231 was
+//  -26.7 years out; written at 0:00:04, OSF cleared | timestamps trusted"
+int formatClockSummary(char* out, size_t n, const ClockState& c);
 
 // After an NTP sync: does the DS3231 need writing? `errorS` gets DS3231 minus true time.
 inline bool rtcNeedsWrite(int64_t rtcUnixS, int64_t trueUnixS, int64_t* errorS) {
