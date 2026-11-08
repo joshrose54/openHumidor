@@ -70,9 +70,10 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
       case 17: r.heatResponds = false; r.heatCPerMin = 0.0f; r.coolCPerMin = 0.0f; model.setCabinetC(18.0f); break;
       case 23: r.coolCPerMin = -1.0f; r.heatCPerMin = 1.0f; model.setCabinetC(20.0f); break;
       // Stage 5: the cabinet temperature stays put unless the scenario moves it; the
-      // humidifier adds water at 1 RH point a minute (passes its check inside the bench window).
+      // humidifier adds water at 2 RH points a minute, so it passes its check (+0.5 points in
+      // the 1 min bench window) with margin even though readings trail the model by up to 15 s.
       case 19: case 20: case 21: case 22:
-        r.coolCPerMin = 0.0f; r.heatCPerMin = 0.0f; r.humidPctPerMin = 1.0f;
+        r.coolCPerMin = 0.0f; r.heatCPerMin = 0.0f; r.humidPctPerMin = 2.0f;
         model.setCabinetC(20.0f);
         if (n == 19 || n == 22) model.setCabinetRh(56.0f);
         if (n == 20) model.setCabinetRh(50.0f);

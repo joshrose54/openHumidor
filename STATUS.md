@@ -103,7 +103,7 @@ Temperature control. Spec answers committed (`73f9687`, `f10b7af`); stage 4 chec
 - Fan-only changes print one short line, not the live block.
 - Ineffective event text says "chamber changed +/-x C" (after the board run; not yet flashed).
 
-## Stage 5 — built, board tests next (humidifier, B3 19-22)
+## Stage 5 — passed (Josh, 2026-11-08) (humidifier, B3 19-22)
 
 Spec answers committed (`4ae15c0`): humidifier check on vapour pressure (~0.012 kPa = 0.5 points at
 setpoint); a call stays on through guard pauses; persistence only outside strips; test 20 excludes
@@ -116,7 +116,17 @@ sensors one at a time by scripted readings; test-build toggle for "humidify duri
   status text), guard `humid-ineffective`, `setHumidifyDuringCooling` + test-build `humidcool on|off`,
   `scenario_stage5.cpp` (`run 19, 20, 21, 22`; run 21 adds a direct humidify demand), banner line,
   status line humid part. `test_humid_control` (16) + simulated-board scenario tests.
-- **Board tests:** 19, 20, 21, 22 on `bench_test`. Load to watch: humidifier fan on J11.
+Stage 5 checkpoint `2237daf`; scenario humidifier rate 1 -> 2 points/min after test 19 (margin for
+the 1 min check with 15 s reads), re-flashed before test 20.
+
+### Board results (bench_test, humidifier fan on J11; bulb and SSR input connected, no mains)
+
+| B3 test | Result |
+|---|---|
+| 19 humidifier guards | PASS 3:36. On exactly 30.0 s after RH 56 % seen; off at max run 2:00.0 (still asked for); on again after exactly 20.0 s min off, same call; off at the next read when RH 62.6 % after 9.9 s on (no min on); one-read dip did not start it |
+| 20 ceiling and sensors | PASS 5:12. Off (rh-ceiling) at the first read with ch3 at 70.7 %, mean 55.5 %, call kept; resumed after min off, same call; ch2 excluded -> 3 of 4, kept running; ch4 excluded -> off (sensors); both recovered -> on exactly 30.0 s later (the hold) |
+| 21 exclusivity | PASS 2:15. Held by stripping 20 s; held (compressor-run) 20 s with the setting off; on at once with `humidify during cooling` on, compressor running |
+| 22 ineffective | PASS 4:06. Off at exactly 1:00.0, "vapour pressure changed +0.0000 kPa (needs +0.0117)", flagged, held 2:00.0 with countdown, retried, "EFFECTIVE AGAIN +0.0117 kPa", flag cleared |
 
 ### Decisions taken in building
 
@@ -127,7 +137,8 @@ sensors one at a time by scripted readings; test-build toggle for "humidify duri
 
 ## Next
 
-Stage 5 board tests, one at a time: 19, 20, 21, 22.
+Stage 6 (SD logging per 5.4, serial interface, soak scenario;
+B3 18, 24, then B4), plan first. Flash partition decision is due at stage 6.
 
 ## Talking to the board
 
