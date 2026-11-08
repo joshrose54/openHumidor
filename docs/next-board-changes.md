@@ -25,6 +25,11 @@ Draft, to send after B4. Compared with **Rev P**.
   plugging USB in restarts the ESP32. In the cabinet that means connecting a laptop restarts the
   controller and its lock-out timers. Flashing should still work without pressing buttons if
   possible; if that needs auto-reset, please explain the trade-off and we'll decide.
+- **The board must run with no USB connected.** The current DevKit doesn't: powered from its 5V pin
+  with no USB, its EN pin sits at ~0V and the ESP32 never starts (two DevKits, same result, off the
+  board). We believe the USB-serial chip and auto-reset circuit hold EN low when the chip has no USB
+  power. Please design the EN and auto-reset circuit so nothing on the USB side can hold EN low
+  when USB is absent, and say how you've ensured it.
 - This removes the DevKit's AMS1117 regulator and D7's voltage drop. Please give the board a proper
   3.3V regulator with good headroom.
 - **Question:** which SMD module do you recommend? An ESP32-S3 module has USB built into the chip,

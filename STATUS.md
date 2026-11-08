@@ -1,6 +1,6 @@
 # Where we're up to
 
-*Updated 2026-11-07.*
+*Updated 2026-11-08.*
 
 ## Stage 1 — passed (Josh, 2026-11-07)
 
@@ -37,6 +37,23 @@ Runtime guards, interlock switching sequence, relay exercise. Committed (`019a36
   hardware readback (`pwm-hw 51/255`) and tach edges per pulse, so a repeat can be told apart.
 - Uncalibrated room RH read 68-71% raw; the 70% humidifier ceiling uses raw RH until stage 3.
 
+### DevKit EN / GPIO0 investigation (2026-11-08)
+
+- **It's the DevKit, not Rev N:** both DevKits hold EN at ~0 V with no USB, off the board.
+- **2.2 kOhm 3V3-EN fitted** (off board: EN 0.06 V -> 3.14 V; 4.7 kOhm gave 3.01 V). Back on Rev N:
+  1. Auto-reset flashing still works, no buttons.
+  2. Port open/close twice with RTS/DTR on (as `pio device monitor` 1/1): uptime carried on.
+  3. USB out from a running board: EN 3.1 V but the board did not keep running (loads off,
+     flickers, then silent; not in flashing mode); recovered only on a reset from the Mac.
+  4. **Test 12 failed again:** cold start with no USB -> the ESP32 sat in **flashing (download)
+     mode** (esptool connected with no reset): GPIO0 held low by the auto-reset circuit.
+  5. USB in after (4) did not reset the chip -> "USB in restarts the board" (stage 1) is probably a
+     misreading; clean test still to do.
+- **Bench rule:** if USB is unplugged from a running board, cut and restore the 12 V afterwards.
+- **Next (spec chat):** a second 2.2 kOhm GPIO0-3V3, to keep button-free flashing. Then repeat
+  checks 1, 3, 4 and a clean plug-in test (running without USB, then USB in, check uptime).
+  If that fails: cut the auto-reset links to EN and GPIO0 (after the spec chat sees photos).
+
 ### What was added (lib/core unless noted)
 
 | File | What |
@@ -67,8 +84,7 @@ Runtime guards, interlock switching sequence, relay exercise. Committed (`019a36
 
 ### Next
 
-1. Spec chat: test 12 / USB finding and the fix (4.7 kOhm EN pull-up to try on the bench, or other).
-2. After the fix: repeat the USB-out check (EN ~3.3 V, loads keep running), then test 12.
+1. GPIO0 pull-up trial (above), then test 12 and the clean plug-in test.
 3. Josh calls stage 2 passed -> stage 3.
 
 ## Talking to the board
