@@ -1120,7 +1120,11 @@ monitor_port = /dev/cu.SLAB_USBtoUART
 monitor_filters = time
 monitor_rts = 1
 monitor_dtr = 1
+board_build.partitions = min_spiffs.csv
 ```
+
+`min_spiffs`: ~1.9 MB for firmware with two app slots, so wireless (OTA) updates stay possible;
+logs live on the SD card, so flash file storage is not needed.
 
 `monitor_rts` and `monitor_dtr` at **1** stop the monitor resetting the board when opened or closed —
 essential for long runs. On the DevKit, EN is pulled low only when RTS is on and DTR off; at 0 the
@@ -1229,7 +1233,9 @@ Local to SD, CSV throughout. Nothing pushed off the device.
 **Readings row:** timestamp · per-channel temperature and RH · ambient temperature and RH · cabinet
 mean, min and max temperature · cabinet mean RH · active control value · fan
 PWM · fan RPM · compressor state · heater duty · humidifier state · interlock position ·
-per-channel error flags. Cabinet aggregates cover channels 2–5 only.
+per-channel error flags · time trusted (0/1) · longest loop pass in the interval · free heap · worst
+SD write time. Cabinet aggregates cover channels 2–5 only. In test builds, the real sensor readings
+are logged alongside the scripted ones.
 
 **Events row:** timestamp · type · detail. Types: compressor on/off with reason · heater on/off ·
 interlock change · harvest start and end · guard blocks · CRC failures and timeouts per channel ·
@@ -1237,7 +1243,9 @@ sensor excluded or recovered · fan tach stall · settings changed with old and 
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
-on/off with reason · heater, cooling or humidifier ineffective.
+on/off with reason · heater, cooling or humidifier ineffective. **Guard blocks:** one event when
+an asked-for load becomes blocked, another when the reason changes or clears — not every pass.
+**CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
 
 **Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
 Monthly files in year folders; a month of readings is ~12 MB.
@@ -1668,7 +1676,9 @@ run a **simple cabinet model**: heating raises the scripted chamber and cabinet 
 rate, cooling lowers them, humidifying raises cabinet RH, and otherwise they drift back towards a
 set room value. Loads then start, stop and harvest by the real rules. A scenario can switch a
 response off on purpose — heater on, chamber not rising — to test the ineffective checks.
-**Rates are test-only and set per scenario.** The default set, used for B4, follows Track A (A2).
+**Rates are test-only and set per scenario.** The default set, used for B4, follows Track A (A2) for
+cooling and heating; the B4 soak sets the room value and drift per phase, so every load cycles
+several times a day and reaches its real limits.
 Logic scenarios may use faster rates to run in minutes. Values chosen are in the build log.
 
 **Which checks use scripted values:** the **bus checks stay real** in a test build — CRC failures,
@@ -1700,7 +1710,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 21 | Humidifier exclusivity | Demand humidify during a stripping run; during a temperature run with the setting off, then on | Blocked during stripping always; blocked during a temperature run with the setting off; allowed with it on | ✅ |
 | 22 | Humidifier ineffective | Humidifier commanded on, simulated vapour pressure held flat | Off within the window, flagged, logged, retried at intervals | ✅ |
 | 23 | Plenum fan rules (4.6) | Scenario with the idle duty set to 0% (so every start is from 0%): idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | ✅ |
-| 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
+| 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac. Disturbance detection exempt (off until B6). CRC failure by a test-build-only command that corrupts one checksum; RTC lost time by pulling the cell, as test 16. Card made nearly full with dummy files from the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
 
 ## B4 — Bench soak
 
