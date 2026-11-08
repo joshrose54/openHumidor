@@ -865,7 +865,8 @@ widens the margin. Heating overshoot is measured in B2 step 6 and B6.
 **Crossover delay** — minimum time between one load stopping and the other starting. Default **10
 minutes**, both directions; a tuning value set once in B6 to match the overshoot settling time.
 Repeated crossover within the delay means the deadband is too narrow: log every crossover and
-show the count on the dashboard.
+show the count on the dashboard. **A crossover** is a temperature load starting when the last one to
+run was the other; a start the crossover guard blocks is a guard block, not a crossover.
 
 The dead zone is where the cabinet should sit almost all the time. If either load runs frequently,
 widen the bands before anything else.
@@ -913,6 +914,7 @@ harvest.
 | Cooling harvest | Profile — fast at first, slowing towards setpoint |
 | Heater on | Must be running |
 | Heating harvest | Elevated, until the chamber sensor approaches cabinet air |
+| Harvest, chamber sensor unhealthy | Runs to the backstop |
 | Any fault state | Continues to run |
 
 **Harvest** recovers residual cold from the plate (and clears frost) or residual heat from the
@@ -951,7 +953,10 @@ humidifier's off point sits below the stripping trigger, so the two are never ca
 | Release | Mean cabinet **vapour pressure** ≤ that of setpoint RH at setpoint temperature — 62% at 20°C is 1.45 kPa |
 | Temperature floor | Stop if any healthy cabinet sensor falls below setpoint − 2°C |
 
-RH from the healthy cabinet sensors, channels 2–5; never the chamber sensor.
+RH from the healthy cabinet sensors, channels 2–5; never the chamber sensor. **Mean vapour pressure
+is the mean of each healthy cabinet sensor's own vapour pressure.** After the floor stops a strip,
+the full persistence runs again from zero, starting once every cabinet sensor is back above the
+floor.
 
 **Trigger on RH, release on vapour pressure.** Cooling air raises its RH even as water is removed
 (62% at 20°C reads 85% at 15°C with nothing removed), so a loop releasing on RH could never come
@@ -1008,6 +1013,7 @@ RH may corroborate. The ambient sensor confirms direction: a shift *away* from a
 door. Detection continues without it if it has failed.
 
 **Disabled until B6** sets the thresholds: built in, switched off, so it can't act on guessed values.
+Built and native-tested before B6, not in B3.
 
 **Response:** hold-off of a few minutes (B6), extended by re-triggers, with a **hard cap** (B6) —
 when reached, control resumes regardless and the event is logged.
@@ -1307,7 +1313,7 @@ values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces 
 | Crossover delay | 10 min | 5–60 min |
 | Fan PWM, idle | 20% | 20–50% |
 | Fan PWM, during compressor run | 40% | 20–100%, B6 step 1 |
-| Fan PWM, cooling harvest start / end; profile shape | 100% / 40%, falling evenly | B6 step 2 |
+| Fan PWM, cooling harvest start / end; profile shape | 100% / 40%, falling with the chamber–cabinet gap — 40% at convergence | B6 step 2 |
 | Fan PWM, heating and its harvest | 60% | 20–100%, B6 |
 | Harvest convergence margin | Chamber within 1.0°C of the cabinet mean | B6 step 2 |
 | Harvest backstop — only if convergence never comes; logged | 30 min | B6 |
@@ -1370,6 +1376,9 @@ No audible alarms. Faults surface on the dashboard and in the log.
 | **Cooling ineffective** — commanded on, chamber temperature not falling | K1's NC contact, Q2, the SSR, or the fridge. Flag and log; cooling continues to be called. Window from B6 |
 | **Humidifier ineffective** — commanded on, cabinet RH not rising | Empty tank, dry wick, failed fan or Q4. Humidifier off, flag, log; retry at intervals. Window and expected rise from B6 step 8 |
 | **RTC lost time** — OSF set at boot | Warn, flag, resync from NTP. Control unaffected: the boot hold applies regardless |
+
+**Ineffective checks** run once per run, measured from the chamber reading at load start; a run
+that ends inside the window gives no result; a flag clears on a later passing window.
 
 **On every boot, check the DS3231's oscillator stop flag** — status 0x0F bit 7. If set, the clock
 stopped while unpowered: log, flag, correct from NTP before trusting any timestamp, then clear it.
