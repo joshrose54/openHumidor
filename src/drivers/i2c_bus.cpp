@@ -11,6 +11,10 @@ using wineador::kNumSensors;
 
 namespace i2cbus {
 
+#if defined(WINEADOR_TEST_BUILD)
+static BusResult gInject[kNumSensors] = {BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok};
+#endif
+
 constexpr uint32_t kBusHz = 25000;          // spec 2.3 / 5.3
 constexpr uint16_t kWireTimeoutMs = 20;     // hard timeout on every transaction (5.2)
 constexpr uint32_t kResetLowMs = 1;         // RST held low this long (datasheet needs nanoseconds)
@@ -180,6 +184,12 @@ bool internalPullupsOff() {
 
 bool idle() { return gSt == St::Idle; }
 
+#if defined(WINEADOR_TEST_BUILD)
+void injectFault(int index, BusResult r) {
+  if (index >= 0 && index < kNumSensors && (r == BusResult::CrcFail || r == BusResult::ShortRead)) gInject[index] = r;
+}
+#endif
+
 bool startSweep() {
   if (gSt != St::Idle) return false;
   gSweepRequested = true;
@@ -333,6 +343,10 @@ static void step(uint32_t nowMs) {
       if (r == BusResult::ShortRead) { failed(r); break; }
       if (r == BusResult::Ok) r = wineador::decodeSht40Measurement(b, s.tempC, s.rhRawPct);
       s.bus = r;                        // Ok or CrcFail: the bus itself worked
+#if defined(WINEADOR_TEST_BUILD)
+      // B3 test 24: a test-build command turns this one read into a CRC failure or a timeout.
+      if (gInject[gIdx] != BusResult::Ok) { s.bus = gInject[gIdx]; gInject[gIdx] = BusResult::Ok; }
+#endif
       gIdx++;
       gSt = St::Select;
       break;

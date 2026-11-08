@@ -99,6 +99,8 @@ class RuntimeGuards {
   // TEST BUILDS ONLY call this (B3 test 21): "humidify during cooling runs" at run
   // time. The cabinet build only ever uses the settings value.
   void setHumidifyDuringCooling(bool on) { s_.tuning.humidifyDuringCooling = on; }
+  // A user setting changed (serial 'set ...', 5.5): the guards use the new values.
+  void setUser(const UserSettings& u) { s_.user = u; }
   bool humidifyDuringCooling() const { return s_.tuning.humidifyDuringCooling; }
 
  private:

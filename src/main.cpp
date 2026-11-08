@@ -1,4 +1,4 @@
-// Wineador controller firmware — stage 5.
+// Wineador controller firmware — stage 6.
 //
 // The main loop never waits. Each pass:
 //   1. Temperature control (4.5-4.7, 5.6) asks for cooling / heating and sets
@@ -11,6 +11,10 @@
 //      serial checks and calibration (5.3).
 //   3. NTP (background) and the DS3231 correction; serial commands; status line;
 //      a "live right now" block when a load changes.
+//   4. Logging (5.4): every event goes through eventlog (serial + RAM + SD queue);
+//      a readings row every 60 s (15 s with the compressor or heater on); an
+//      hourly row each UTC hour. The SD card itself is written by its own task
+//      (src/drivers/sd_log) — the loop never waits for it.
 //
 // In a test build the control acts on the scripted cabinet model; a stage 2-3
 // scenario (or the boot-demand build) asks for loads directly instead.
@@ -40,6 +44,8 @@
 #include "wineador/temp_control.h"
 #include "wineador/humid_control.h"
 #include "wineador/heater_pwm.h"
+#include "wineador/logbook.h"
+#include "wineador/hourly.h"
 #include "drivers/outputs.h"
 #include "drivers/fan.h"
 #include "drivers/i2c_bus.h"
@@ -48,7 +54,11 @@
 #include "drivers/core_log.h"
 #include "drivers/reset_record.h"
 #include "drivers/time_sync.h"
+#include "drivers/sd_log.h"
+#include "drivers/user_store.h"
 #include "app/console.h"
+#include "app/eventlog.h"
+#include "app/serial_ui.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
 #include "wineador/scenario.h"
@@ -57,7 +67,7 @@
 using namespace wineador;
 
 // ---------------------------------------------------------------- state
-static const Settings gSettings = settingsFor(kBuildProfile);
+static Settings gSettings = settingsFor(kBuildProfile);   // user tier may change (serial 'set', NVS)
 static console::BootInfo gBoot;
 static char gVersion[40];
 static Controller gCtl;                  // boot hold, guards, interlock, relay exercise
@@ -85,6 +95,21 @@ static TemperatureControl gTc;           // deadband, harvest, fan duty, strippi
 static HumidControl gHc;                 // humidifier call and its ineffective check
 static uint32_t gHeatOnSinceMs = 0;      // for the heater PWM cap
 static bool gHeatWasOn = false;
+// Logging (5.4)
+static GuardBlockTracker gGuardTrack;    // guard-block events
+static BusEventLimiter gBusLimit;        // CRC/timeout events: 10 per channel per hour
+static HourlyStats gHourly;
+static bool gHourlyStarted = false;
+static MaxTracker gLoopMaxLog;           // longest pass per log interval
+static uint32_t gLastRowMs = 0;
+static Readings gLogicReadings;          // what the logic used last sweep (scripted in a test build)
+static uint32_t gCrcCount[kNumSensors] = {}, gTimeoutCount[kNumSensors] = {};
+static bool gLogStarted = false;         // boot event written, SD writing started
+static uint32_t gLastPassMs = 0;
+static uint32_t gHeapLast = 0;
+static bool gSdFailedShown = false;
+static uint32_t gLastSdCheckMs = 0;
+static uint64_t gLastCompressorStopMs = 0;
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -161,8 +186,17 @@ static void printStatus() {
   snprintf(net, sizeof(net), "wifi %s ntp %s", timesync::wifiUp() ? "up" : "down",
            gClock.ntpSynced ? "ok" : "waiting");
   s.netText = net;
+  char sd[48];
+  {
+    const sdlog::Stats st = sdlog::stats();
+    if (sdlog::stalledMs(millis()) > 5000) snprintf(sd, sizeof(sd), "SD STALLED %lus", (unsigned long)(sdlog::stalledMs(millis()) / 1000));
+    else if (st.failed) snprintf(sd, sizeof(sd), "SD FAIL (logging paused)");
+    else if (!sdlog::started()) snprintf(sd, sizeof(sd), "sd waiting for clock");
+    else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
+  }
+  s.sdText = sd;
   s.loopMaxUs = gLoopMax.take();
-  s.heapFree = ESP.getFreeHeap();
+  s.heapFree = gHeapLast ? gHeapLast : ESP.getFreeHeap();
   s.rtcOk = i2cbus::rtcOk();
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
@@ -189,9 +223,63 @@ static void setClockFromRtc() {
   gClockSet = true;
 }
 
+// A user setting changed: every part of the logic takes the new values, they are
+// saved to NVS (a few ms; only when typed), and the change is logged (5.4).
+static void applyUser(const UserSettings& was, const char* what) {
+  const UserSettings& u = gSettings.user;
+  gCtl.setUser(u);
+  gTc.setUser(u);
+  gHc.setUser(u);
+  gHealth.setUser(u);
+  const bool saved = userstore::save(u);
+  char d[200];
+  int k = snprintf(d, sizeof(d), "settings changed (%s): ", what);
+  auto add = [&](const char* fmt, auto... a) { if (k > 0 && (size_t)k < sizeof(d)) k += snprintf(d + k, sizeof(d) - k, fmt, a...); };
+  if (was.targetTempC != u.targetTempC) add("target %.1f -> %.1f C; ", was.targetTempC, u.targetTempC);
+  if (was.rhSetpointPct != u.rhSetpointPct) add("RH setpoint %.0f -> %.0f%%; ", was.rhSetpointPct, u.rhSetpointPct);
+  if (was.heaterEnable != u.heaterEnable) add("heater %s -> %s; ", was.heaterEnable ? "on" : "off", u.heaterEnable ? "on" : "off");
+  if (was.humidifierEnable != u.humidifierEnable)
+    add("humidifier %s -> %s; ", was.humidifierEnable ? "on" : "off", u.humidifierEnable ? "on" : "off");
+  if (was.manualExcludeMask != u.manualExcludeMask) add("manual excludes 0x%02X -> 0x%02X; ", was.manualExcludeMask, u.manualExcludeMask);
+  add("%s", saved ? "saved" : "NOT SAVED (NVS write failed) - lost at the next boot");
+  eventlog::log("settings", "%s", d);
+}
+
+static bool sameUser(const UserSettings& a, const UserSettings& b) {
+  return a.targetTempC == b.targetTempC && a.rhSetpointPct == b.rhSetpointPct && a.heaterEnable == b.heaterEnable &&
+         a.humidifierEnable == b.humidifierEnable && a.manualExcludeMask == b.manualExcludeMask;
+}
+
+static serialui::View uiView() {
+  static char ts[24];
+  timestamp(ts, sizeof(ts));
+  serialui::View v;
+  v.s = &gSettings;
+  v.ctl = &gCtl;
+  v.tc = &gTc;
+  v.hc = &gHc;
+  v.health = &gHealth;
+  v.clock = &gClock;
+  v.bus = &gBusReadings;
+  v.logic = &gLogicReadings;
+  v.crc = gCrcCount;
+  v.timeouts = gTimeoutCount;
+  v.loads = outputs::current();
+  v.fanDuty = fan::duty();
+  v.fanRpm = fan::rpm();
+  v.fanStalled = gFanMon.stalled();
+  v.uptimeMs = uptimeMs();
+  v.lastCompressorStopMs = gLastCompressorStopMs;
+  v.rtcOk = i2cbus::rtcOk();
+  v.testBuild = kTestBuild;
+  v.version = gVersion;
+  v.timestamp = ts;
+  return v;
+}
+
 // nowMs: this pass's time, the same clock the scenario is then updated with.
-static void handleCommand(Command c, int arg, uint32_t nowMs) {
-  (void)arg;
+static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
+  const int arg = a.arg;
   switch (c) {
     case Command::None: break;
     case Command::Boot: {
@@ -212,7 +300,60 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
       else
         Serial.println("  A relay exercise is already under way. Nothing more done.");
       break;
+    // ---- the serial interface (stage 6)
+    case Command::Status:   serialui::printStatus(uiView()); break;
+    case Command::Sensors:  serialui::printSensors(uiView()); break;
+    case Command::Events:
+      if (arg == -2) Serial.println("  events, or events <n> (a number). Nothing shown.");
+      else serialui::printEvents(arg < 0 ? 10 : arg);
+      break;
+    case Command::Log:      serialui::printLog(); break;
+    case Command::Settings: serialui::printSettings(uiView()); break;
+    case Command::SetTemp:
+    case Command::SetRh: {
+      const UserSettings was = gSettings.user;
+      const bool temp = c == Command::SetTemp;
+      const bool ok = arg != -2 && (temp ? setTargetTemp(gSettings.user, a.f) : setRhSetpoint(gSettings.user, a.f));
+      if (!ok) {
+        if (temp) Serial.printf("  REFUSED: target temperature must be %.0f-%.0f C. Still %.1f C.\n", kTargetTempMinC, kTargetTempMaxC, was.targetTempC);
+        else      Serial.printf("  REFUSED: RH setpoint must be %.0f-%.0f%%. Still %.0f%%.\n", kRhSetpointMinPct, kRhSetpointMaxPct, was.rhSetpointPct);
+      } else if (sameUser(was, gSettings.user)) Serial.println("  No change.");
+      else applyUser(was, temp ? "set temp" : "set rh");
+      break;
+    }
+    case Command::SetHeater:
+    case Command::SetHumid: {
+      if (arg < 0) { Serial.println("  set heater on|off, set humid on|off. Nothing changed."); break; }
+      const UserSettings was = gSettings.user;
+      (c == Command::SetHeater ? gSettings.user.heaterEnable : gSettings.user.humidifierEnable) = (arg == 1);
+      if (sameUser(was, gSettings.user)) Serial.println("  No change.");
+      else applyUser(was, c == Command::SetHeater ? "set heater" : "set humid");
+      break;
+    }
+    case Command::SetDefaults: {
+      const UserSettings was = gSettings.user;
+      gSettings.user = UserSettings{};
+      if (sameUser(was, gSettings.user)) Serial.println("  Already at the defaults.");
+      else applyUser(was, "set defaults");
+      break;
+    }
+    case Command::Exclude: {
+      if (arg < 2 || arg > 7) { Serial.println("  exclude chN on|off (N = 2-7). Nothing changed."); break; }
+      const UserSettings was = gSettings.user;
+      const uint8_t bit = (uint8_t)(1u << (arg - kFirstChannel));
+      if (a.arg2 == 1) gSettings.user.manualExcludeMask |= bit;
+      else gSettings.user.manualExcludeMask &= (uint8_t)~bit;
+      if (sameUser(was, gSettings.user)) Serial.println("  No change.");
+      else applyUser(was, a.arg2 == 1 ? "exclude on" : "exclude off");
+      break;
+    }
 #if defined(WINEADOR_TEST_BUILD)
+    case Command::InjectCrc:
+    case Command::InjectTimeout:
+      if (arg < 2 || arg > 7) { Serial.println("  crc chN / timeout chN (N = 2-7). Nothing done."); break; }
+      i2cbus::injectFault(arg - kFirstChannel, c == Command::InjectCrc ? BusResult::CrcFail : BusResult::ShortRead);
+      Serial.printf("  TEST: the next read of ch%d will %s.\n", arg, c == Command::InjectCrc ? "fail its CRC" : "time out");
+      break;
     case Command::Stall: {
       // TEST BUILDS ONLY (B3 test 11). Stops feeding the watchdog on purpose.
       // Not compiled into the cabinet or bench builds at all. The outputs are
@@ -232,6 +373,9 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
         Serial.printf("  run %d is still going. Type stop first.\n", gScenario.number());
       } else if (!ScenarioRunner::exists(n)) {
         Serial.printf("  Scenarios: %s. Nothing started.\n", ScenarioRunner::list());
+      } else if (!sameUser(gSettings.user, UserSettings{})) {
+        Serial.println("  The scenarios check against the default user settings, and these have been changed.");
+        Serial.println("  Type 'set defaults' first. Nothing started.");
       } else {
         gScenario.start(n, nowMs, gModel);
       }
@@ -270,6 +414,8 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
     case Command::ResetsClear:
     case Command::Fan:
     case Command::HumidCool:
+    case Command::InjectCrc:
+    case Command::InjectTimeout:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -308,6 +454,9 @@ void setup() {
   resetrec::begin((int)esp_reset_reason());   // BOOT ONLY: one flash write (reset record, test builds)
 #endif
   gBoot.version = makeVersionString(gVersion, sizeof(gVersion), kFirmwareStage, kBuildProfile, kTestBuild);
+  // BOOT ONLY: the saved user settings (NVS, 5.5) — before anything takes a copy of the settings.
+  gBoot.userNote = userstore::load(gSettings.user);
+  gBoot.nvsSpace = userstore::nvsNamespace();
   gBoot.settingsProblem = validateSettings(gSettings);
 
   setenv("TZ", "UTC0", 1);                // timestamps are UTC (5.4)
@@ -328,6 +477,18 @@ void setup() {
   gBoot.sdOk = sdcard::begin();
   gBoot.sdMountMs = millis() - sdStart;
   gBoot.sdMB = sdcard::cardMB();
+  {
+    // The SD logging task (5.4). It writes nothing until the clock is set (first sweep).
+    static char hr[2600], he[700], hh[2600];
+    LogHeaderInfo info;
+    info.firmware = gVersion;
+    info.profile = kBuildProfile;
+    info.testBuild = kTestBuild;
+    formatReadingsHeader(hr, sizeof(hr), info);
+    formatEventsHeader(he, sizeof(he), info);
+    formatHourlyHeader(hh, sizeof(hh), info);
+    sdlog::begin(hr, he, hh);
+  }
   watchdog::feed();
 
   // BOOT ONLY: start WiFi and SNTP. Both return at once and connect in the background.
@@ -381,16 +542,16 @@ static void printExerciseEvents() {
   for (RelayExercise::Event e; (e = gCtl.exercise().takeEvent(&cyc)) != RelayExercise::Event::None;) {
     switch (e) {
       case RelayExercise::Event::Waiting:
-        Serial.println("  RELAY EXERCISE: started. Compressor and heater may not start; cycling once both are off.");
+        eventlog::log("exercise", "RELAY EXERCISE: started. Compressor and heater may not start; cycling once both are off.");
         break;
       case RelayExercise::Event::Energised:
-        Serial.printf("  RELAY EXERCISE: cycle %u/%u, K1 energised\n", (unsigned)cyc, (unsigned)gCtl.exercise().cycles());
+        eventlog::log("exercise", "RELAY EXERCISE: cycle %u/%u, K1 energised", (unsigned)cyc, (unsigned)gCtl.exercise().cycles());
         break;
       case RelayExercise::Event::Released:
-        Serial.printf("  RELAY EXERCISE: cycle %u/%u, K1 released\n", (unsigned)cyc, (unsigned)gCtl.exercise().cycles());
+        eventlog::log("exercise", "RELAY EXERCISE: cycle %u/%u, K1 released", (unsigned)cyc, (unsigned)gCtl.exercise().cycles());
         break;
       case RelayExercise::Event::Done:
-        Serial.println("  RELAY EXERCISE: done, three cycles. K1 on the cooling side.");
+        eventlog::log("exercise", "RELAY EXERCISE: done, three cycles. K1 on the cooling side.");
         break;
       default: break;
     }
@@ -401,7 +562,14 @@ static void printControlEvents() {
   char line[240];
   for (ControlEvent e; gTc.takeEvent(e);) {
     formatControlEvent(line, sizeof(line), e, gSettings);
-    Serial.printf("  %s\n", line);
+    const char* type = "control";
+    switch (e.type) {
+      case ControlEvent::Type::StripStart: case ControlEvent::Type::StripStop: type = "strip"; break;
+      case ControlEvent::Type::HarvestStart: case ControlEvent::Type::HarvestEnd: type = "harvest"; break;
+      case ControlEvent::Type::Crossover: type = "crossover"; break;
+      default: type = "ineffective"; break;     // heater / cooling ineffective or effective again
+    }
+    eventlog::log(type, "%s", line);
   }
 }
 
@@ -409,7 +577,8 @@ static void printHumidEvents() {
   char line[240];
   for (HumidEvent e; gHc.takeEvent(e);) {
     formatHumidEvent(line, sizeof(line), e, gSettings);
-    Serial.printf("  %s\n", line);
+    const bool call = e.type == HumidEvent::Type::CallStart || e.type == HumidEvent::Type::CallEnd;
+    eventlog::log(call ? "humidify" : "ineffective", "%s", line);
   }
 }
 
@@ -418,14 +587,14 @@ static void printFanEvents() {
   for (FanMonitor::Event e; (e = gFanMon.takeEvent(&k)) != FanMonitor::Event::None;) {
     switch (e) {
       case FanMonitor::Event::Stall:
-        Serial.println("  FAN STALL: tach reads zero with PWM asserted. Compressor and heater held off.");
+        eventlog::log("fan", "FAN STALL: tach reads zero with PWM asserted. Compressor and heater held off.");
         break;
       case FanMonitor::Event::Kick:
-        Serial.printf("  FAN STALL: kickstart %lu (100%% for 1 s); next in %lu s if the tach still reads zero\n",
+        eventlog::log("fan", "FAN STALL: kickstart %lu (100%% for 1 s); next in %lu s if the tach still reads zero",
                       (unsigned long)k, (unsigned long)(gSettings.safety.fanStallRetryMs / 1000));
         break;
       case FanMonitor::Event::Recovered:
-        Serial.printf("  FAN RECOVERED: tach reads %lu rpm. Loads may resume.\n", (unsigned long)fan::rpm());
+        eventlog::log("fan", "FAN RECOVERED: tach reads %lu rpm. Loads may resume.", (unsigned long)fan::rpm());
         break;
       default: break;
     }
@@ -444,19 +613,31 @@ static void afterSweep(uint32_t now) {
   applyScripted(r, gModel);
 #endif
   gHealth.update(r, now);
+  gLogicReadings = r;
   for (int i = 0; i < kNumSensors; i++) if (gHealth.wantsSerial(i)) i2cbus::wantSerial(i);
+
+  // CRC failures and timeouts per channel (5.4): counted always; up to 10 an hour each logged.
+  for (int i = 0; i < kNumSensors; i++) {
+    const BusResult b = gBusReadings.s[i].bus;
+    if (b != BusResult::CrcFail && b != BusResult::ShortRead) continue;
+    const bool crc = b == BusResult::CrcFail;
+    const uint32_t n = crc ? ++gCrcCount[i] : ++gTimeoutCount[i];
+    if (gBusLimit.allow(i, now))
+      eventlog::log(crc ? "crc" : "timeout", "ch%d %s: %s (%lu since boot)", channelOf(i), kSensors[i].position,
+                    crc ? "CRC failure" : "read timed out", (unsigned long)n);
+  }
 
   if (i2cbus::busStuckCount() != gStuckSeen) {
     gStuckSeen = i2cbus::busStuckCount();
-    Serial.printf("  I2C BUS STUCK with ch%d selected: mux reset pulsed, I2C restarted (%lu since boot). "
-                  "RTC and other sensors carry on.\n",
-                  channelOf(i2cbus::lastStuckIndex()), (unsigned long)gStuckSeen);
+    eventlog::log("i2c", "I2C BUS STUCK with ch%d selected: ch%d excluded, mux reset pulsed, I2C restarted (%lu since boot). "
+                  "RTC and other sensors carry on.",
+                  channelOf(i2cbus::lastStuckIndex()), channelOf(i2cbus::lastStuckIndex()), (unsigned long)gStuckSeen);
   }
   SensorHealth::Event e;
   while (gHealth.takeEvent(e)) {
-    if (e.excluded) Serial.printf("  SENSOR EXCLUDED: ch%d %s - %s\n", channelOf(e.index),
+    if (e.excluded) eventlog::log("sensor", "SENSOR EXCLUDED: ch%d %s - %s", channelOf(e.index),
                                   kSensors[e.index].position, exclusionName(e.reason));
-    else            Serial.printf("  SENSOR RECOVERED: ch%d %s - 10 good reads, serial re-checked\n",
+    else            eventlog::log("sensor", "SENSOR RECOVERED: ch%d %s - 10 good reads, serial re-checked",
                                   channelOf(e.index), kSensors[e.index].position);
   }
 
@@ -464,11 +645,13 @@ static void afterSweep(uint32_t now) {
     gClock.osfKnown = i2cbus::rtcStatusKnown();
     gClock.osfAtBoot = i2cbus::rtcOsf();
     if (!gClock.osfKnown)
-      Serial.println("  !! RTC status register not read: lost-time check (OSF) not done this boot");
+      eventlog::log("rtc", "!! RTC status register not read: lost-time check (OSF) not done this boot");
     else if (gClock.osfAtBoot) {
       Serial.println("\n  !! RTC LOST TIME: the DS3231's oscillator stopped while unpowered (OSF set).");
       Serial.println("  !! Timestamps are UNTRUSTED until NTP corrects the clock. Control is unaffected.");
       Serial.println("  !! If this repeats, replace the RTC cell (spec 2.4).\n");
+      eventlog::logQuiet("rtc", "RTC LOST TIME at boot: DS3231 oscillator stopped while unpowered (OSF set); "
+                                "timestamps untrusted until NTP corrects the clock");
     }
   }
 }
@@ -484,7 +667,7 @@ static bool afterNtp(uint32_t now) {
     gClockSet = true;                     // the system clock now has NTP's time
     char ts[24];
     timestamp(ts, sizeof(ts));
-    Serial.printf("  NTP SYNC %lu: system clock set to %s\n", (unsigned long)timesync::syncCount(), ts);
+    eventlog::log("ntp", "NTP SYNC %lu: system clock set to %s", (unsigned long)timesync::syncCount(), ts);
     gCheckRtc = true;
     printed = true;
   }
@@ -499,7 +682,7 @@ static bool afterNtp(uint32_t now) {
       gClock.corrected = true;
       gClock.lastCorrectionS = gRtcErrorS;
       gClock.correctedAtMs = uptimeMs();
-      Serial.printf("  NTP: DS3231 within 2 s (%+lld s); not written\n", (long long)gRtcErrorS);
+      eventlog::log("ntp", "NTP: DS3231 within 2 s (%+lld s); not written", (long long)gRtcErrorS);
       printed = true;
     }
   }
@@ -523,10 +706,10 @@ static bool afterNtp(uint32_t now) {
       gClock.correctedAtMs = uptimeMs();
       char ts[24];
       timestamp(ts, sizeof(ts));
-      Serial.printf("  NTP: DS3231 was %+lld s out; set to %s%s\n", (long long)gRtcErrorS, ts,
+      eventlog::log("ntp", "NTP correction: DS3231 was %+lld s out; set to %s%s", (long long)gRtcErrorS, ts,
                     hadOsf ? ". OSF cleared; timestamps trusted again" : "");
     } else {
-      Serial.println("  NTP: DS3231 write FAILED; trying again after the next sweep");
+      eventlog::log("ntp", "NTP: DS3231 write FAILED; trying again after the next sweep");
       gCheckRtc = true;
     }
     printed = true;
@@ -534,10 +717,144 @@ static bool afterNtp(uint32_t now) {
   return printed;
 }
 
+// ---------------------------------------------------------------- logging (5.4)
+// The boot event, then SD writing starts — once the clock is set from the RTC (or
+// after 10 s without it: rows then carry the clock's own date, time_trusted 0).
+static void startLogging() {
+  if (gLogStarted || (!gClockSet && uptimeMs() < 10000)) return;
+  gLogStarted = true;
+  const time_t t = time(nullptr);
+  struct tm tmv;
+  gmtime_r(&t, &tmv);
+  sdlog::start(tmv.tm_year + 1900, tmv.tm_mon + 1);
+  eventlog::log("boot", "BOOT: reason %s; firmware %s; profile %s%s; user settings %s; clock %s", gBoot.bootReason, gVersion,
+                kBuildProfile == Profile::Bench ? "BENCH" : "REAL", kTestBuild ? " TEST-BUILD" : "", gBoot.userNote,
+                !gClockSet ? "NOT SET (RTC unreadable)" : gClock.trusted() ? "set from the RTC" : "set from the RTC, LOST TIME");
+}
+
+static void logReadingsRow(uint32_t now) {
+  const LoadOutputs l = outputs::current();
+  const uint32_t interval = (l.cool || l.heat) ? gSettings.tuning.logActiveMs : gSettings.tuning.logSteadyMs;
+  if (!gLogStarted || (gLastRowMs != 0 && elapsedMs(now, gLastRowMs) + 1000 < interval)) return;
+  gLastRowMs = now;
+  char ts[24];
+  eventlog::isoNow(ts, sizeof(ts));
+  ReadingsRow row;
+  row.timestamp = ts;
+  row.timeTrusted = eventlog::clockTrusted();
+  for (int i = 0; i < kNumSensors; i++) {
+    const SensorReading& v = gLogicReadings.s[i];
+    row.ch[i].read = v.bus == BusResult::Ok;
+    row.ch[i].tempC = v.tempC;
+    row.ch[i].rhRawPct = v.rhRawPct;
+    row.ch[i].rhPct = correctedRh(i, v.rhRawPct);
+    row.ch[i].flag = gHealth.healthy(i) ? "ok" : exclusionName(gHealth.reason(i));
+    const SensorReading& b = gBusReadings.s[i];
+    row.real[i].read = b.bus == BusResult::Ok;
+    row.real[i].tempC = b.tempC;
+    row.real[i].rhRawPct = b.rhRawPct;
+    row.real[i].rhPct = correctedRh(i, b.rhRawPct);
+    row.real[i].flag = busResultName(b.bus);
+  }
+  row.cab = gHealth.summary();
+  row.fanPct = fan::duty();
+  row.fanRpm = fan::rpm();
+  row.cool = l.cool;
+  row.heaterDutyPct = l.heat ? gSettings.tuning.heaterPwmCapPct : 0;
+  row.humid = l.humid;
+  row.relayHeating = l.relayHeating;
+  row.loopMaxUs = gLoopMaxLog.take();
+  if (!sdlog::writing()) gHeapLast = ESP.getFreeHeap();   // never sampled during a card write (5.2)
+  row.heapFree = gHeapLast;
+  row.sdWorstMs = sdlog::takeWorstMs();
+  static char line[600];   // = the SD queue line size (sd_log.cpp kLine)
+  formatReadingsRow(line, sizeof(line), row, kTestBuild);
+  sdlog::reading(line);
+}
+
+// After each sweep: the hourly figures; a row when the UTC hour changes.
+static void logHourly() {
+  const time_t t = time(nullptr);
+  struct tm tmv;
+  gmtime_r(&t, &tmv);
+  const uint32_t key = (uint32_t)(((tmv.tm_year * 366) + tmv.tm_yday) * 24 + tmv.tm_hour);
+  char stamp[24];
+  strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:00:00Z", &tmv);
+  if (!gHourlyStarted || key != gHourly.hourKey()) {
+    if (gHourlyStarted && gHourly.samples() > 0 && gLogStarted) {
+      static char row[1500];
+      gHourly.formatRow(row, sizeof(row));
+      sdlog::hourly(row);
+    }
+    gHourly.begin(key, stamp, eventlog::clockTrusted());
+    gHourlyStarted = true;
+  }
+  bool ok[kNumSensors];
+  float tc[kNumSensors], rh[kNumSensors];
+  for (int i = 0; i < kNumSensors; i++) { ok[i] = gHealth.healthy(i); tc[i] = gHealth.tempC(i); rh[i] = gHealth.rhPct(i); }
+  gHourly.addSweep(ok, tc, rh, gHealth.summary(), fan::duty(), fan::rpm());
+}
+
+// Load on/off and interlock events, with the reason (5.4). Quiet on serial: the NOW LIVE
+// block above already shows the change; these go to the card and the 'events' list.
+static void logLoadChanges(const LoadOutputs& was, const LoadOutputs& now) {
+  const GuardDecisions& d = gCtl.decisions();
+  bool scripted = kBootDemand;
+#if defined(WINEADOR_TEST_BUILD)
+  scripted = scripted || (gScenario.running() && !gScenario.usesControl());
+#endif
+  const CabinetSummary c = gHealth.summary();
+  char why[80];
+  if (was.cool != now.cool) {
+    if (now.cool) {
+      if (scripted) snprintf(why, sizeof(why), "scenario asks directly");
+      else if (gTc.stripping()) snprintf(why, sizeof(why), "RH strip, mean RH %.1f%%", c.meanRhPct);
+      else snprintf(why, sizeof(why), "temperature call, control %.2f C", c.controlC);
+    } else {
+      snprintf(why, sizeof(why), "%s", d.cool.block != GuardBlock::None ? guardBlockName(d.cool.block) : "demand ended");
+      gLastCompressorStopMs = uptimeMs();
+    }
+    eventlog::logQuiet("compressor", "compressor %s (%s)", now.cool ? "ON" : "OFF", why);
+  }
+  if (was.heat != now.heat) {
+    if (now.heat) snprintf(why, sizeof(why), "%s", scripted ? "scenario asks directly" : "temperature call");
+    else snprintf(why, sizeof(why), "%s", d.heat.block != GuardBlock::None ? guardBlockName(d.heat.block) : "demand ended");
+    if (now.heat && !scripted) snprintf(why, sizeof(why), "temperature call, control %.2f C", c.controlC);
+    eventlog::logQuiet("heater", "heater %s (%s)", now.heat ? "ON" : "OFF", why);
+  }
+  if (was.humid != now.humid) {
+    if (now.humid) {
+      if (scripted) snprintf(why, sizeof(why), "scenario asks directly");
+      else if (gHc.call()) snprintf(why, sizeof(why), "humidify call, mean RH %.1f%%", c.meanRhPct);
+      else snprintf(why, sizeof(why), "demanded directly (test)");
+    } else snprintf(why, sizeof(why), "%s", d.humid.block != GuardBlock::None ? guardBlockName(d.humid.block) : "demand ended");
+    eventlog::logQuiet("humidifier", "humidifier %s (%s)", now.humid ? "ON" : "OFF", why);
+  }
+  if (was.relayHeating != now.relayHeating)
+    eventlog::logQuiet("interlock", "K1 to the %s side%s", now.relayHeating ? "heating" : "cooling",
+                  gCtl.exercise().cycling() ? " (relay exercise)" : "");
+}
+
+// The SD card failing or coming back (the logging task writes the details).
+static void watchSd(uint32_t now) {
+  if (elapsedMs(now, gLastSdCheckMs) < 250) return;
+  gLastSdCheckMs = now;
+  const sdlog::Stats st = sdlog::stats();
+  if (st.failed && !gSdFailedShown && gLogStarted) {
+    gSdFailedShown = true;
+    eventlog::log("sd", "SD FLUSH FAILURE: %s. Logging paused (events kept in RAM, readings rows dropped); control "
+                        "unaffected; remount tried every 30 s", st.lastError[0] ? st.lastError : "card not mounted");
+  } else if (!st.failed && gSdFailedShown) {
+    gSdFailedShown = false;
+    Serial.println("  SD card back: remounted, logging resumed (details in the card's events file).");
+  }
+}
+
 void loop() {
   const uint32_t t0 = micros();
   const uint32_t now = millis();
   watchdog::feed();
+  eventlog::setClock(gClockSet, gClock.trusted());
 
   // 1. Minimum job, every pass. Uses the health and readings already to hand; waits for nothing.
   const int cabOk = gHealth.healthyCabinet();
@@ -582,6 +899,14 @@ void loop() {
   in.sensorHoldHumid = gGate.humidHolding();
   in.live = outputs::current();
   outputs::apply(gCtl.pass(in, demand));
+  gGuardTrack.update(gCtl.decisions());
+  for (GuardBlockTracker::Change ch; gGuardTrack.take(ch);) {
+    char g[120];
+    GuardBlockTracker::format(g, sizeof(g), ch);
+    eventlog::log("guard", "%s", g);
+  }
+  gHourly.addOnTime(elapsedMs(now, gLastPassMs), outputs::current());
+  gLastPassMs = now;
   // Heater PWM cap (starting value 100 %: full duty). Gates the pin only while the heater is on.
   {
     const bool heatOn = outputs::current().heat;
@@ -629,8 +954,12 @@ void loop() {
     sweptThisPass = true;
     gBusReadings = i2cbus::readings();
     gLastSweepDoneMs = now;
+    setClockFromRtc();                    // first, so the boot event and every row after it carry real time
+    eventlog::setClock(gClockSet, gClock.trusted());
+    startLogging();
     afterSweep(now);
-    setClockFromRtc();
+    logHourly();
+    logReadingsRow(now);
     if (i2cbus::lastSweepWasBoot()) {
       console::printSensorCheck();
       printNow = true;                    // one status line straight after the boot check
@@ -638,6 +967,15 @@ void loop() {
     if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
   }
   if (afterNtp(now)) printNow = true;
+  startLogging();                         // the 10 s fallback if the clock never came
+  watchSd(now);
+  {
+    int idx;
+    uint32_t more;
+    while (gBusLimit.takeSuppressed(now, &idx, &more))
+      eventlog::log("crc", "ch%d: %lu more CRC failures / timeouts in the last hour (only the first 10 logged)",
+                    channelOf(idx), (unsigned long)more);
+  }
 
   // Status line on its own 15 s timer, so a stuck bus cannot stop it.
   if (elapsedMs(now, gLastStatusMs) >= gSettings.tuning.sensorReadMs) {
@@ -648,9 +986,9 @@ void loop() {
   // 4. Commands — read what has arrived, never wait for more
   for (int i = 0; i < 64 && Serial.available(); i++) {
     if (gLine.feed((char)Serial.read())) {
-      int arg = -1;
-      Command c = parseCommand(gLine.line(), kTestBuild, &arg);
-      handleCommand(c, arg, now);
+      CommandArgs args;
+      Command c = parseCommand(gLine.line(), kTestBuild, args);
+      handleCommand(c, args, now);
     }
   }
 
@@ -664,6 +1002,7 @@ void loop() {
   if (loads != gShownLoads) {
     char why[120];
     describeChange(why, sizeof(why), gShownLoads, loads);
+    logLoadChanges(gShownLoads, loads);
     gShownLoads = loads;
     gShownFan = fanNow;
     printLive(why);
@@ -701,5 +1040,7 @@ void loop() {
   (void)sweptThisPass;
 #endif
   if (printNow) printStatus();
-  gLoopMax.add(micros() - t0);
+  const uint32_t passUs = micros() - t0;
+  gLoopMax.add(passUs);
+  gLoopMaxLog.add(passUs);
 }

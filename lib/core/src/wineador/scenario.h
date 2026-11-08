@@ -33,6 +33,13 @@
 //   run 20  humidifier ceiling and sensors: one sensor at 70 %; cabinet sensors excluded one at a time
 //   run 21  humidifier exclusivity: during a strip; during a temperature run with the setting off, then on
 //   run 22  humidifier ineffective: vapour pressure held flat; off, flagged, held, retried
+// Stage 6:
+//   run 24    test 24 (logging): the automatic part — a chain that produces the control event
+//             types (loads, interlock, harvest, guard blocks, crossover, strip, humidify,
+//             ineffective, relay exercise). The physical ones are added by hand.
+//   run soak  B4 step 1: ~24 h with REAL timers (real_test build). Room value and drift set per
+//             phase so every load cycles several times and reaches its real limits; every pass
+//             audited (guard_audit.h); PASS with the counts at the end.
 // `stop` ends a scenario early; the demand goes back to none.
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -45,6 +52,8 @@
 #include "wineador/fan_monitor.h"
 #include "wineador/temp_control.h"
 #include "wineador/humid_control.h"
+#include "wineador/guard_audit.h"
+#include "wineador/commands.h"
 
 namespace wineador {
 
@@ -85,7 +94,8 @@ class ScenarioRunner {
   bool usesControl() const { return running() && usesControl(n_); }
   // (Their demand() is then added on top of the control's: run 21 'demands humidify'.)
   static bool usesControl(int n) {
-    return n == 7 || n == 8 || n == 9 || n == 10 || n == 17 || n == 23 || n == 19 || n == 20 || n == 21 || n == 22;
+    return n == 7 || n == 8 || n == 9 || n == 10 || n == 17 || n == 23 || n == 19 || n == 20 || n == 21 || n == 22 ||
+           n == 24 || n == kSoakScenario;
   }
 
   // Text to print, oldest first; nullptr when there is none.
@@ -95,7 +105,10 @@ class ScenarioRunner {
     return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15 ||
            usesControl(n);
   }
-  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22"; }
+  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24, soak"; }
+  // The soak's running audit (for the status of a long run).
+  const GuardAudit& audit() const { return audit_; }
+  static constexpr uint32_t kSoakMs = 24UL * 60UL * 60UL * 1000UL;
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);
@@ -123,6 +136,8 @@ class ScenarioRunner {
   void run20(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void run21(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void run22(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run24(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void runSoak(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
 
   Settings s_;
   int n_ = 0;
@@ -154,6 +169,11 @@ class ScenarioRunner {
   // Stage 4
   TemperatureControl* tc_ = nullptr;   // so finish() can clear the idle fan override
   Controller* ctl_ = nullptr;          // ...and put 'humidify during cooling runs' back (run 21)
+  // Stage 6
+  GuardAudit audit_;
+  int soakPhase_ = -1;
+  uint32_t soakCycle_ = 0;
+  uint32_t lastReportMs_ = 0;
   float sweepC_ = 0;                   // run 7: the scripted cabinet temperature
   int dir_ = 1;
   uint32_t lastTickMs_ = 0;

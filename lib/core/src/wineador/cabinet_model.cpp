@@ -33,14 +33,14 @@ void CabinetModel::step(uint32_t dtMs, const LoadOutputs& loads) {
   const bool cooling = loads.cool && !loads.relayHeating && rates_.coolResponds;
   const bool heating = loads.heat && loads.relayHeating && rates_.heatResponds;
 
+  // Heat leaks in or out towards the room all the time; a running load adds its own rate on top.
+  cabinetC_ = towards(cabinetC_, rates_.roomC, rates_.driftCPerMin * min);
   if (cooling) {
     cabinetC_ += rates_.coolCPerMin * min;
     cabinetVp_ -= rates_.coolVpKpaPerMin * min;
     if (cabinetVp_ < 0.0f) cabinetVp_ = 0.0f;
   } else if (heating) {
     cabinetC_ += rates_.heatCPerMin * min;
-  } else {
-    cabinetC_ = towards(cabinetC_, rates_.roomC, rates_.driftCPerMin * min);
   }
 
   // The chamber chases cabinet -/+ swing during a run, the cabinet value otherwise.

@@ -16,6 +16,8 @@ struct BootInfo {
   bool sdOk = false;
   uint64_t sdMB = 0;
   uint32_t sdMountMs = 0;   // how long the boot-time mount took
+  const char* userNote = "";   // user settings: "saved settings loaded" / "none saved (defaults)"
+  const char* nvsSpace = "";   // which NVS section this build keeps them in
 };
 
 void printBanner(const wineador::Settings& s, const BootInfo& b);

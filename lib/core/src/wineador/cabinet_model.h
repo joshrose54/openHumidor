@@ -5,8 +5,9 @@
 // empty, so any use of the model in a cabinet build fails to compile.
 //
 // Heating raises the scripted cabinet temperature, cooling lowers it,
-// humidifying adds moisture; otherwise the cabinet drifts back towards the room
-// value. Each response can be switched off to test the ineffective checks.
+// humidifying adds moisture; and all the time the cabinet drifts towards the room
+// value (heat leaking in or out), so a strong drift can outrun a load (the B4 soak
+// uses that to reach the maximum runs). Each response can be switched off to test the ineffective checks.
 //
 // Chamber (stage 4): it sits by the plate and heater, so it swings much faster
 // than the cabinet: during a run it heads for cabinet +/- chamberSwingC with a

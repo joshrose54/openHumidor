@@ -68,4 +68,10 @@ bool rtcDateTime(wineador::DateTime& dt);      // last good RTC read
 uint32_t rtcReadAtMs();                        // millis() when that read happened
 bool internalPullupsOff();                     // checked from the IO_MUX registers
 
+#if defined(WINEADOR_TEST_BUILD)
+// TEST BUILDS ONLY (B3 test 24): the next measurement read of this sensor reports
+// a CRC failure (CrcFail) or a timeout (ShortRead). One read only.
+void injectFault(int index, wineador::BusResult r);
+#endif
+
 }  // namespace i2cbus

@@ -1,7 +1,7 @@
 #include "wineador/commands.h"
 #include <string.h>
 #include <ctype.h>
-#include <strings.h>
+#include <stdlib.h>
 
 namespace wineador {
 
@@ -20,76 +20,150 @@ bool LineReader::feed(char c) {
   return false;
 }
 
-Command parseCommand(const char* line, bool testBuild, int* arg) {
-  if (arg) *arg = -1;
-  char w[16];
-  size_t n = 0;
-  while (*line == ' ' || *line == '\t') line++;
-  while (*line && *line != ' ' && *line != '\t' && n < sizeof(w) - 1)
-    w[n++] = (char)tolower((unsigned char)*line++);
-  w[n] = 0;
-  while (*line == ' ' || *line == '\t') line++;
-  if (n == 0) return Command::None;
+namespace {
 
-  // "run <n>": the only command that takes a word after it.
-  if (strcmp(w, "run") == 0) {
-    if (!testBuild) return Command::TestOnly;
-    int v = 0, digits = 0;
-    while (*line >= '0' && *line <= '9' && digits < 4) { v = v * 10 + (*line++ - '0'); digits++; }
+constexpr int kWords = 5;
+constexpr size_t kWordLen = 16;
+
+// Splits into lower-case words. Returns the count (a word too long makes it kWords + 1).
+int split(const char* line, char w[kWords][kWordLen]) {
+  int n = 0;
+  while (*line) {
     while (*line == ' ' || *line == '\t') line++;
-    if (arg) *arg = (digits > 0 && *line == 0) ? v : -1;
+    if (!*line) break;
+    if (n == kWords) return kWords + 1;
+    size_t k = 0;
+    while (*line && *line != ' ' && *line != '\t') {
+      if (k == kWordLen - 1) return kWords + 1;
+      w[n][k++] = (char)tolower((unsigned char)*line++);
+    }
+    w[n][k] = 0;
+    n++;
+  }
+  return n;
+}
+
+// Whole word is an integer 0..9999.
+bool toInt(const char* s, int* v) {
+  if (!*s || strlen(s) > 4) return false;
+  int x = 0;
+  for (; *s; s++) {
+    if (*s < '0' || *s > '9') return false;
+    x = x * 10 + (*s - '0');
+  }
+  *v = x;
+  return true;
+}
+
+// Whole word is a plain decimal number ("19", "19.5", "-3").
+bool toFloat(const char* s, float* v) {
+  if (!*s) return false;
+  char* end = nullptr;
+  const float x = strtof(s, &end);
+  if (!end || *end) return false;
+  *v = x;
+  return true;
+}
+
+int onOff(const char* s) {
+  if (strcmp(s, "on") == 0) return 1;
+  if (strcmp(s, "off") == 0) return 0;
+  return -2;
+}
+
+// "ch3" or "3" -> 3 (channels 2..7); -2 otherwise.
+int channelWord(const char* s) {
+  if (s[0] == 'c' && s[1] == 'h') s += 2;
+  int v;
+  if (!toInt(s, &v) || v < 2 || v > 7) return -2;
+  return v;
+}
+
+}  // namespace
+
+Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
+  a = CommandArgs{};
+  char w[kWords][kWordLen];
+  const int n = split(line, w);
+  if (n == 0) return Command::None;
+  if (n > kWords) return Command::Unknown;
+  const char* c = w[0];
+
+  // ---- test builds only
+  if (strcmp(c, "run") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    int v;
+    if (n == 2 && strcmp(w[1], "soak") == 0) a.arg = kSoakScenario;
+    else a.arg = (n == 2 && toInt(w[1], &v)) ? v : -1;
     return Command::Run;
   }
-  // "fan <pct>" or "fan auto"
-  if (strcmp(w, "fan") == 0) {
+  if (strcmp(c, "resets") == 0) {
     if (!testBuild) return Command::TestOnly;
-    if (arg) *arg = -2;
-    if (strncasecmp(line, "auto", 4) == 0) {
-      line += 4;
-      while (*line == ' ' || *line == '\t') line++;
-      if (*line == 0 && arg) *arg = -1;
-      return Command::Fan;
-    }
-    int v = 0, digits = 0;
-    while (*line >= '0' && *line <= '9' && digits < 4) { v = v * 10 + (*line++ - '0'); digits++; }
-    while (*line == ' ' || *line == '\t') line++;
-    if (arg && digits > 0 && *line == 0) *arg = v;
+    if (n == 1) return Command::Resets;
+    return (n == 2 && strcmp(w[1], "clear") == 0) ? Command::ResetsClear : Command::Unknown;
+  }
+  if (strcmp(c, "fan") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    int v;
+    a.arg = -2;
+    if (n == 2 && strcmp(w[1], "auto") == 0) a.arg = -1;
+    else if (n == 2 && toInt(w[1], &v)) a.arg = v;
     return Command::Fan;
   }
-  // "humidcool on" / "humidcool off"
-  if (strcmp(w, "humidcool") == 0) {
+  if (strcmp(c, "humidcool") == 0) {
     if (!testBuild) return Command::TestOnly;
-    if (arg) *arg = -2;
-    char w2[8];
-    size_t m = 0;
-    while (*line && *line != ' ' && *line != '\t' && m < sizeof(w2) - 1) w2[m++] = (char)tolower((unsigned char)*line++);
-    w2[m] = 0;
-    while (*line == ' ' || *line == '\t') line++;
-    if (*line == 0 && arg) {
-      if (strcmp(w2, "on") == 0) *arg = 1;
-      else if (strcmp(w2, "off") == 0) *arg = 0;
-    }
+    a.arg = (n == 2) ? onOff(w[1]) : -2;
     return Command::HumidCool;
   }
-  // "resets" or "resets clear"
-  if (strcmp(w, "resets") == 0) {
+  if (strcmp(c, "crc") == 0 || strcmp(c, "timeout") == 0) {
     if (!testBuild) return Command::TestOnly;
-    if (*line == 0) return Command::Resets;
-    char w2[8];
-    size_t m = 0;
-    while (*line && *line != ' ' && *line != '\t' && m < sizeof(w2) - 1) w2[m++] = (char)tolower((unsigned char)*line++);
-    w2[m] = 0;
-    while (*line == ' ' || *line == '\t') line++;
-    return (strcmp(w2, "clear") == 0 && *line == 0) ? Command::ResetsClear : Command::Unknown;
+    a.arg = (n == 2) ? channelWord(w[1]) : -2;
+    return c[0] == 'c' ? Command::InjectCrc : Command::InjectTimeout;
   }
-  if (*line) return Command::Unknown;   // anything after the word
+  if (strcmp(c, "stop") == 0 && n == 1) return testBuild ? Command::Stop : Command::TestOnly;
+  if (strcmp(c, "stall") == 0 && n == 1) return testBuild ? Command::Stall : Command::StallNotAllowed;
 
-  if (strcmp(w, "boot") == 0) return Command::Boot;
-  if (strcmp(w, "exercise") == 0) return Command::Exercise;
-  if (strcmp(w, "stop") == 0) return testBuild ? Command::Stop : Command::TestOnly;
-  if (strcmp(w, "help") == 0) return Command::Help;
-  if (strcmp(w, "stall") == 0) return testBuild ? Command::Stall : Command::StallNotAllowed;
+  // ---- every build
+  if (strcmp(c, "events") == 0) {
+    int v;
+    if (n == 1) return Command::Events;
+    a.arg = (n == 2 && toInt(w[1], &v)) ? v : -2;
+    return n == 2 ? Command::Events : Command::Unknown;
+  }
+  if (strcmp(c, "set") == 0) {
+    if (n == 2 && strcmp(w[1], "defaults") == 0) return Command::SetDefaults;
+    if (n != 3) return Command::Unknown;
+    if (strcmp(w[1], "temp") == 0 || strcmp(w[1], "rh") == 0) {
+      if (!toFloat(w[2], &a.f)) a.arg = -2;
+      return w[1][0] == 't' ? Command::SetTemp : Command::SetRh;
+    }
+    if (strcmp(w[1], "heater") == 0) { a.arg = onOff(w[2]); return Command::SetHeater; }
+    if (strcmp(w[1], "humid") == 0)  { a.arg = onOff(w[2]); return Command::SetHumid; }
+    return Command::Unknown;
+  }
+  if (strcmp(c, "exclude") == 0) {
+    if (n != 3) { a.arg = -2; return Command::Exclude; }
+    a.arg = channelWord(w[1]);
+    a.arg2 = onOff(w[2]);
+    if (a.arg2 < 0) a.arg = -2;
+    return Command::Exclude;
+  }
+  if (n != 1) return Command::Unknown;   // the rest take no words after them
+  if (strcmp(c, "boot") == 0) return Command::Boot;
+  if (strcmp(c, "help") == 0) return Command::Help;
+  if (strcmp(c, "exercise") == 0) return Command::Exercise;
+  if (strcmp(c, "status") == 0) return Command::Status;
+  if (strcmp(c, "sensors") == 0) return Command::Sensors;
+  if (strcmp(c, "log") == 0) return Command::Log;
+  if (strcmp(c, "settings") == 0) return Command::Settings;
   return Command::Unknown;
+}
+
+Command parseCommand(const char* line, bool testBuild, int* arg) {
+  CommandArgs a;
+  const Command c = parseCommand(line, testBuild, a);
+  if (arg) *arg = a.arg;
+  return c;
 }
 
 }  // namespace wineador

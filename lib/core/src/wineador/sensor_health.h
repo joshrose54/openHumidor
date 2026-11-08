@@ -55,6 +55,8 @@ class SensorHealth {
   };
 
   void begin(const Settings& s);
+  // A user setting changed (the manual exclude mask): applied at the next update.
+  void setUser(const UserSettings& u) { set_.user = u; }
 
   // The serials read at boot (or re-read for a recovery). bus = how the read went.
   void serialResult(int index, BusResult bus, uint32_t serial);

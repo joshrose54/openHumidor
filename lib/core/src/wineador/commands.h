@@ -1,8 +1,15 @@
 #pragma once
-// The small serial command reader: "boot", "help", "exercise" (every build),
-// and "stall", "run <n>", "stop", "resets [clear]", "fan <pct>|auto", "humidcool on|off" (test builds only). The full serial interface
-// arrives at stage 6.
-// Characters are fed one at a time, so reading never waits.
+// The serial interface (spec B3-B5 "serial only", 5.5): commands typed at the
+// serial monitor. Characters are fed one at a time, so reading never waits.
+//
+// Every build:
+//   boot · help · exercise
+//   status · sensors · events [n] · log · settings
+//   set temp <C> · set rh <%> · set heater on|off · set humid on|off · set defaults
+//   exclude chN on|off              (user settings and manual excludes, saved to NVS)
+// Test builds only:
+//   stall · run <n> (or "run soak") · stop · resets [clear] · fan <pct>|auto ·
+//   humidcool on|off · crc chN · timeout chN
 
 #include "wineador/types.h"
 
@@ -15,16 +22,38 @@ enum class Command : uint8_t {
   Stall,             // TEST BUILDS ONLY: lock the main loop so the watchdog fires (B3 test 11)
   StallNotAllowed,   // "stall" typed in a cabinet build
   Exercise,          // start the relay exercise now (every build; loads held off)
-  Run,               // TEST BUILDS ONLY: "run <n>" plays B3 test n's scenario
+  Run,               // TEST BUILDS ONLY: "run <n>" plays B3 test n's scenario ("run soak" = kSoakScenario)
   Stop,              // TEST BUILDS ONLY: end the scenario early
   Resets,            // TEST BUILDS ONLY: print the reset record
   ResetsClear,       // TEST BUILDS ONLY: "resets clear" empties it
   Fan,               // TEST BUILDS ONLY: "fan <pct>" sets the IDLE fan duty (0 or 20-100; 1-19 refused),
-                     //   "fan auto" back to the setting. *arg = pct, -1 = auto, -2 = not a number
+                     //   "fan auto" back to the setting. arg = pct, -1 = auto, -2 = not a number
   HumidCool,         // TEST BUILDS ONLY: "humidcool on|off" — humidify during cooling runs (B3 test 21).
-                     //   *arg = 1 on, 0 off, -2 neither
-  TestOnly,          // "run" or "stop" typed in a cabinet build
+                     //   arg = 1 on, 0 off, -2 neither
+  // ---- stage 6: the serial interface
+  Status,            // the dashboard's view (5.5), as text
+  Sensors,           // per-channel health and counts
+  Events,            // the last n events (arg = n, -1 = default, -2 = not a number)
+  Log,               // the SD card and logging state
+  Settings,          // all three tiers
+  SetTemp,           // "set temp 19.5": f = value (arg -2 = not a number)
+  SetRh,             // "set rh 63":     f = value (arg -2 = not a number)
+  SetHeater,         // "set heater on|off": arg 1 / 0, -2 neither
+  SetHumid,          // "set humid on|off":  arg 1 / 0, -2 neither
+  SetDefaults,       // "set defaults": every user setting back to its default, excludes cleared
+  Exclude,           // "exclude ch3 on|off": arg = channel 2..7 (-2 = bad), arg2 = 1 on / 0 off
+  InjectCrc,         // TEST BUILDS ONLY: "crc ch3" — the next read of ch3 fails its CRC (B3 test 24)
+  InjectTimeout,     // TEST BUILDS ONLY: "timeout ch3" — the next read of ch3 times out
+  TestOnly,          // a test-build command typed in a cabinet build
   Unknown,
+};
+
+constexpr int kSoakScenario = 100;   // "run soak" (B4 step 1)
+
+struct CommandArgs {
+  int arg = -1;
+  int arg2 = -1;
+  float f = 0;
 };
 
 class LineReader {
@@ -41,8 +70,9 @@ class LineReader {
   bool overflow_ = false;
 };
 
-// Trims spaces, ignores case. For Run, *arg gets the test number (-1 if missing
-// or not a number). For Fan, *arg gets the duty (-1 = auto, -2 = not a number).
+// Trims spaces, ignores case.
+Command parseCommand(const char* line, bool testBuild, CommandArgs& a);
+// The short form (the integer argument only).
 Command parseCommand(const char* line, bool testBuild, int* arg = nullptr);
 
 }  // namespace wineador

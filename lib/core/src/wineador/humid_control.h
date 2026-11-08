@@ -59,6 +59,7 @@ class HumidControl {
  public:
   void begin(const Settings& s, uint32_t nowMs);
   HumidOutput update(const HumidInputs& in);
+  void setUser(const UserSettings& u) { s_.user = u; }
 
   bool call() const { return call_; }
   bool persisting() const { return persisting_; }

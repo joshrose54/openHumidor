@@ -237,6 +237,54 @@ void test_status_line_humid_text() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "| humid CALL | calls 1 runs 2"));
 }
 
+void test_stage6_serial_interface_commands() {
+  CommandArgs a;
+  TEST_ASSERT_TRUE(parseCommand("status", false, a) == Command::Status);
+  TEST_ASSERT_TRUE(parseCommand("Sensors", false, a) == Command::Sensors);
+  TEST_ASSERT_TRUE(parseCommand("log", false, a) == Command::Log);
+  TEST_ASSERT_TRUE(parseCommand("settings", false, a) == Command::Settings);
+  TEST_ASSERT_TRUE(parseCommand("events", false, a) == Command::Events);
+  TEST_ASSERT_EQUAL_INT(-1, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("events 25", false, a) == Command::Events);
+  TEST_ASSERT_EQUAL_INT(25, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("events lots", false, a) == Command::Events);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set temp 19.5", false, a) == Command::SetTemp);
+  TEST_ASSERT_EQUAL_FLOAT(19.5f, a.f);
+  TEST_ASSERT_EQUAL_INT(-1, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set temp warm", false, a) == Command::SetTemp);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("SET RH 63", false, a) == Command::SetRh);
+  TEST_ASSERT_EQUAL_FLOAT(63.0f, a.f);
+  TEST_ASSERT_TRUE(parseCommand("set heater off", false, a) == Command::SetHeater);
+  TEST_ASSERT_EQUAL_INT(0, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set humid on", false, a) == Command::SetHumid);
+  TEST_ASSERT_EQUAL_INT(1, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set humid maybe", false, a) == Command::SetHumid);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set defaults", false, a) == Command::SetDefaults);
+  TEST_ASSERT_TRUE(parseCommand("set colour blue", false, a) == Command::Unknown);
+  TEST_ASSERT_TRUE(parseCommand("exclude ch3 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(3, a.arg);
+  TEST_ASSERT_EQUAL_INT(1, a.arg2);
+  TEST_ASSERT_TRUE(parseCommand("exclude 7 off", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(7, a.arg);
+  TEST_ASSERT_EQUAL_INT(0, a.arg2);
+  TEST_ASSERT_TRUE(parseCommand("exclude ch8 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);                       // no such channel
+  TEST_ASSERT_TRUE(parseCommand("exclude ch3", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  // test-build only
+  TEST_ASSERT_TRUE(parseCommand("crc ch4", true, a) == Command::InjectCrc);
+  TEST_ASSERT_EQUAL_INT(4, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("timeout 6", true, a) == Command::InjectTimeout);
+  TEST_ASSERT_EQUAL_INT(6, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("crc ch4", false, a) == Command::TestOnly);
+  TEST_ASSERT_TRUE(parseCommand("run soak", true, a) == Command::Run);
+  TEST_ASSERT_EQUAL_INT(kSoakScenario, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("status now", false, a) == Command::Unknown);
+}
+
 void test_status_line_control_text() {
   StatusInfo s;
   s.controlText = "ctl 20.12C mean idle | xover 0";
@@ -429,6 +477,7 @@ int main() {
   RUN_TEST(test_line_reader_and_commands);
   RUN_TEST(test_fan_command);
   RUN_TEST(test_status_line_control_text);
+  RUN_TEST(test_stage6_serial_interface_commands);
   RUN_TEST(test_humidcool_command);
   RUN_TEST(test_status_line_humid_text);
   RUN_TEST(test_line_reader_overflow);

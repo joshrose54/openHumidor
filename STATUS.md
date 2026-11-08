@@ -135,10 +135,43 @@ the 1 min check with 15 s reads), re-flashed before test 20.
 - Test scenarios that need RH exactly at the strip release target use 61.5 % (62 % at 20 C sits on
   the target, and float rounding can leave it a hair above).
 
+## Stage 6 — built, board tests next (SD logging, serial interface; B3 18, 24, then B4)
+
+Spec answers committed (`861584a`). Not yet committed: the stage 6 code.
+
+- **Partition:** `min_spiffs` (two ~1.9 MB firmware slots, OTA possible later; NVS unchanged at
+  0x9000). Builds: cabinet 53.6 %, test builds 56.7 % flash; RAM ~30 %.
+- **Mac side:** five ESP32 builds compile with no warnings; native tests **232/232** pass.
+- **New, logic (lib/core):** `logbook` (paths by UTC month + schema, self-describing headers with each
+  serial's gain/offset, readings/events rows, CSV quoting, retention plan, CRC/timeout limit 10 per
+  channel per hour, guard-block tracker), `hourly` (min/max/mean per hour + load on-time),
+  `guard_audit` (independent guard check from what was live), `commands` rewritten (serial
+  interface), `scenario_stage6` (`run 24`, `run soak`).
+- **New, firmware (src):** `drivers/sd_log` (SD task on core 0 at idle priority: 16-row batches,
+  events at once, folders + headers, retention at start, failure -> events kept in RAM, remount every
+  30 s), `drivers/user_store` (NVS per build kind: usr_cab / usr_bench / usr_test), `app/eventlog`
+  (one path: serial + RAM + SD), `app/serial_ui` (status, sensors, events, log, settings), I²C
+  test-build `crc chN` / `timeout chN`.
+- **Mac tools:** `tools/check_logs.py` (files, headers, RH = gain x raw + offset, event types,
+  guard audit from the events file, soak trends), `tools/fill_card.py` (dummy files for the
+  retention check, sized from the card).
+- **Model:** drift towards the room now applies all the time (a strong drift can outrun a load —
+  the soak uses it for the max runs).
+
+### Decisions taken in building
+
+- Events carry `uptime_ms` as well as the timestamp, so timing checks survive a clock correction.
+- Readings carry `chN_rh_raw` (and `_real` columns in test builds) so the file itself proves RH =
+  gain x raw + offset.
+- Logging starts at the first sensor sweep after the clock is set from the RTC (or 10 s without
+  it); the boot event is the first row.
+- Scenarios refuse to start if the user settings differ from the defaults (`set defaults` first).
+- The soak: 10 phases, ~9.5 h a cycle, to 24 h; on the Mac: starts 17/16/18, max-run stops 6/2/4,
+  strips 2, crossovers 9, audit clean; minima set below that (12/6/4, 2/1/2, 2, 4).
+
 ## Next
 
-Stage 6 (SD logging per 5.4, serial interface, soak scenario;
-B3 18, 24, then B4), plan first. Flash partition decision is due at stage 6.
+Board tests: 18 (card pulled during a run), 24 (logging, 30 min + physical events), then B4 soak.
 
 ## Talking to the board
 

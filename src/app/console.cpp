@@ -89,10 +89,13 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
   Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
-  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, mount took %lu ms at boot (logging arrives at stage 6)\n",
+  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
                             (unsigned long long)b.sdMB, (unsigned long)b.sdMountMs);
-  else        Serial.printf("    SD card     NOT MOUNTED after %lu ms (logging arrives at stage 6; control unaffected)\n",
+  else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",
                             (unsigned long)b.sdMountMs);
+  Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, manual excludes 0x%02X\n",
+                 b.userNote, b.nvsSpace, s.user.targetTempC, s.user.rhSetpointPct, s.user.heaterEnable ? "on" : "OFF",
+                 s.user.humidifierEnable ? "on" : "OFF", (unsigned)s.user.manualExcludeMask);
   if (kBootDemand)
     Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
   else if (kTestBuild)
@@ -164,14 +167,19 @@ void printHelp(bool testBuild) {
   Serial.println("    boot      reprint this banner and the boot reason");
   Serial.println("    help      this list");
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
+  Serial.println("    status    everything at a glance     sensors   per-channel health and counts");
+  Serial.println("    events [n]  the last n events (10)   log       SD card and logging     settings  all settings");
+  Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set defaults  (saved)");
+  Serial.println("    exclude chN on|off   take a sensor out for maintenance, or put it back (saved)");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
-    Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22)");
+    Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24; 'run soak' = B4)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");
     Serial.println("    fan <n>   TEST BUILD ONLY: idle fan duty n% (0 or 20-100; 1-19 refused); 'fan auto' = the setting");
     Serial.println("    humidcool on|off  TEST BUILD ONLY: humidify during cooling runs (the setting is off)");
+    Serial.println("    crc chN | timeout chN  TEST BUILD ONLY: the next read of chN fails its CRC / times out");
   }
 }
 

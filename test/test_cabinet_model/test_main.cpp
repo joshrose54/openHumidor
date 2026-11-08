@@ -22,9 +22,10 @@ void run(CabinetModel& m, uint32_t ms, const LoadOutputs& l) {
 void test_cooling_rate() {
   CabinetModel m; m.begin(ModelRates{});
   run(m, minutes(15), cooling());
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 18.5f, m.tempC(0));
+  // -0.1 C/min cooling, less the drift back towards the 20 C room as it cools (<= 0.006 C/min)
+  TEST_ASSERT_TRUE(m.tempC(0) > 18.5f && m.tempC(0) < 18.6f);
   // The chamber, by the plate, settles 6 C below the cabinet during a run
-  TEST_ASSERT_FLOAT_WITHIN(0.05f, 12.5f, m.tempC(kChamberIndex));
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, m.tempC(0) - 6.0f, m.tempC(kChamberIndex));
 }
 
 void test_chamber_passes_checks_inside_the_bench_window() {
@@ -75,9 +76,10 @@ void test_heating_clearly_passes_ineffective_check() {
   Settings s = settingsFor(Profile::Real);
   CabinetModel m; m.begin(ModelRates{});
   run(m, s.tuning.heaterIneffectiveWindowMs, heating());
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.5f, m.tempC(0));
+  // +0.1 C/min heating, less the drift back towards the 20 C room (<= 0.006 C/min)
+  TEST_ASSERT_TRUE(m.tempC(0) > 21.4f && m.tempC(0) < 21.5f);
   float rise = m.tempC(kChamberIndex) - 20.0f;
-  TEST_ASSERT_FLOAT_WITHIN(0.05f, 7.5f, rise);     // cabinet +1.5, chamber 6 above it
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, m.tempC(0) + 6.0f - 20.0f, rise);     // chamber 6 above the cabinet
   TEST_ASSERT_TRUE(rise >= 2.0f * s.tuning.heaterIneffectiveRiseC);   // clearly, not just
 }
 

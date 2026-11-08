@@ -115,6 +115,8 @@ class TemperatureControl {
   // harvest keep their rules). 1-19 % (or over 100) is refused: returns false.
   // -1 = back to the setting.
   bool setIdleFanOverride(int pct);
+  // A user setting changed (setpoints, enables): used from the next update.
+  void setUser(const UserSettings& u) { s_.user = u; }
   int idleFanOverride() const { return idleOverride_; }
 
   // State, for the status line and the scenarios

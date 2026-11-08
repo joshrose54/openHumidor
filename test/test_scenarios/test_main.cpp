@@ -17,6 +17,8 @@
 #include "wineador/settings.h"
 #include "wineador/temp_control.h"
 #include "wineador/humid_control.h"
+#include "wineador/guard_audit.h"
+#include "wineador/commands.h"
 #include "wineador/fan_controller.h"
 
 using namespace wineador;
@@ -124,7 +126,12 @@ struct Sim {
     fanOut = fan.output(now);
     if (fanOut == 0) fanSpinning = false;
     else if (fanOut == 100 && fanPlugged) fanSpinning = true;
-    live = ctl.pass(in, d);
+    {
+      const LoadOutputs before = live;
+      live = ctl.pass(in, d);
+      if (getenv("SIMEDGE") && (before.cool != live.cool || before.heat != live.heat))
+        printf("EDGE t=%lu.%03lu min cool %d heat %d cab %.2f\n", (unsigned long)(now / 60000), (unsigned long)(now % 60000), live.cool, live.heat, model.cabinetC());
+    }
     if (now - lastModel >= 1000) { model.step(now - lastModel, live); lastModel = now; }
     if (now - lastWindow >= 5000) {
       lastWindow = now;
@@ -440,6 +447,50 @@ void test_stage5_runs_back_to_back_after_stage4() {
   TEST_ASSERT_FALSE(m.live.humid || m.live.cool || m.live.heat);   // settled cabinet: everything idle
 }
 
+// ---------------------------------------------------------------- stage 6
+void test_run24_logging_chain_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(24, minutes(30)) == ScenarioRunner::Result::Pass);
+}
+
+void test_soak_real_profile_passes() {
+  Sim m(Profile::Real);
+  m.settle(minutes(11));                                   // boot hold and the boot crossover
+  TEST_ASSERT_TRUE(m.run(kSoakScenario, ScenarioRunner::kSoakMs + minutes(5), 50) == ScenarioRunner::Result::Pass);
+}
+
+void test_soak_fails_if_crossover_short() {
+  Sim m(Profile::Real);
+  m.s.tuning.crossoverDelayMs = minutes(5);                // the board's crossover is short: the audit must catch it
+  m.begin();
+  m.settle(minutes(11));
+  TEST_ASSERT_TRUE(m.run(kSoakScenario, ScenarioRunner::kSoakMs + minutes(5), 50) == ScenarioRunner::Result::Fail);
+}
+
+void test_guard_audit_catches_breaches() {
+  Settings s = settingsFor(Profile::Bench);
+  GuardAudit a;
+  a.begin(s, 0);
+  LoadOutputs o;
+  o.cool = true;  a.update(1000, o);
+  o.cool = false; a.update(1000 + s.safety.compressorMinOnMs, o);
+  TEST_ASSERT_FALSE(a.breached());
+  o.cool = true;  a.update(1000 + s.safety.compressorMinOnMs + 5000, o);     // restarted 5 s after stopping
+  TEST_ASSERT_TRUE(a.breached());
+  GuardAudit b;
+  b.begin(s, 0);
+  LoadOutputs h; h.heat = true; h.relayHeating = true;
+  b.update(0, h);
+  b.update(s.safety.heaterMaxRunMs + 3000, h);                               // ran past its max run
+  TEST_ASSERT_TRUE(b.breached());
+  GuardAudit c;
+  c.begin(s, 0);
+  LoadOutputs w; w.cool = true; w.relayHeating = true;                       // compressor on the heating side
+  c.update(0, w);
+  TEST_ASSERT_TRUE(c.breached());
+}
+
 void test_idle_control_asks_nothing_when_settled() {
   // After a stage 4 scenario the model is back at 20 C / 62 %: the control idles.
   Sim m(Profile::Bench);
@@ -504,6 +555,10 @@ int main(int, char**) {
   RUN_TEST(test_run22_humidifier_ineffective_passes);
   RUN_TEST(test_run22_fails_if_window_wrong);
   RUN_TEST(test_stage5_runs_back_to_back_after_stage4);
+  RUN_TEST(test_run24_logging_chain_passes);
+  RUN_TEST(test_soak_real_profile_passes);
+  RUN_TEST(test_soak_fails_if_crossover_short);
+  RUN_TEST(test_guard_audit_catches_breaches);
   RUN_TEST(test_idle_control_asks_nothing_when_settled);
   RUN_TEST(test_stop_ends_with_no_demand);
   RUN_TEST(test_unknown_scenario_not_started);

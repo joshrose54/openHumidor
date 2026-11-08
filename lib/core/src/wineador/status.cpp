@@ -67,6 +67,7 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   if (!s.rtcOk) o.add(" | RTC FAIL");
   if (s.rtcLostTime) o.add(" | RTC LOST TIME");
   if (s.netText && s.netText[0]) o.add(" | %s", s.netText);
+  if (s.sdText && s.sdText[0]) o.add(" | %s", s.sdText);
   if (s.i2cPullupsOn) o.add(" | I2C PULLUPS ON");
   if (s.readingsAgeMs > s.staleAfterMs) o.add(" | readings STALE %lus", (unsigned long)(s.readingsAgeMs / 1000));
   return (int)o.len;

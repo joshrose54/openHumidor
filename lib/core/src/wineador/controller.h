@@ -50,6 +50,7 @@ class Controller {
 
   // TEST BUILDS ONLY (B3 test 21, 'humidcool on|off'): see RuntimeGuards.
   void setHumidifyDuringCooling(bool on) { guards_.setHumidifyDuringCooling(on); }
+  void setUser(const UserSettings& u) { guards_.setUser(u); }
   bool humidifyDuringCooling() const { return guards_.humidifyDuringCooling(); }
 
  private:

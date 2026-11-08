@@ -72,6 +72,15 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
       // Stage 5: the cabinet temperature stays put unless the scenario moves it; the
       // humidifier adds water at 2 RH points a minute, so it passes its check (+0.5 points in
       // the 1 min bench window) with margin even though readings trail the model by up to 15 s.
+      case 24: r.coolCPerMin = -1.0f; r.heatCPerMin = 1.0f; r.humidPctPerMin = 2.0f; r.coolVpKpaPerMin = 0.05f;
+        model.setCabinetC(20.0f); break;
+      case kSoakScenario:   // A2 cooling and heating rates (the defaults); room and drift set per phase
+        r = ModelRates{};
+        r.driftCPerMin = 0.006f;
+        soakPhase_ = -1;
+        soakCycle_ = 0;
+        model.setCabinetC(20.0f);
+        break;
       case 19: case 20: case 21: case 22:
         r.coolCPerMin = 0.0f; r.heatCPerMin = 0.0f; r.humidPctPerMin = 2.0f;
         model.setCabinetC(20.0f);
@@ -83,6 +92,8 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
       default: break;
     }
   }
+  audit_.begin(s_, nowMs);
+  lastReportMs_ = nowMs;
   for (int L = 0; L < 3; L++) { ranSinceStart_[L] = false; wentOn_[L] = wentOff_[L] = false; }
   relayRose_ = relayFell_ = false;
   phase(0, nowMs);
@@ -184,6 +195,8 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 20: run20(v, ctl, model, tc); break;
     case 21: run21(v, ctl, model, tc); break;
     case 22: run22(v, ctl, model, tc); break;
+    case 24: run24(v, ctl, model, tc); break;
+    case kSoakScenario: runSoak(v, ctl, model, tc); break;
     default: break;
   }
 }

@@ -26,6 +26,7 @@ struct StatusInfo {
   const char* guardText = nullptr;      // demand and held loads (formatGuardText); nullptr = left out
   const char* controlText = nullptr;    // temperature control (formatControlText); nullptr = left out
   const char* humidText = nullptr;      // humidifier control (formatHumidText); nullptr = left out
+  const char* sdText = nullptr;         // SD logging, e.g. "sd ok 7/16" or "SD FAIL"; nullptr = left out
   uint8_t     fanDutyPct = 0;
   uint32_t    fanRpm     = 0;
   int32_t     fanPwmReadback = -1;      // 0-255 from the PWM hardware; -1 = left out
