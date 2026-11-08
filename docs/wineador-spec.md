@@ -1718,7 +1718,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 1 | Bench soak | **Test build, real profile timers**, ~24 hours. Heater pad, mains lamp on the SSR, blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures, latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
+| 1 | Bench soak | **Test build, real profile timers**, ~24 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures, latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
 
 ## BP2 — Next board bring-up
 
@@ -1742,7 +1742,7 @@ Real profile, compile-time constants, serial interface. On the next board. Block
 | 6 | First switch | Let the controller call cooling | Compressor starts; no chatter; no display flicker when off; **never starts by itself** — if it does, see 2.5 | Pending |
 | 6a | First humidify | Let the controller call the humidifier | Fan runs; cabinet RH rises; stops at setpoint | Pending |
 | 7 | Guard behaviour | Force rapid demand changes | Min-off respected; no short-cycling | Pending |
-| 8 | Short soak | 24 hours | At least as good as the A2 loaded baseline | Pending |
+| 8 | Short soak | 24 hours | At least as good as the A2 loaded baseline; **near-zero CRC failures and no resets with the compressor switching** (the mains noise test B4 leaves to B5) | Pending |
 
 ## B6 — Tuning, in the cabinet
 
