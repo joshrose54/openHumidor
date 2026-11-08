@@ -59,6 +59,8 @@ class CabinetModel {
 
 // Replace the values of every sensor whose bus read SUCCEEDED with the scripted
 // values. Failed bus reads stay failed — the bus checks remain real (spec B3).
+// RH: the model's value is corrected RH; the reading gets the raw value that
+// calibrates back to it.
 void applyScripted(Readings& r, const CabinetModel& m);
 
 }  // namespace wineador

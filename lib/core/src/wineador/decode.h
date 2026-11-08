@@ -31,4 +31,10 @@ bool formatDs3231Time(const uint8_t r[7], char* out, size_t n);
 // Seconds since 1970-01-01 UTC, for setting the ESP32's system clock (spec 5.4).
 int64_t toUnixSeconds(const DateTime& dt);
 
+// The other way: seconds since 1970 (UTC) to a date and time. Years 2000-2099 only.
+DateTime fromUnixSeconds(int64_t s);
+
+// Seven bytes for DS3231 registers 0x00-0x06 (24-hour mode), for writing the clock.
+void encodeDs3231(const DateTime& dt, uint8_t r[7]);
+
 }  // namespace wineador

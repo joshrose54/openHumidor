@@ -9,7 +9,7 @@ namespace fan {
 void begin();                          // BOOT ONLY. Tach input + interrupt, then ledcAttach (P25 untouched until here)
 void setDuty(uint8_t pct);             // writes only when it changes
 uint8_t duty();
-void update(uint32_t nowMs, uint32_t windowMs);   // works out RPM once per window
+bool update(uint32_t nowMs, uint32_t windowMs);   // works out RPM once per window; true when it just did
 uint32_t rpm();                        // last window; exactly 0 for a stopped fan
 uint32_t pulsesTotal();                // accepted pulses (low >= 1 ms)
 uint32_t transitionsTotal();           // every edge, chatter included

@@ -2,6 +2,7 @@
 #if defined(WINEADOR_TEST_BUILD)
 
 #include "wineador/cabinet_model.h"
+#include "wineador/sensor_health.h"
 
 namespace wineador {
 
@@ -69,7 +70,9 @@ void applyScripted(Readings& r, const CabinetModel& m) {
   for (int i = 0; i < kNumSensors; i++) {
     if (r.s[i].bus != BusResult::Ok) continue;
     r.s[i].tempC = m.tempC(i);
-    r.s[i].rhRawPct = m.rhPct(i);
+    // The model works in true (corrected) RH; the reading carries the RAW value
+    // that this sensor's calibration turns back into it (2.3).
+    r.s[i].rhRawPct = rawForCorrectedRh(i, m.rhPct(i));
   }
 }
 

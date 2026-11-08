@@ -16,8 +16,15 @@
 // Waiting for the SHT40 to measure (10 ms) is a state checked on later passes, not a wait.
 // begin() is BOOT ONLY.
 //
-// Stage 1 only reports results. Sensor health, serial checking, calibration and
-// bus-fault recovery arrive at stage 3.
+// Stage 3 adds (spec 5.6, 5.3, 5.4):
+//   - STUCK BUS: after a failed sensor transaction, a follow-up to the mux on the
+//     main bus. If that fails too, the bus is stuck: mux RST pulsed (a state, not a
+//     delay), Wire restarted, and the channel's result is BusStuck. The sweep goes
+//     on with the next sensor; the RTC and other sensors keep working.
+//   - SERIAL RE-READS for any sensor the health logic asks about (5.3).
+//   - The DS3231 status register at boot: OSF (oscillator stop = lost time).
+//   - Writing the DS3231 time, and clearing OSF, between sweeps.
+// Health decisions are in lib/core/sensor_health.h, not here.
 
 #include <stdint.h>
 #include "wineador/types.h"
@@ -40,8 +47,25 @@ bool lastSweepWasBoot();
 const wineador::Readings& readings();          // real bus results, raw values
 const SerialResult& serial(int index);         // from the boot sweep
 
+// Serials: the boot sweep reads all six; later sweeps read those asked for.
+void wantSerial(int index);                    // read this sensor's serial in the next sweep
+bool takeSerial(int index, SerialResult& out); // true once per fresh serial read
+
+// Stuck-bus recoveries since boot, and the sensor index selected at the last one.
+uint32_t busStuckCount();
+int lastStuckIndex();
+
+// DS3231 status register, read in the boot sweep.
+bool rtcStatusKnown();
+bool rtcOsf();                                 // oscillator stop flag: the clock lost time
+
+// Write the DS3231's time (between sweeps), and clear OSF afterwards if asked.
+void requestRtcWrite(const wineador::DateTime& dt, bool clearOsf);
+int takeRtcWriteResult();                      // 0 none yet, 1 written, -1 failed
+
 bool rtcOk();                                  // last RTC read succeeded
 bool rtcDateTime(wineador::DateTime& dt);      // last good RTC read
+uint32_t rtcReadAtMs();                        // millis() when that read happened
 bool internalPullupsOff();                     // checked from the IO_MUX registers
 
 }  // namespace i2cbus

@@ -19,6 +19,7 @@ const char* busResultName(BusResult r) {
     case BusResult::NoAck:     return "NO ACK";
     case BusResult::ShortRead: return "SHORT READ";
     case BusResult::CrcFail:   return "CRC FAIL";
+    case BusResult::BusStuck:  return "BUS STUCK";
   }
   return "?";
 }

@@ -32,6 +32,10 @@ struct StatusInfo {
   CabinetSummary cab;
   uint32_t    loopMaxUs  = 0;
   uint32_t    heapFree   = 0;
+  bool        timeTrusted = true;       // false adds "UNTRUSTED" after the timestamp (5.4)
+  bool        rtcLostTime = false;      // true adds "RTC LOST TIME" (OSF, not yet corrected by NTP)
+  const char* netText    = nullptr;     // e.g. "wifi up ntp ok"; nullptr = left out
+  const char* healthText = nullptr;     // excluded sensors and the 4.3 hold; nullptr = left out
   bool        rtcOk      = true;        // false adds "RTC FAIL"
   bool        i2cPullupsOn = false;     // true adds "I2C PULLUPS ON" — must never happen (5.3)
   uint32_t    readingsAgeMs = 0;        // time since the last sensor sweep finished

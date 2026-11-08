@@ -36,8 +36,12 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
   demand_ = Demand{};
   startMs_ = nowMs;
   item_ = 0;
-  fanKick_ = false;
-  lastKickMs_ = nowMs;
+  stuckAtStart_ = 0;
+  kicksSeen_ = 0;
+  target_ = -1;
+  expectMs_ = 0;
+  humidMetMs_ = tempMetMs_ = 0;
+  humidBack_ = heatBack_ = false;
   for (int i = 0; i < kNumSensors; i++) model.setOffset(i, 0, 0);
   savedRates_ = model.rates();
   if (n == 1) {
@@ -121,7 +125,11 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 1:  run1(v, ctl, model); break;
     case 2:  run2(v, ctl, model); break;
     case 3:  run3(v, ctl, model); break;
+    case 4:  run4(v, ctl, model); break;
+    case 5:  run5(v, ctl, model); break;
+    case 6:  run6(v, ctl, model); break;
     case 13: run13(v, ctl, model); break;
+    case 15: run15(v, ctl, model); break;
     default: break;
   }
 }
@@ -230,16 +238,20 @@ void ScenarioRunner::run1(const ScenarioView& v, Controller& ctl, CabinetModel& 
 }
 
 // ------------------------------------------------------------------ run 2
-// B3 test 2, heater guards. Heater running; trip one guard; the heater must be
-// off on the very next pass. Then clear it and let the heater restart.
-//   item 0: cabinet ceiling (one cabinet sensor scripted above setpoint + 3 C)
+// B3 test 2, heater guards. The heater runs (lit for 5 s so it is seen), then one
+// guard is tripped; the heater must be off on the pass after the guards first see it.
+//   item 0: cabinet ceiling (cabinet sensor ch2 scripted above setpoint + 3 C)
 //   item 1: chamber ceiling (chamber scripted above 30 C)
-//   item 2: fan (Josh unplugs J2; the tach reads zero)
+//   item 2: sensors (chamber scripted to -20 C: implausible, excluded; then it must
+//           recover — 10 reads + serial — and the 4.3 recovery hold must pass)
+//   item 3: fan (Josh unplugs J2; the tach reads zero)
+// Scripted values reach the guards with the next sensor sweep (every 15 s).
 void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
   const uint32_t now = v.nowMs;
   const SafetySettings& f = s_.safety;
   const float target = s_.user.targetTempC;
-  char a[16], c[96];
+  constexpr uint32_t kShowMs = 5000;
+  char a[16], b[16], c[120];
 
   switch (phase_) {
     case 0:
@@ -253,7 +265,7 @@ void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& 
 
     case 1:   // waiting for the heater
       if (v.live.heat) {
-        say(now, "heater ON");
+        say(now, "heater ON - lit for 5 s before the first trip");
         phase(2, now);
       } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
         snprintf(c, sizeof(c), "heater did not start - held by %s", guardBlockName(ctl.decisions().heat.block));
@@ -261,69 +273,106 @@ void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       break;
 
-    case 2:   // trip the next guard
+    case 2:   // heater lit for 5 s, then the next trip
+      if (!v.live.heat) { finish(now, model, Result::Fail, "the heater stopped before the trip"); break; }
+      if (elapsedMs(now, phaseAtMs_) < kShowMs) break;
       if (item_ == 0) {
         const float want = target + f.cabinetCeilingAboveSetpointC + 0.5f;
         model.setOffset(0, want - model.tempC(0), 0);
-        say(now, "2.1 TRIP cabinet ceiling: cabinet sensor ch2 scripted to %.1f C (ceiling %.1f C)", (double)want,
-            (double)(target + f.cabinetCeilingAboveSetpointC));
+        say(now, "2.1 TRIP cabinet ceiling: cabinet sensor ch2 scripted to %.1f C (ceiling %.1f C); seen at the next sweep",
+            (double)want, (double)(target + f.cabinetCeilingAboveSetpointC));
         phase(3, now);
       } else if (item_ == 1) {
         const float want = f.chamberCeilingC + 0.5f;
         model.setOffset(kChamberIndex, want - model.tempC(kChamberIndex), 0);
         say(now, "2.2 TRIP chamber ceiling: chamber sensor ch6 scripted to %.1f C (ceiling %.1f C)", (double)want, (double)f.chamberCeilingC);
         phase(3, now);
+      } else if (item_ == 2) {
+        model.setOffset(kChamberIndex, -20.0f - model.tempC(kChamberIndex), 0);
+        say(now, "2.3 TRIP sensors: chamber sensor ch6 scripted to -20.0 C - implausible (below -10 C), so it is excluded");
+        phase(3, now);
       } else {
         const uint32_t ranFor = elapsedMs(now, onAtMs_[1]);
         const uint32_t leftMs = f.heaterMaxRunMs > ranFor ? f.heaterMaxRunMs - ranFor : 0;
-        say(now, "2.3 FAN: >>> UNPLUG THE PLENUM FAN PLUG (J2) NOW <<< (within %s, before the heater reaches its max run). Waiting for the tach to read zero",
+        say(now, "2.4 FAN: >>> UNPLUG THE PLENUM FAN PLUG (J2) NOW <<< (within %s, before the heater reaches its max run). Waiting for the tach to read zero",
             secs(a, sizeof(a), leftMs > 5000 ? leftMs - 5000 : 0));
-        phase(5, now);
+        phase(7, now);
       }
       break;
 
-    case 3: {   // the very next pass: the heater must be off
-      const GuardBlock want = item_ == 0 ? GuardBlock::CabinetCeiling : GuardBlock::ChamberCeiling;
+    case 3:   // wait for the sweep that brings the scripted value to the guards
+      if (v.sweepDone) { phase(4, now); break; }
+      if (!v.live.heat) { finish(now, model, Result::Fail, "the heater stopped before the trip reached it"); break; }
+      if (elapsedMs(now, phaseAtMs_) > 30000) finish(now, model, Result::Fail, "no sensor sweep in 30 s");
+      break;
+
+    case 4: {   // the very next pass: the heater must be off, for the right reason
+      const GuardBlock want = item_ == 0 ? GuardBlock::CabinetCeiling : item_ == 1 ? GuardBlock::ChamberCeiling : GuardBlock::Sensors;
       const GuardBlock got = ctl.decisions().heat.block;
-      if (v.live.heat) {
-        finish(now, model, Result::Fail, "heater still on one pass after the trip");
-        break;
-      }
+      if (v.live.heat) { finish(now, model, Result::Fail, "heater still on one pass after the guards saw the trip"); break; }
       if (got != want) {
         snprintf(c, sizeof(c), "heater off, but for the wrong reason: %s (expected %s)", guardBlockName(got), guardBlockName(want));
         finish(now, model, Result::Fail, c);
         break;
       }
-      say(now, "heater OFF on the next pass (%s) - correct. Trip cleared; the heater restarts after its min off (%s)",
-          guardBlockName(got), secs(a, sizeof(a), f.heaterMinOffMs));
+      if (item_ == 2 && v.health && v.health->reason(kChamberIndex) != Exclusion::Implausible) {
+        snprintf(c, sizeof(c), "chamber excluded for %s, expected implausible", exclusionName(v.health->reason(kChamberIndex)));
+        finish(now, model, Result::Fail, c);
+        break;
+      }
       model.setOffset(item_ == 0 ? 0 : kChamberIndex, 0, 0);
-      phase(4, now);
+      if (item_ < 2) {
+        say(now, "heater OFF on the next pass (%s) - correct. Trip cleared; the heater restarts after its min off (%s) once the next sweep shows it",
+            guardBlockName(got), secs(a, sizeof(a), f.heaterMinOffMs));
+      } else {
+        say(now, "heater OFF on the next pass (sensors: chamber implausible) - correct. Chamber back to normal: it needs 10 good reads "
+                 "and its serial re-checked (~2.5 min), then the recovery hold (%s), before the heater may restart",
+            secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      }
+      expectMs_ = 0;   // when the chamber recovered (item 2)
+      phase(5, now);
       break;
     }
 
-    case 4:   // waiting for the restart
+    case 5:   // waiting for the restart
+      if (item_ == 2 && expectMs_ == 0 && v.health && v.health->healthy(kChamberIndex)) {
+        expectMs_ = now ? now : 1;
+        say(now, "chamber sensor RECOVERED (10 good reads, serial re-checked); recovery hold %s starts", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      }
       if (v.live.heat) {
-        say(now, "heater ON again");
+        if (item_ == 2) {
+          if (expectMs_ == 0) { finish(now, model, Result::Fail, "the heater restarted before the chamber sensor recovered"); break; }
+          const uint32_t held = elapsedMs(now, expectMs_);
+          if (held + 50 < f.sensorRecoveryHoldMs) {
+            snprintf(c, sizeof(c), "the heater restarted %s after the recovery - before the %s hold", secs(a, sizeof(a), held),
+                     secs(b, sizeof(b), f.sensorRecoveryHoldMs));
+            finish(now, model, Result::Fail, c);
+            break;
+          }
+          say(now, "heater ON again %s after the chamber recovered (hold %s) - correct; lit for 5 s", secs(a, sizeof(a), held),
+              secs(b, sizeof(b), f.sensorRecoveryHoldMs));
+        } else {
+          say(now, "heater ON again - lit for 5 s");
+        }
         item_++;
         phase(2, now);
-      } else if (elapsedMs(now, phaseAtMs_) > f.heaterMinOffMs + 10000) {
+      } else if (elapsedMs(now, phaseAtMs_) > (item_ == 2 ? 300000u : f.heaterMinOffMs + 40000)) {
         snprintf(c, sizeof(c), "heater did not restart after the trip was cleared - held by %s", guardBlockName(ctl.decisions().heat.block));
         finish(now, model, Result::Fail, c);
       }
       break;
 
-    case 5:   // waiting for the tach to read zero
+    case 7:   // waiting for the tach to read zero
       if (!v.fanOk) {
         if (v.live.heat) {               // the guards see it on the next pass
           say(now, "tach reads zero");
-          phase(6, now);
+          phase(8, now);
         } else if (wentOff_[1] && ctl.decisions().heat.block == GuardBlock::Fan) {
-          // The tach dropped between passes: the guards saw it on this same pass.
           say(now, "tach reads zero; heater OFF on that same pass (fan) - correct");
-          say(now, ">>> PLUG J2 BACK IN NOW <<< Waiting for the fan (it is kicked to 100%% for 1 s every 10 s until the tach reads)");
+          say(now, ">>> PLUG J2 BACK IN NOW <<< The board kickstarts the fan every %s until the tach reads",
+              secs(a, sizeof(a), f.fanStallRetryMs));
           demand_ = Demand{};
-          lastKickMs_ = now;
-          phase(7, now);
+          phase(9, now);
         } else {
           finish(now, model, Result::Fail,
                  "the heater was not running when the tach read zero. Plug J2 back in, wait for the fan, then type run 2 again");
@@ -335,7 +384,7 @@ void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       break;
 
-    case 6: {   // the very next pass
+    case 8: {   // the very next pass
       const GuardBlock got = ctl.decisions().heat.block;
       if (v.live.heat) { finish(now, model, Result::Fail, "heater still on one pass after the tach read zero"); break; }
       if (got != GuardBlock::Fan) {
@@ -344,23 +393,19 @@ void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& 
         break;
       }
       say(now, "heater OFF on the next pass (fan) - correct");
-      say(now, ">>> PLUG J2 BACK IN NOW <<< Waiting for the fan (it is kicked to 100%% for 1 s every 10 s until the tach reads)");
+      say(now, ">>> PLUG J2 BACK IN NOW <<< The board kickstarts the fan every %s until the tach reads",
+          secs(a, sizeof(a), f.fanStallRetryMs));
       demand_ = Demand{};
-      lastKickMs_ = now;
-      phase(7, now);
+      phase(9, now);
       break;
     }
 
-    case 7:   // waiting for the fan
+    case 9:   // waiting for the fan
       if (v.fanOk) {
         say(now, "fan running again");
-        say(now, "Not tripped on the board at stage 2: sensors (native tests now; on the board at stage 3, test 4), max run (run 1), relay side (run 3, native tests)");
-        finish(now, model, Result::Pass, "heater off on the next pass for the cabinet ceiling, the chamber ceiling and the fan");
-      } else if (elapsedMs(now, lastKickMs_) >= 10000) {
-        fanKick_ = true;
-        lastKickMs_ = now;
-      } else if (elapsedMs(now, phaseAtMs_) > 120000) {
-        finish(now, model, Result::Fail, "the fan did not come back in 2 min. Check J2 is plugged in");
+        finish(now, model, Result::Pass, "heater off on the next pass for the cabinet ceiling, the chamber ceiling, the sensors and the fan; recovery hold kept");
+      } else if (elapsedMs(now, phaseAtMs_) > 180000) {
+        finish(now, model, Result::Fail, "the fan did not come back in 3 min. Check J2 is plugged in");
       }
       break;
   }
@@ -511,6 +556,365 @@ void ScenarioRunner::run13(const ScenarioView& v, Controller& ctl, CabinetModel&
         }
       } else if (elapsedMs(now, phaseAtMs_) > f.relayExerciseCycles * (f.relayExerciseOnMs + f.relayExerciseOffMs) + 5000) {
         finish(now, model, Result::Fail, "the exercise did not finish");
+      }
+      break;
+  }
+}
+
+// ------------------------------------------------------------------ run 4
+// B3 test 4, sensor failure (real bus faults: Josh unplugs probes when told).
+// Heat and humidify asked for. Chamber out: heater off, humidifier keeps running.
+// Then cabinet sensors out one at a time: humidifier still on at 3 of 4, off at 2.
+// All back in: each recovers (10 reads + serial), then the recovery hold, then the
+// loads resume. (The compressor's thresholds are the heater's, in the native tests.)
+void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  const uint32_t now = v.nowMs;
+  const SafetySettings& f = s_.safety;
+  const SensorHealth* h = v.health;
+  char a[16], c[120];
+  if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
+
+  // Throughout: the humidifier must never be held for "sensors" while 3 of 4 cabinet are healthy.
+  if (phase_ >= 1 && expectMs_ == 0 && h->healthyCabinet() >= f.minHealthyCabinet &&
+      ctl.decisions().humid.block == GuardBlock::Sensors) {
+    finish(now, model, Result::Fail, "the humidifier was held for sensors with 3 of 4 cabinet sensors healthy");
+    return;
+  }
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 4 - sensor failure. Heat and humidify asked for. You will unplug sensors one at a time when told.");
+      demand_ = Demand{};
+      demand_.heat = demand_.humid = true;
+      deadlineMs_ = ctl.hold().remainingMs() + f.heaterMinOffMs + s_.tuning.crossoverDelayMs + 20000;
+      phase(1, now);
+      break;
+
+    case 1:
+      if (v.live.heat && v.live.humid) {
+        say(now, "heater and humidifier ON");
+        say(now, "4.1 >>> UNPLUG THE CHAMBER SENSOR (ch6) NOW <<<");
+        target_ = kChamberIndex;
+        phase(2, now);
+      } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
+        finish(now, model, Result::Fail, "heater and humidifier did not both start");
+      }
+      break;
+
+    case 2: case 4: case 6:   // waiting for the unplugged sensor to be excluded
+      if (!h->healthy(target_)) {
+        say(now, "ch%d excluded: %s", channelOf(target_), exclusionName(h->reason(target_)));
+        phase(phase_ + 1, now);
+      } else if (elapsedMs(now, phaseAtMs_) > 90000) {
+        snprintf(c, sizeof(c), "ch%d was never excluded - is it unplugged?", channelOf(target_));
+        finish(now, model, Result::Fail, c);
+      }
+      break;
+
+    case 3:   // chamber out: heater off now; humidifier keeps running
+      if (v.live.heat || ctl.decisions().heat.block != GuardBlock::Sensors) {
+        finish(now, model, Result::Fail, "heater not off for sensors with the chamber sensor out");
+        break;
+      }
+      say(now, "heater OFF (sensors: chamber) - correct. Humidifier %s (needs only 3 of 4 cabinet) - correct",
+          v.live.humid ? "still ON" : "not blocked for sensors");
+      say(now, "4.2 >>> UNPLUG ch2 (top front) NOW <<<");
+      target_ = 0;
+      phase(4, now);
+      break;
+
+    case 5:   // 3 of 4 cabinet: humidifier still allowed
+      if (ctl.decisions().humid.block == GuardBlock::Sensors) {
+        finish(now, model, Result::Fail, "humidifier held for sensors at 3 of 4 cabinet");
+        break;
+      }
+      say(now, "3 of 4 cabinet healthy: humidifier still allowed - correct; heater still off (%s)",
+          guardBlockName(ctl.decisions().heat.block));
+      say(now, "4.3 >>> UNPLUG ch3 (bottom front) NOW <<<");
+      target_ = 1;
+      phase(6, now);
+      break;
+
+    case 7:   // 2 of 4 cabinet: humidifier off now
+      if (v.live.humid || ctl.decisions().humid.block != GuardBlock::Sensors) {
+        finish(now, model, Result::Fail, "humidifier not off for sensors at 2 of 4 cabinet");
+        break;
+      }
+      say(now, "2 of 4 cabinet healthy: humidifier OFF (sensors) - correct");
+      say(now, "4.4 >>> PLUG ch6, ch2 AND ch3 BACK IN NOW <<< Each needs 10 good reads and its serial re-checked (~2.5 min), "
+               "then the recovery hold (%s)", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      expectMs_ = 1;            // recovery under way: the "never held at 3 of 4" check pauses
+      item_ = 0;                // 0 = waiting for both requirements to be met again
+      humidMetMs_ = tempMetMs_ = 0;
+      humidBack_ = heatBack_ = false;
+      phase(8, now);
+      break;
+
+    case 8: {   // recovery: when each requirement is met again, its loads must wait the hold
+      const bool humidMet = h->healthyCabinet() >= f.minHealthyCabinet;
+      const bool tempMet = humidMet && h->chamberHealthy();
+      if (humidMet && humidMetMs_ == 0) { humidMetMs_ = now ? now : 1; say(now, "3 of 4 cabinet healthy again: humidifier recovery hold starts"); }
+      if (tempMet && tempMetMs_ == 0) { tempMetMs_ = now ? now : 1; say(now, "chamber healthy again: heater recovery hold starts"); }
+      if (wentOn_[2] && !humidBack_) {
+        if (humidMetMs_ == 0 || elapsedMs(now, humidMetMs_) + 50 < f.sensorRecoveryHoldMs) {
+          finish(now, model, Result::Fail, "humidifier resumed before the recovery hold");
+          break;
+        }
+        humidBack_ = true;
+        say(now, "humidifier ON %s after its requirement was met again - correct", secs(a, sizeof(a), elapsedMs(now, humidMetMs_)));
+      }
+      if (wentOn_[1] && !heatBack_) {
+        if (tempMetMs_ == 0 || elapsedMs(now, tempMetMs_) + 50 < f.sensorRecoveryHoldMs) {
+          finish(now, model, Result::Fail, "heater resumed before the recovery hold");
+          break;
+        }
+        heatBack_ = true;
+        say(now, "heater ON %s after its requirement was met again - correct", secs(a, sizeof(a), elapsedMs(now, tempMetMs_)));
+      }
+      if (humidBack_ && heatBack_) {
+        finish(now, model, Result::Pass, "chamber out: heater off, humidifier kept running; 3 of 4: humidifier allowed; "
+                                         "2 of 4: humidifier off; all back: each recovered, loads resumed after the hold");
+      } else if (elapsedMs(now, phaseAtMs_) > 420000) {
+        finish(now, model, Result::Fail, "the sensors did not recover and the loads did not resume within 7 min");
+      }
+      break;
+    }
+  }
+}
+
+// ------------------------------------------------------------------ run 5
+// B3 test 5, divergence (scripted). Cabinet sensor ch3 scripted 5.5 C above the
+// others: excluded once it has been out for 10 min. Then back in line: it recovers
+// after 10 reads within 5 C of the median and its serial re-checked.
+void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  (void)ctl;
+  const uint32_t now = v.nowMs;
+  const SafetySettings& f = s_.safety;
+  const SensorHealth* h = v.health;
+  constexpr int kIdx = 1;   // ch3, bottom front
+  char a[16], b[16], c[120];
+  if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 5 - divergence. Cabinet sensor ch3 scripted 5.5 C above the others; excluded after %s out. No loads.",
+          secs(a, sizeof(a), f.divergenceMs));
+      demand_ = Demand{};
+      model.setOffset(kIdx, f.divergenceC + 0.5f, 0);
+      expectMs_ = 0;
+      item_ = 0;
+      phase(1, now);
+      break;
+
+    case 1:
+      if (!v.sweepDone) {
+        if (elapsedMs(now, phaseAtMs_) > f.divergenceMs + 180000) finish(now, model, Result::Fail, "never excluded for divergence");
+        break;
+      }
+      if (h->diverging(kIdx) && expectMs_ == 0) {
+        expectMs_ = now ? now : 1;
+        say(now, "ch3 diverging (more than %.1f C from the median of the healthy cabinet sensors); timer started", (double)f.divergenceC);
+      }
+      if (h->reason(kIdx) == Exclusion::Divergence) {
+        const uint32_t out = expectMs_ ? elapsedMs(now, expectMs_) : 0;
+        if (expectMs_ == 0 || out < f.divergenceMs || out > f.divergenceMs + 2 * s_.tuning.sensorReadMs) {
+          snprintf(c, sizeof(c), "excluded after %s diverging, expected %s", secs(a, sizeof(a), out), secs(b, sizeof(b), f.divergenceMs));
+          finish(now, model, Result::Fail, c);
+          break;
+        }
+        say(now, "ch3 EXCLUDED for divergence after %s - correct. Scripted back in line: it needs 10 reads within %.1f C, then its serial re-checked",
+            secs(a, sizeof(a), out), (double)f.divergenceC);
+        model.setOffset(kIdx, 0, 0);
+        phase(2, now);
+      } else if (!h->healthy(kIdx)) {
+        snprintf(c, sizeof(c), "ch3 excluded for %s, expected divergence", exclusionName(h->reason(kIdx)));
+        finish(now, model, Result::Fail, c);
+      } else if (expectMs_ && elapsedMs(now, expectMs_) / 120000 > (uint32_t)item_) {
+        item_++;
+        say(now, "ch3 still diverging, %s so far", secs(a, sizeof(a), elapsedMs(now, expectMs_)));
+      }
+      break;
+
+    case 2:
+      if (h->healthy(kIdx)) {
+        const uint32_t took = elapsedMs(now, phaseAtMs_);
+        if (took + 1000 < (f.recoveryGoodReads - 1) * s_.tuning.sensorReadMs) {
+          snprintf(c, sizeof(c), "recovered after only %s", secs(a, sizeof(a), took));
+          finish(now, model, Result::Fail, c);
+          break;
+        }
+        say(now, "ch3 RECOVERED %s after coming back in line", secs(a, sizeof(a), took));
+        finish(now, model, Result::Pass, "excluded after 10 min of divergence; recovered after 10 reads within 5 C and a serial re-check");
+      } else if (elapsedMs(now, phaseAtMs_) > 300000) {
+        finish(now, model, Result::Fail, "ch3 did not recover within 5 min");
+      }
+      break;
+  }
+}
+
+// ------------------------------------------------------------------ run 6
+// B3 test 6, fan failure. Heat and humidify asked for; Josh unplugs J2.
+// Heater off; humidifier unaffected; a kickstart at once, another after the retry
+// interval; Josh replugs; the fan recovers and the heater resumes.
+void ScenarioRunner::run6(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  const uint32_t now = v.nowMs;
+  const SafetySettings& f = s_.safety;
+  const FanMonitor* fm = v.fan;
+  char a[16], c[120];
+  if (!fm) { finish(now, model, Result::Fail, "no fan information"); return; }
+
+  // Throughout: the humidifier is never held for the fan.
+  if (ctl.decisions().humid.block == GuardBlock::Fan) {
+    finish(now, model, Result::Fail, "the humidifier was held for the fan");
+    return;
+  }
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 6 - fan failure. Heat and humidify asked for. You will unplug J2 when told.");
+      demand_ = Demand{};
+      demand_.heat = demand_.humid = true;
+      deadlineMs_ = ctl.hold().remainingMs() + f.heaterMinOffMs + s_.tuning.crossoverDelayMs + 20000;
+      phase(1, now);
+      break;
+
+    case 1:
+      if (v.live.heat && v.live.humid) {
+        const uint32_t leftMs = f.heaterMaxRunMs - 10000;
+        say(now, "heater and humidifier ON");
+        say(now, "6.1 >>> UNPLUG THE PLENUM FAN PLUG (J2) NOW <<< (within %s)", secs(a, sizeof(a), leftMs));
+        phase(2, now);
+      } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
+        finish(now, model, Result::Fail, "heater and humidifier did not both start");
+      }
+      break;
+
+    case 2:   // waiting for the stall
+      if (fm->stalled()) {
+        if (fm->kicksThisStall() != 1) {
+          snprintf(c, sizeof(c), "%lu kickstarts at the stall, expected 1", (unsigned long)fm->kicksThisStall());
+          finish(now, model, Result::Fail, c);
+          break;
+        }
+        say(now, "FAN STALL detected; kickstart 1 at once - correct");
+        expectMs_ = now ? now : 1;
+        phase(3, now);
+      } else if (wentOff_[1] && ctl.decisions().heat.block != GuardBlock::Fan) {
+        finish(now, model, Result::Fail, "the heater reached its max run before J2 was unplugged. Type run 6 again");
+      } else if (elapsedMs(now, phaseAtMs_) > 120000) {
+        finish(now, model, Result::Fail, "no stall seen in 2 min. Is J2 unplugged?");
+      }
+      break;
+
+    case 3:   // heater off for the fan
+      if (v.live.heat || ctl.decisions().heat.block != GuardBlock::Fan) {
+        if (elapsedMs(now, phaseAtMs_) > 100) { finish(now, model, Result::Fail, "heater not off for the fan"); break; }
+        break;
+      }
+      say(now, "heater OFF (fan) - correct; humidifier %s", v.live.humid ? "still ON - correct" : "not held for the fan - correct");
+      say(now, "waiting for the next kickstart (every %s while the tach reads zero) - leave J2 out", secs(a, sizeof(a), f.fanStallRetryMs));
+      phase(4, now);
+      break;
+
+    case 4:   // the retry kickstart
+      if (fm->kicksThisStall() >= 2) {
+        const uint32_t gap = elapsedMs(now, expectMs_);
+        if (gap + 6000 < f.fanStallRetryMs || gap > f.fanStallRetryMs + 6000) {
+          char b[16];
+          snprintf(c, sizeof(c), "second kickstart %s after the first, expected %s", secs(a, sizeof(a), gap),
+                   secs(b, sizeof(b), f.fanStallRetryMs));
+          finish(now, model, Result::Fail, c);
+          break;
+        }
+        say(now, "kickstart 2, %s after the first - correct", secs(a, sizeof(a), gap));
+        say(now, "6.2 >>> PLUG J2 BACK IN NOW <<<");
+        phase(5, now);
+      } else if (!fm->stalled()) {
+        finish(now, model, Result::Fail, "the fan recovered before J2 was replugged");
+      } else if (elapsedMs(now, phaseAtMs_) > f.fanStallRetryMs + 20000) {
+        finish(now, model, Result::Fail, "no second kickstart");
+      }
+      break;
+
+    case 5:   // waiting for the tach
+      if (!fm->stalled()) {
+        say(now, "FAN RECOVERED - tach reads again");
+        phase(6, now);
+      } else if (elapsedMs(now, phaseAtMs_) > 3 * f.fanStallRetryMs + 30000) {
+        finish(now, model, Result::Fail, "the fan did not recover. Check J2 is plugged in");
+      }
+      break;
+
+    case 6:   // heater resumes
+      if (v.live.heat) {
+        finish(now, model, Result::Pass, "heater off and humidifier unaffected; kickstart at once and after the retry interval; "
+                                         "heater resumed once the tach read again");
+      } else if (elapsedMs(now, phaseAtMs_) > f.heaterMinOffMs + 30000) {
+        snprintf(c, sizeof(c), "heater did not resume - held by %s", guardBlockName(ctl.decisions().heat.block));
+        finish(now, model, Result::Fail, c);
+      }
+      break;
+  }
+}
+
+// ------------------------------------------------------------------ run 15
+// B3 test 15, I2C bus fault (real). Josh shorts one sensor's SDA to GND. The bus
+// locks while that channel is selected: mux RST pulsed, I2C restarted, the channel
+// excluded; the RTC and the other sensors keep working; the ESP32's internal
+// pull-ups stay off. Short removed: the channel recovers.
+void ScenarioRunner::run15(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  (void)ctl;
+  const uint32_t now = v.nowMs;
+  const SensorHealth* h = v.health;
+  char c[120];
+  if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
+  if (v.pullupsOn) { finish(now, model, Result::Fail, "the ESP32's internal I2C pull-ups are ON (5.3)"); return; }
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 15 - I2C bus fault. No loads.");
+      demand_ = Demand{};
+      stuckAtStart_ = v.busStuck;
+      say(now, "15.1 >>> SHORT ONE SENSOR'S SDA TO GND NOW <<< (and leave it)");
+      phase(1, now);
+      break;
+
+    case 1:   // waiting for the stuck bus, then the sweep that reports it
+      if (v.busStuck > stuckAtStart_ && v.sweepDone) {
+        target_ = -1;
+        for (int i = 0; i < kNumSensors; i++) if (h->reason(i) == Exclusion::BusFault) target_ = i;
+        if (target_ < 0) { finish(now, model, Result::Fail, "bus stuck, but no channel excluded for a bus fault"); break; }
+        say(now, "BUS STUCK detected with ch%d selected: mux RST pulsed, I2C restarted, ch%d excluded (bus-fault)",
+            channelOf(target_), channelOf(target_));
+        item_ = 0;
+        phase(2, now);
+      } else if (elapsedMs(now, phaseAtMs_) > 120000) {
+        finish(now, model, Result::Fail, "no stuck bus in 2 min. Is the SDA short in place?");
+      }
+      break;
+
+    case 2:   // two more sweeps: the RTC and the other sensors keep working
+      if (!v.sweepDone) break;
+      if (!v.rtcOk) { finish(now, model, Result::Fail, "the RTC stopped reading during the fault"); break; }
+      for (int i = 0; i < kNumSensors; i++) {
+        if (i != target_ && !h->healthy(i)) {
+          snprintf(c, sizeof(c), "ch%d excluded (%s) during the fault on ch%d", channelOf(i), exclusionName(h->reason(i)), channelOf(target_));
+          finish(now, model, Result::Fail, c);
+          return;
+        }
+      }
+      if (++item_ < 2) break;
+      say(now, "two sweeps with the short in place: RTC reading, the other five sensors healthy, internal pull-ups off - correct");
+      say(now, "15.2 >>> REMOVE THE SHORT NOW <<< ch%d needs 10 good reads and its serial re-checked (~2.5 min)", channelOf(target_));
+      phase(3, now);
+      break;
+
+    case 3:
+      if (h->healthy(target_)) {
+        say(now, "ch%d RECOVERED", channelOf(target_));
+        finish(now, model, Result::Pass, "stuck bus detected, RST pulsed, channel excluded; RTC and others kept working; channel recovered");
+      } else if (elapsedMs(now, phaseAtMs_) > 360000) {
+        finish(now, model, Result::Fail, "the channel did not recover within 6 min of removing the short");
       }
       break;
   }

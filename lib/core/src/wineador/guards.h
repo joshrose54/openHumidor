@@ -67,7 +67,9 @@ struct GuardInputs {
   bool exerciseCycling = false;   // exercise running: cool and heat OFF
   bool fanOk = false;             // fan PWM asserted and tach non-zero
   bool readingsFresh = false;     // false = the sensor readings are too old to trust
-  CabinetSummary cab;             // stage 2: healthy = the sensor's last bus read was OK
+  CabinetSummary cab;             // from the HEALTHY sensors only (4.3)
+  bool sensorHoldTemp = false;    // 4.3 recovery hold running for compressor + heater
+  bool sensorHoldHumid = false;   // ...for the humidifier
   bool strippingActive = false;   // stage 4 sets this
 };
 

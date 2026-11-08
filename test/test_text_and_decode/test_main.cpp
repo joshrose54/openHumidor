@@ -51,7 +51,22 @@ void test_status_line_real_cabinet_build() {
   TEST_ASSERT_TRUE(has(b, "boot POWERON"));
   TEST_ASSERT_TRUE(has(b, "hold 0:00:12 left"));
   TEST_ASSERT_TRUE(has(b, "fan 20% 540rpm"));
-  TEST_ASSERT_TRUE(has(b, "raw"));
+  TEST_ASSERT_TRUE(has(b, "| real"));          // real readings, RH calibrated (stage 3)
+  TEST_ASSERT_FALSE(has(b, "UNTRUSTED"));
+}
+
+void test_status_line_clock_health_and_net() {
+  StatusInfo s = sample();
+  s.timeTrusted = false;
+  s.rtcLostTime = true;
+  s.healthText = "| excl ch6 absent | sensor hold 12s";
+  s.netText = "wifi up ntp waiting";
+  char b[600];
+  formatStatusLine(b, sizeof(b), s);
+  TEST_ASSERT_TRUE(has(b, "2026-11-07T13:00:15Z UNTRUSTED up 0:01:30"));
+  TEST_ASSERT_TRUE(has(b, "| RTC LOST TIME"));
+  TEST_ASSERT_TRUE(has(b, "/6 | excl ch6 absent | sensor hold 12s"));
+  TEST_ASSERT_TRUE(has(b, "| wifi up ntp waiting"));
 }
 
 void test_status_line_bench_test_build() {
@@ -328,6 +343,7 @@ int main() {
   RUN_TEST(test_status_line_guard_text_and_boot_demand);
   RUN_TEST(test_summary_max_rh);
   RUN_TEST(test_status_fan_readback);
+  RUN_TEST(test_status_line_clock_health_and_net);
   RUN_TEST(test_resets_commands);
   RUN_TEST(test_reset_log_ring_and_format);
   RUN_TEST(test_sht40_crc_datasheet_example);

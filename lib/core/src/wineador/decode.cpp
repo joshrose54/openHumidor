@@ -51,6 +51,46 @@ bool formatDs3231Time(const uint8_t r[7], char* out, size_t n) {
   return true;
 }
 
+namespace {
+uint8_t toBcd(uint8_t v) { return (uint8_t)(((v / 10) << 4) | (v % 10)); }
+}
+
+void encodeDs3231(const DateTime& dt, uint8_t r[7]) {
+  // Day of week (register 0x03, 1-7) is not used by anything; worked out anyway, Monday = 1.
+  const int64_t days = toUnixSeconds(dt) / 86400;          // 1970-01-01 was a Thursday
+  const uint8_t dow = (uint8_t)(((days + 3) % 7) + 1);
+  r[0] = toBcd(dt.second);
+  r[1] = toBcd(dt.minute);
+  r[2] = toBcd(dt.hour);                                     // bit 6 clear = 24-hour mode
+  r[3] = dow;
+  r[4] = toBcd(dt.day);
+  r[5] = toBcd(dt.month);                                    // century bit clear: 2000-2099
+  r[6] = toBcd((uint8_t)(dt.year % 100));
+}
+
+DateTime fromUnixSeconds(int64_t s) {
+  // Howard Hinnant's civil_from_days.
+  int64_t days = s / 86400;
+  int64_t rem = s % 86400;
+  if (rem < 0) { rem += 86400; days -= 1; }
+  days += 719468;
+  const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+  const unsigned doe = (unsigned)(days - era * 146097);
+  const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const unsigned mp = (5 * doy + 2) / 153;
+  const unsigned d = doy - (153 * mp + 2) / 5 + 1;
+  const unsigned m = mp < 10 ? mp + 3 : mp - 9;
+  DateTime dt;
+  dt.year = (uint16_t)(yoe + era * 400 + (m <= 2 ? 1 : 0));
+  dt.month = (uint8_t)m;
+  dt.day = (uint8_t)d;
+  dt.hour = (uint8_t)(rem / 3600);
+  dt.minute = (uint8_t)((rem / 60) % 60);
+  dt.second = (uint8_t)(rem % 60);
+  return dt;
+}
+
 int64_t toUnixSeconds(const DateTime& dt) {
   // Days from 1970-01-01 to the date (Howard Hinnant's days_from_civil).
   int y = dt.year - (dt.month <= 2 ? 1 : 0);

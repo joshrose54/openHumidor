@@ -127,6 +127,7 @@ struct SafetySettings {
   uint8_t  fanMinDutyPct       = 20;    // never command 1..19 (4.6)
   uint32_t fanKickstartMs      = 1000;  // 100% for 1 s on every start from 0%
   uint32_t fanTachWindowMs     = 5000;  // RPM measured over 5 s
+  uint32_t fanStallRetryMs     = minutes(5);   // tach zero: kickstart at once, then every 5 min (5.6)
   uint32_t relaySettleMs       = 20;    // 3.2
 
   // Weekly relay exercise (5.2): three full cycles, both loads off, end on the cooling side

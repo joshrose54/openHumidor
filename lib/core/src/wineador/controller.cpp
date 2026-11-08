@@ -29,6 +29,8 @@ LoadOutputs Controller::pass(const PassInputs& in, const Demand& demand) {
   g.fanOk = in.fanOk;
   g.readingsFresh = in.readingsFresh;
   g.cab = in.cab;
+  g.sensorHoldTemp = in.sensorHoldTemp;
+  g.sensorHoldHumid = in.sensorHoldHumid;
   g.strippingActive = in.strippingActive;
   decisions_ = guards_.evaluate(g, demand, in.live);
 

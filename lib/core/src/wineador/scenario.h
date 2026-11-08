@@ -8,11 +8,16 @@
 //
 // Compiled out of the cabinet build entirely (like cabinet_model.h).
 //
-// Stage 2 scenarios:
+// Scenarios:
 //   run 1   guard timing: min-on, min-off, max run — compressor, heater, humidifier
-//   run 2   heater guards: cabinet ceiling, chamber ceiling, fan (unplug J2 when told)
+//   run 2   heater guards: cabinet ceiling, chamber ceiling, sensors (chamber implausible),
+//           fan (unplug J2 when told). The heater shows lit for 5 s before each trip.
 //   run 3   interlock: both loads asked for at once; meter J10 pins 1 and 3
+//   run 4   sensor failure: unplug sensors when told; thresholds and the recovery hold
+//   run 5   divergence: one cabinet sensor scripted 5.5 C high for over 10 min, then back
+//   run 6   fan failure: unplug J2 when told; stall kickstarts; replug; loads resume
 //   run 13  relay exercise: three cycles, both loads off, ends on the cooling side
+//   run 15  I2C bus fault: short a sensor's SDA to GND when told; recovery; remove it
 // `stop` ends a scenario early; the demand goes back to none.
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -21,6 +26,8 @@
 #include "wineador/settings.h"
 #include "wineador/controller.h"
 #include "wineador/cabinet_model.h"
+#include "wineador/sensor_health.h"
+#include "wineador/fan_monitor.h"
 
 namespace wineador {
 
@@ -29,6 +36,12 @@ struct ScenarioView {
   uint32_t nowMs = 0;
   LoadOutputs live;
   bool fanOk = false;
+  bool sweepDone = false;                 // a sensor sweep finished this pass (health just updated)
+  const SensorHealth* health = nullptr;
+  const FanMonitor* fan = nullptr;
+  uint32_t busStuck = 0;                  // stuck-bus recoveries since boot
+  bool rtcOk = true;
+  bool pullupsOn = false;                 // the ESP32's internal I2C pull-ups (must stay off, 5.3)
 };
 
 class ScenarioRunner {
@@ -49,14 +62,11 @@ class ScenarioRunner {
   Result result() const { return result_; }
   const Demand& demand() const { return demand_; }
 
-  // Test scaffolding for run 2: kick the plenum fan (100% for 1 s) so it
-  // restarts after J2 is plugged back in. Stage 3 does this by itself.
-  bool takeFanKick() { bool k = fanKick_; fanKick_ = false; return k; }
-
   // Text to print, oldest first; nullptr when there is none.
   const char* takeLine();
 
-  static bool exists(int n) { return n == 1 || n == 2 || n == 3 || n == 13; }
+  static bool exists(int n) { return n == 1 || n == 2 || n == 3 || n == 4 || n == 5 || n == 6 || n == 13 || n == 15; }
+  static const char* list() { return "run 1, 2, 3, 4, 5, 6, 13, 15"; }
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);
@@ -67,7 +77,11 @@ class ScenarioRunner {
   void run1(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run2(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run3(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run4(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run5(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run6(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run13(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run15(const ScenarioView& v, Controller& ctl, CabinetModel& model);
 
   Settings s_;
   int n_ = 0;
@@ -77,8 +91,9 @@ class ScenarioRunner {
   int phase_ = 0;
   uint32_t phaseAtMs_ = 0;
   uint32_t passesInPhase_ = 0;
-  bool fanKick_ = false;
-  uint32_t lastKickMs_ = 0;
+  uint32_t stuckAtStart_ = 0;
+  uint32_t kicksSeen_ = 0;
+  int target_ = -1;          // the sensor a step is about
   ModelRates savedRates_;   // run 1 freezes the model; restored at the end
 
   // Observed edges: when each load (0 cool, 1 heat, 2 humid) last went on / off.
@@ -90,6 +105,9 @@ class ScenarioRunner {
   uint32_t relayRoseAtMs_ = 0, relayFellAtMs_ = 0;
 
   int item_ = 0;            // which load / which guard / which cycle
+  uint32_t expectMs_ = 0;   // a time a step is waiting on (0 = not yet)
+  uint32_t humidMetMs_ = 0, tempMetMs_ = 0;    // run 4: when each 4.3 requirement was met again
+  bool humidBack_ = false, heatBack_ = false;  // run 4: resumed after the hold
   uint32_t deadlineMs_ = 0;
 
   static constexpr int kLines = 12;

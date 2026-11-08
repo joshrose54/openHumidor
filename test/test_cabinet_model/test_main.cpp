@@ -1,6 +1,7 @@
 // The test-build cabinet model (spec B3) and the scripted-readings swap.
 #include <unity.h>
 #include "wineador/cabinet_model.h"
+#include "wineador/sensor_health.h"
 #include "wineador/settings.h"
 
 using namespace wineador;
@@ -93,7 +94,9 @@ void test_scripted_swap_keeps_bus_failures() {
   r.s[3].bus = BusResult::CrcFail;
   applyScripted(r, m);
   TEST_ASSERT_EQUAL_FLOAT(20.0f, r.s[0].tempC);
-  TEST_ASSERT_EQUAL_FLOAT(62.0f, r.s[0].rhRawPct);
+  // RH carries the raw value that this sensor's calibration turns back into 62 %
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 62.0f, correctedRh(0, r.s[0].rhRawPct));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, rawForCorrectedRh(0, 62.0f), r.s[0].rhRawPct);
   TEST_ASSERT_TRUE(r.s[1].bus == BusResult::NoAck);     // still failed
   TEST_ASSERT_EQUAL_FLOAT(11.0f, r.s[1].tempC);         // untouched
   TEST_ASSERT_TRUE(r.s[3].bus == BusResult::CrcFail);

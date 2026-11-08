@@ -73,11 +73,38 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
 
 Stage 3 — in progress (see below).
 
-## Stage 3 — building
+## Stage 3 — built, native tests pass; board tests next (code not committed yet)
 
-Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan
-monitoring (5.6), I2C bus recovery (5.6), RTC lost time and NTP (5.4, 5.6). B3 tests 4, 5, 6, 15,
-16, and 2 re-run with the sensor guard. Spec chat's answers committed with the spec.
+Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan stall
+kickstarts (5.6), I2C stuck-bus recovery (5.6), RTC lost time (OSF) and NTP (5.4, 5.6).
+
+- **Mac side:** five ESP32 builds, no warnings; native tests **133/133** (31 new).
+- **Flash use ~77-78%** (WiFi + SNTP). Fine now; stage 6 / dashboard will need a bigger app
+  partition — for the spec chat (5.1 platformio block).
+
+### Added (lib/core unless noted)
+
+| File | What |
+|---|---|
+| `sensor_health.h/.cpp` | Exclusion (CRC x3, timeout x3, absent, implausible raw, divergence cabinet-only, bus fault, wrong serial, manual); recovery after 10 good reads (+ within 5 C after divergence) and a serial re-read; corrected RH; summary from healthy sensors with spread and control source; `RequirementGate` (4.3 + recovery hold, none at boot) |
+| `fan_monitor.h/.cpp` | Stall: kickstart at once, then every 5 min / 30 s bench; recovered when the tach reads |
+| `clock_state.h` | Trusted timestamps (OSF until corrected); write the DS3231 if > 2 s out |
+| `decode` | `encodeDs3231`, `fromUnixSeconds` |
+| `src/drivers/i2c_bus` | Stuck-bus probe -> mux RST + Wire restart (pull-ups off again) -> `BusStuck`; serial re-reads; OSF read at boot; DS3231 write + OSF clear |
+| `src/drivers/time_sync` | WiFi + SNTP in the background; credentials only from `include/wifi_time.h` |
+| `scenario` | `run 2` (5 s show, sensors step, real kickstarts), new `run 4`, `run 5`, `run 6`, `run 15` |
+
+### Board tests (one at a time)
+
+| Order | B3 test | Build | Wiring |
+|---|---|---|---|
+| 0 | Boot check: health, calibration, OSF, WiFi/NTP, RTC correction | `bench_test` | bulb J10 3-4, humid fan J11 |
+| 1 | 2 heater guards (+ sensors) | `bench_test` | same |
+| 2 | 4 sensor failure (+ swapped plugs) | `bench_test` | same |
+| 3 | 5 divergence (~13 min, no loads) | `bench_test` | same |
+| 4 | 6 fan failure | `bench_test` | same |
+| 5 | 15 I2C bus fault (short SDA) | `bench_test` | same |
+| 6 | 16 RTC lost time (cell out, power cut, USB out) | `bench_test_boot` | heater pad (not the bulb) |
 
 ## Talking to the board
 

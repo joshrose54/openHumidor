@@ -3,6 +3,7 @@
 #include "esp_system.h"
 #include "wineador/build_info.h"
 #include "wineador/sensor_table.h"
+#include "wineador/sensor_health.h"
 #include "drivers/i2c_bus.h"
 
 using namespace wineador;
@@ -96,8 +97,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
   else if (kTestBuild)
     Serial.println("    loads       off. Only a scenario (run <n>) asks for a load; guards and interlock decide");
   else
-    Serial.println("    loads       off. Stage 2 has no control logic, so nothing asks for a load");
-  Serial.printf ("    plenum fan  kickstart 100%% for 1 s, then idle %u%%\n", (unsigned)s.tuning.fanIdlePct);
+    Serial.println("    loads       off. No control logic yet (stage 4), so nothing asks for a load");
+  Serial.printf ("    plenum fan  kickstart 100%% for 1 s, then idle %u%%; on a stall, a kickstart at once and every %lu s\n",
+                 (unsigned)s.tuning.fanIdlePct, (unsigned long)(f.fanStallRetryMs / 1000));
+  Serial.println("    WiFi / NTP  connecting in the background (pool.ntp.org, time.google.com; every 24 h)");
   Serial.println();
   printHelp(kTestBuild);
   Serial.println("  Sensor serials print when the boot sensor check finishes (a second or so).");
@@ -124,10 +127,12 @@ void printSensorCheck() {
       if (owner >= 0) Serial.printf(" (this is the ch%u %s probe)", kSensors[owner].channel, kSensors[owner].position);
       else            Serial.print(" (not one of the six)");
     }
-    if (rd.bus == BusResult::Ok) Serial.printf("   %6.2f C  %6.2f %%RH\n", rd.tempC, rd.rhRawPct);
+    if (rd.bus == BusResult::Ok) Serial.printf("   %6.2f C  %6.2f %%RH raw -> %6.2f %%RH corrected\n", rd.tempC, rd.rhRawPct,
+                                               correctedRh(i, rd.rhRawPct));
     else                         Serial.printf("   reading: %s\n", busResultName(rd.bus));
   }
-  Serial.println("    (Reported only. Excluding a wrong sensor arrives at stage 3; until then a sensor counts as healthy if it answers.)");
+  Serial.println("    A wrong or missing sensor is excluded (4.3, 5.3); exclusions and recoveries print as they happen.");
+  Serial.println("    Values here are real. In a test build the logic uses scripted values; bus checks stay real.");
   Serial.println();
 }
 
@@ -137,7 +142,7 @@ void printHelp(bool testBuild) {
   Serial.println("    help      this list");
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
   if (testBuild) {
-    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (stage 2: 1, 2, 3, 13)");
+    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 5, 6, 13, 15)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");

@@ -59,9 +59,9 @@ void setDuty(uint8_t pct) {
 
 uint8_t duty() { return gDuty; }
 
-void update(uint32_t nowMs, uint32_t windowMs) {
+bool update(uint32_t nowMs, uint32_t windowMs) {
   uint32_t dt = nowMs - gWindowStartMs;
-  if (dt < windowMs) return;
+  if (dt < windowMs) return false;
   noInterrupts();
   uint32_t p = vPulses, e = vEdges;
   vPulses = 0;
@@ -73,6 +73,7 @@ void update(uint32_t nowMs, uint32_t windowMs) {
   gLastPulses = p;
   gLastEdges = e;
   gRpm = (uint32_t)((uint64_t)p * 60000ULL / 2 / dt);   // two pulses per revolution
+  return true;
 }
 
 uint32_t rpm() { return gRpm; }

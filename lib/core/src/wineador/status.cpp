@@ -33,7 +33,7 @@ const char* formatDuration(char* out, size_t n, uint64_t ms) {
 int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   Out o(buf, n);
   char up[24], t[24];
-  o.add("%s up %s | %s", s.timestamp, formatDuration(up, sizeof(up), s.uptimeMs),
+  o.add("%s%s up %s | %s", s.timestamp, s.timeTrusted ? "" : " UNTRUSTED", formatDuration(up, sizeof(up), s.uptimeMs),
         s.profile == Profile::Bench ? "BENCH-PROFILE" : "REAL");
   if (s.testBuild) o.add(" TEST-BUILD");
   if (s.bootDemand) o.add(" BOOT-DEMAND");
@@ -51,7 +51,7 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
                            (unsigned long)((s.fanEdges * 10 / s.fanPulses) % 10));
     else o.add(" e/p -- (%lu edges)", (unsigned long)s.fanEdges);
   }
-  o.add(" | %s", s.testBuild ? "scripted" : "raw");
+  o.add(" | %s", s.testBuild ? "scripted" : "real");
   if (s.cab.cabinetOk > 0)
     o.add(" cab %.2fC %.1f%% (%d/4, %.2f-%.2f)", s.cab.meanC, s.cab.meanRhPct, s.cab.cabinetOk, s.cab.minC, s.cab.maxC);
   else
@@ -59,9 +59,12 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   if (s.cab.chamberOk) o.add(" ch6 %.2fC", s.cab.chamberC); else o.add(" ch6 --");
   if (s.cab.ambientOk) o.add(" ch7 %.2fC %.1f%%", s.cab.ambientC, s.cab.ambientRhPct); else o.add(" ch7 --");
   o.add(" | sensors %d/6", s.cab.sensorsOk);
+  if (s.healthText && s.healthText[0]) o.add(" %s", s.healthText);
   o.add(" | loop max %lu.%lums", (unsigned long)(s.loopMaxUs / 1000), (unsigned long)((s.loopMaxUs % 1000) / 100));
   o.add(" | heap %lu", (unsigned long)s.heapFree);
   if (!s.rtcOk) o.add(" | RTC FAIL");
+  if (s.rtcLostTime) o.add(" | RTC LOST TIME");
+  if (s.netText && s.netText[0]) o.add(" | %s", s.netText);
   if (s.i2cPullupsOn) o.add(" | I2C PULLUPS ON");
   if (s.readingsAgeMs > s.staleAfterMs) o.add(" | readings STALE %lus", (unsigned long)(s.readingsAgeMs / 1000));
   return (int)o.len;

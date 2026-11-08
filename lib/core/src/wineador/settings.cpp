@@ -30,6 +30,7 @@ Settings settingsFor(Profile p) {
     s.tuning.crossoverDelayMs     = seconds(30);
     s.safety.bootHoldMs           = seconds(30);
     s.safety.sensorRecoveryHoldMs = seconds(30);
+    s.safety.fanStallRetryMs      = seconds(30);
     s.tuning.rhStripPersistMs     = seconds(30);
     s.tuning.humidifyPersistMs    = seconds(30);
     s.tuning.heaterIneffectiveWindowMs  = minutes(1);

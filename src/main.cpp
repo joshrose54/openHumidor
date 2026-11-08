@@ -1,14 +1,16 @@
-// Wineador controller firmware — stage 2.
+// Wineador controller firmware — stage 3.
 //
 // The main loop never waits. Each pass:
 //   1. Minimum job (5.2): boot hold, relay exercise, runtime guards and the
 //      interlock sequence decide the four outputs, from whatever readings are
 //      to hand — never waiting for a sensor, the SD card or the network.
-//   2. Plenum fan (kickstart, tach), sensors and RTC — each a small step that
-//      returns at once.
-//   3. Serial commands, status line, and a "live right now" block when a load changes.
+//   2. Plenum fan (kickstart, tach, stall kickstarts), sensors and RTC — each a
+//      small step that returns at once. After each sweep: sensor health (4.3),
+//      serial checks and calibration (5.3).
+//   3. NTP (background) and the DS3231 correction; serial commands; status line;
+//      a "live right now" block when a load changes.
 //
-// Stage 2 has no control logic yet, so nothing asks a load to run in the
+// No control logic yet (stage 4), so nothing asks a load to run in the
 // cabinet and bench builds: every load stays off. In a test build a scenario
 // (run <n>) or the boot-demand build asks, and the guards decide.
 //
@@ -28,6 +30,11 @@
 #include "wineador/commands.h"
 #include "wineador/status.h"
 #include "wineador/summary.h"
+#include "wineador/sensor_health.h"
+#include "wineador/sensor_table.h"
+#include "wineador/fan_monitor.h"
+#include "wineador/clock_state.h"
+#include "wineador/decode.h"
 #include "drivers/outputs.h"
 #include "drivers/fan.h"
 #include "drivers/i2c_bus.h"
@@ -35,6 +42,7 @@
 #include "drivers/watchdog.h"
 #include "drivers/core_log.h"
 #include "drivers/reset_record.h"
+#include "drivers/time_sync.h"
 #include "app/console.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
@@ -50,7 +58,6 @@ static char gVersion[40];
 static Controller gCtl;                  // boot hold, guards, interlock, relay exercise
 static FanController gFan(gSettings.safety.fanMinDutyPct, gSettings.safety.fanKickstartMs);
 static Readings gBusReadings;            // the last sensor sweep, as read
-static Readings gReadings;               // what the logic sees (values scripted in a test build)
 static LoadOutputs gShownLoads;          // last state printed in a live block
 static uint8_t gShownFan = 0;
 static LineReader gLine;
@@ -60,6 +67,15 @@ static uint32_t gLastStatusMs = 0;       // the status line has its own timer, n
 static uint32_t gLastSweepDoneMs = 0;    // when the readings were last refreshed
 static uint32_t gHeapBaseline = 0;
 static bool gClockSet = false;
+static SensorHealth gHealth;             // 4.3, 5.3
+static RequirementGate gGate;            // 4.3 requirements + recovery hold
+static FanMonitor gFanMon;               // 5.6 stall kickstarts
+static ClockState gClock;                // OSF, NTP, trusted timestamps
+static uint32_t gStuckSeen = 0;          // bus recoveries already reported
+static bool gCheckRtc = false;           // compare the DS3231 with NTP time at the next chance
+static bool gRtcWriteArmed = false;      // write the DS3231 at the next whole second
+static bool gRtcWriting = false;
+static int64_t gRtcErrorS = 0;
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -75,6 +91,27 @@ static void timestamp(char* out, size_t n) {
   struct tm tmv;
   gmtime_r(&t, &tmv);
   strftime(out, n, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+}
+
+// "| excl ch6 absent, ch3 crc | sensor hold 12s" — empty when all six are healthy.
+static void healthText(char* out, size_t n, uint32_t nowMs) {
+  size_t len = 0;
+  out[0] = 0;
+  auto add = [&](const char* fmt, auto... a) {
+    if (len + 1 >= n) return;
+    int k = snprintf(out + len, n - len, fmt, a...);
+    if (k > 0) len = (len + k < n) ? len + k : n - 1;
+  };
+  bool first = true;
+  for (int i = 0; i < kNumSensors; i++) {
+    if (gHealth.healthy(i)) continue;
+    add("%sch%d %s", first ? "| excl " : ", ", channelOf(i), exclusionName(gHealth.reason(i)));
+    first = false;
+  }
+  if (gGate.tempHolding() || gGate.humidHolding()) {
+    const uint32_t left = gGate.tempHolding() ? gGate.tempHoldLeftMs(nowMs) : gGate.humidHoldLeftMs(nowMs);
+    add(" | sensor hold %lus", (unsigned long)((left + 999) / 1000));
+  }
 }
 
 static void printStatus() {
@@ -99,7 +136,16 @@ static void printStatus() {
   s.fanPwmReadback = (int32_t)fan::pwmReadback();
   s.fanPulses = fan::lastPulses();
   s.fanEdges = fan::lastTransitions();
-  s.cab = summarise(gReadings);
+  s.cab = gHealth.summary();
+  char health[120];
+  healthText(health, sizeof(health), millis());
+  s.healthText = health;
+  s.timeTrusted = gClock.trusted();
+  s.rtcLostTime = gClock.osfAtBoot && !gClock.corrected;
+  char net[48];
+  snprintf(net, sizeof(net), "wifi %s ntp %s", timesync::wifiUp() ? "up" : "down",
+           gClock.ntpSynced ? "ok" : "waiting");
+  s.netText = net;
   s.loopMaxUs = gLoopMax.take();
   s.heapFree = ESP.getFreeHeap();
   s.rtcOk = i2cbus::rtcOk();
@@ -119,7 +165,7 @@ static void printLive(const char* why) {
 
 // Sets the ESP32's own clock from the RTC (spec 5.4), once, at the first good read.
 static void setClockFromRtc() {
-  if (gClockSet) return;
+  if (gClockSet || gClock.ntpSynced) return;   // NTP's time wins once it has arrived
   DateTime dt;
   if (!i2cbus::rtcOk() || !i2cbus::rtcDateTime(dt)) return;
   struct timeval tv = {};
@@ -166,7 +212,7 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
       if (gScenario.running()) {
         Serial.printf("  run %d is still going. Type stop first.\n", gScenario.number());
       } else if (!ScenarioRunner::exists(n)) {
-        Serial.println("  Stage 2 scenarios: run 1, run 2, run 3, run 13. Nothing started.");
+        Serial.printf("  Scenarios: %s. Nothing started.\n", ScenarioRunner::list());
       } else {
         gScenario.start(n, nowMs, gModel);
       }
@@ -229,6 +275,9 @@ void setup() {
   tzset();
 
   gCtl.begin(gSettings, millis());       // boot hold starts now (4.4)
+  gHealth.begin(gSettings);
+  gGate.begin(gSettings.safety.sensorRecoveryHoldMs);
+  gFanMon.begin(gSettings.safety.fanStallRetryMs);
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
 
@@ -238,6 +287,10 @@ void setup() {
   gBoot.sdOk = sdcard::begin();
   gBoot.sdMountMs = millis() - sdStart;
   gBoot.sdMB = sdcard::cardMB();
+  watchdog::feed();
+
+  // BOOT ONLY: start WiFi and SNTP. Both return at once and connect in the background.
+  timesync::begin();
   watchdog::feed();
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -303,18 +356,130 @@ static void printExerciseEvents() {
   }
 }
 
+static void printFanEvents() {
+  uint32_t k = 0;
+  for (FanMonitor::Event e; (e = gFanMon.takeEvent(&k)) != FanMonitor::Event::None;) {
+    switch (e) {
+      case FanMonitor::Event::Stall:
+        Serial.println("  FAN STALL: tach reads zero with PWM asserted. Compressor and heater held off.");
+        break;
+      case FanMonitor::Event::Kick:
+        Serial.printf("  FAN STALL: kickstart %lu (100%% for 1 s); next in %lu s if the tach still reads zero\n",
+                      (unsigned long)k, (unsigned long)(gSettings.safety.fanStallRetryMs / 1000));
+        break;
+      case FanMonitor::Event::Recovered:
+        Serial.printf("  FAN RECOVERED: tach reads %lu rpm. Loads may resume.\n", (unsigned long)fan::rpm());
+        break;
+      default: break;
+    }
+  }
+}
+
+// After each sweep: serial results, sensor health, calibration, bus faults, OSF.
+static void afterSweep(uint32_t now) {
+  for (int i = 0; i < kNumSensors; i++) {
+    i2cbus::SerialResult sr;
+    if (i2cbus::takeSerial(i, sr)) gHealth.serialResult(i, sr.bus, sr.serial);
+  }
+  // Health sees the values the logic sees: scripted in a test build (bus results stay real).
+  Readings r = gBusReadings;
+#if defined(WINEADOR_TEST_BUILD)
+  applyScripted(r, gModel);
+#endif
+  gHealth.update(r, now);
+  for (int i = 0; i < kNumSensors; i++) if (gHealth.wantsSerial(i)) i2cbus::wantSerial(i);
+
+  if (i2cbus::busStuckCount() != gStuckSeen) {
+    gStuckSeen = i2cbus::busStuckCount();
+    Serial.printf("  I2C BUS STUCK with ch%d selected: mux reset pulsed, I2C restarted (%lu since boot). "
+                  "RTC and other sensors carry on.\n",
+                  channelOf(i2cbus::lastStuckIndex()), (unsigned long)gStuckSeen);
+  }
+  SensorHealth::Event e;
+  while (gHealth.takeEvent(e)) {
+    if (e.excluded) Serial.printf("  SENSOR EXCLUDED: ch%d %s - %s\n", channelOf(e.index),
+                                  kSensors[e.index].position, exclusionName(e.reason));
+    else            Serial.printf("  SENSOR RECOVERED: ch%d %s - 10 good reads, serial re-checked\n",
+                                  channelOf(e.index), kSensors[e.index].position);
+  }
+
+  if (i2cbus::lastSweepWasBoot()) {
+    gClock.osfKnown = i2cbus::rtcStatusKnown();
+    gClock.osfAtBoot = i2cbus::rtcOsf();
+    if (!gClock.osfKnown)
+      Serial.println("  !! RTC status register not read: lost-time check (OSF) not done this boot");
+    else if (gClock.osfAtBoot) {
+      Serial.println("\n  !! RTC LOST TIME: the DS3231's oscillator stopped while unpowered (OSF set).");
+      Serial.println("  !! Timestamps are UNTRUSTED until NTP corrects the clock. Control is unaffected.");
+      Serial.println("  !! If this repeats, replace the RTC cell (spec 2.4).\n");
+    }
+  }
+}
+
+// NTP (5.4): after each sync, check the DS3231 and correct it if more than 2 s out,
+// writing on a whole-second boundary. Returns true when something was printed.
+static bool afterNtp(uint32_t now) {
+  bool printed = false;
+  if (timesync::takeSync()) {
+    gClock.ntpSynced = true;
+    gClockSet = true;                     // the system clock now has NTP's time
+    char ts[24];
+    timestamp(ts, sizeof(ts));
+    Serial.printf("  NTP SYNC %lu: system clock set to %s\n", (unsigned long)timesync::syncCount(), ts);
+    gCheckRtc = true;
+    printed = true;
+  }
+  DateTime rtc;
+  if (gCheckRtc && !gRtcWriting && i2cbus::rtcOk() && i2cbus::rtcDateTime(rtc)) {
+    gCheckRtc = false;
+    const int64_t rtcNow = toUnixSeconds(rtc) + (int64_t)(elapsedMs(now, i2cbus::rtcReadAtMs()) / 1000);
+    const bool out = rtcNeedsWrite(rtcNow, (int64_t)time(nullptr), &gRtcErrorS);
+    if (out || (gClock.osfAtBoot && !gClock.corrected)) {
+      gRtcWriteArmed = true;              // written at the next whole second
+    } else {
+      gClock.corrected = true;
+      Serial.printf("  NTP: DS3231 within 2 s (%+lld s); not written\n", (long long)gRtcErrorS);
+      printed = true;
+    }
+  }
+  if (gRtcWriteArmed) {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    if (tv.tv_usec < 100000) {            // just after a whole second
+      i2cbus::requestRtcWrite(fromUnixSeconds((int64_t)tv.tv_sec), i2cbus::rtcOsf());
+      gRtcWriteArmed = false;
+      gRtcWriting = true;
+    }
+  }
+  const int wr = i2cbus::takeRtcWriteResult();
+  if (wr != 0) {
+    gRtcWriting = false;
+    if (wr > 0) {
+      const bool hadOsf = gClock.osfAtBoot && !gClock.corrected;
+      gClock.corrected = true;
+      gClock.lastCorrectionS = gRtcErrorS;
+      char ts[24];
+      timestamp(ts, sizeof(ts));
+      Serial.printf("  NTP: DS3231 was %+lld s out; set to %s%s\n", (long long)gRtcErrorS, ts,
+                    hadOsf ? ". OSF cleared; timestamps trusted again" : "");
+    } else {
+      Serial.println("  NTP: DS3231 write FAILED; trying again after the next sweep");
+      gCheckRtc = true;
+    }
+    printed = true;
+  }
+  return printed;
+}
+
 void loop() {
   const uint32_t t0 = micros();
   const uint32_t now = millis();
   watchdog::feed();
 
-  // 1. Minimum job, every pass. Uses the readings already to hand; waits for nothing.
-#if defined(WINEADOR_TEST_BUILD)
-  gReadings = gBusReadings;
-  applyScripted(gReadings, gModel);       // values scripted; bus results stay real
-#else
-  gReadings = gBusReadings;
-#endif
+  // 1. Minimum job, every pass. Uses the health and readings already to hand; waits for nothing.
+  const int cabOk = gHealth.healthyCabinet();
+  gGate.update(gHealth.chamberHealthy() && cabOk >= gSettings.safety.minHealthyCabinet,
+               cabOk >= gSettings.safety.minHealthyCabinet, now);
   Demand demand;                          // stage 2: no control logic, so nothing is asked for...
 #if defined(WINEADOR_TEST_BUILD)
   if (gScenario.running()) demand = gScenario.demand();          // ...except by a scenario
@@ -325,16 +490,27 @@ void loop() {
   in.settingsOk = (gBoot.settingsProblem == nullptr);
   in.fanOk = fan::duty() >= gSettings.safety.fanMinDutyPct && fan::rpm() > 0;
   in.readingsFresh = elapsedMs(now, gLastSweepDoneMs) <= 2 * gSettings.tuning.sensorReadMs;
-  in.cab = summarise(gReadings);
+  in.cab = gHealth.summary();             // healthy sensors only, corrected RH (4.3, 5.3)
+  in.sensorHoldTemp = gGate.tempHolding();
+  in.sensorHoldHumid = gGate.humidHolding();
   in.live = outputs::current();
   outputs::apply(gCtl.pass(in, demand));
 #if defined(WINEADOR_TEST_BUILD)
   resetrec::heartbeat((uint32_t)(uptimeMs() / 1000), outputs::current());   // RTC memory, cheap
 #endif
 
-  // 2. The fan
+  // 2. The fan. After each tach window, the stall check (5.6) may ask for a kickstart.
   fan::setDuty(gFan.output(now));
-  fan::update(now, gSettings.safety.fanTachWindowMs);
+  if (fan::update(now, gSettings.safety.fanTachWindowMs)) {
+    if (gFanMon.window(now, gFan.target() >= gSettings.safety.fanMinDutyPct, fan::rpm())) {
+      const uint8_t target = gFan.target();
+      gFan.command(0, now);
+      gFan.output(now);                   // counts as stopped (not driven), so the next command kicks
+      gFan.command(target, now);
+      fan::setDuty(gFan.output(now));
+    }
+    printFanEvents();
+  }
 
   // 3. Sensors and RTC — one short step per pass
   if (i2cbus::idle() && elapsedMs(now, gLastSweepStartMs) >= gSettings.tuning.sensorReadMs) {
@@ -351,9 +527,12 @@ void loop() {
 #endif
 
   bool printNow = false;
+  bool sweptThisPass = false;
   if (i2cbus::takeSweepDone()) {
+    sweptThisPass = true;
     gBusReadings = i2cbus::readings();
     gLastSweepDoneMs = now;
+    afterSweep(now);
     setClockFromRtc();
     if (i2cbus::lastSweepWasBoot()) {
       console::printSensorCheck();
@@ -361,6 +540,7 @@ void loop() {
     }
     if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
   }
+  if (afterNtp(now)) printNow = true;
 
   // Status line on its own 15 s timer, so a stuck bus cannot stop it.
   if (elapsedMs(now, gLastStatusMs) >= gSettings.tuning.sensorReadMs) {
@@ -398,17 +578,21 @@ void loop() {
   view.nowMs = now;
   view.live = loads;
   view.fanOk = fan::duty() >= gSettings.safety.fanMinDutyPct && fan::rpm() > 0;
+  view.sweepDone = sweptThisPass;
+  view.health = &gHealth;
+  view.fan = &gFanMon;
+  view.busStuck = i2cbus::busStuckCount();
+  view.rtcOk = i2cbus::rtcOk();
+  view.pullupsOn = !i2cbus::internalPullupsOff();
   const bool wasRunning = gScenario.running();
   gScenario.update(view, gCtl, gModel);
-  if (gScenario.takeFanKick()) {          // run 2 scaffolding, see scenario.h
-    gFan.command(0, now);
-    gFan.output(now);                     // counts as stopped (not driven), so the next command kicks
-    gFan.command(gSettings.tuning.fanIdlePct, now);
-  }
   for (const char* l; (l = gScenario.takeLine()) != nullptr;) Serial.println(l);
   if (wasRunning && !gScenario.running()) printNow = true;
 #endif
 
+#if !defined(WINEADOR_TEST_BUILD)
+  (void)sweptThisPass;
+#endif
   if (printNow) printStatus();
   gLoopMax.add(micros() - t0);
 }

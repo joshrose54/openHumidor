@@ -22,7 +22,9 @@ struct PassInputs {
   bool settingsOk = true;
   bool fanOk = false;
   bool readingsFresh = false;
-  CabinetSummary cab;
+  CabinetSummary cab;            // healthy sensors only
+  bool sensorHoldTemp = false;   // 4.3 recovery hold (RequirementGate)
+  bool sensorHoldHumid = false;
   LoadOutputs live;              // what is being driven right now (last pass's result)
   bool strippingActive = false;  // stage 4
 };

@@ -33,6 +33,7 @@ enum class BusResult : uint8_t {
   NoAck,       // the sensor did not acknowledge (absent, unplugged)
   ShortRead,   // fewer bytes than expected (timeout)
   CrcFail,     // bytes arrived but the checksum was wrong
+  BusStuck,    // the main bus locked while this channel was selected (5.6): mux reset, I2C restarted
 };
 const char* busResultName(BusResult r);
 

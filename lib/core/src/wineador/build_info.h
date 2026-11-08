@@ -12,7 +12,7 @@
 
 namespace wineador {
 
-constexpr uint8_t kFirmwareStage = 2;
+constexpr uint8_t kFirmwareStage = 3;
 
 #if defined(WINEADOR_BENCH_PROFILE)
 constexpr Profile kBuildProfile = Profile::Bench;

@@ -76,8 +76,11 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
   const UserSettings& u = s_.user;
   const CabinetSummary& c = in.cab;
 
+  // 4.3 requirements, from the healthy sensors, plus the recovery hold after a failure.
   const bool cabinetEnough = in.readingsFresh && c.cabinetOk >= f.minHealthyCabinet;
   const bool chamberHealthy = in.readingsFresh && c.chamberOk;
+  const bool tempSensorsOk = chamberHealthy && cabinetEnough && !in.sensorHoldTemp;
+  const bool humidSensorsOk = cabinetEnough && !in.sensorHoldHumid;
 
   // Stop guards common to all three loads, in order of importance.
   GuardBlock common = GuardBlock::None;
@@ -90,7 +93,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
   {
     GuardBlock stop = common;
     if (stop == GuardBlock::None && in.exerciseCycling)                    stop = GuardBlock::RelayExercise;
-    if (stop == GuardBlock::None && !(chamberHealthy && cabinetEnough))    stop = GuardBlock::Sensors;
+    if (stop == GuardBlock::None && !tempSensorsOk)                        stop = GuardBlock::Sensors;
     if (stop == GuardBlock::None && !in.fanOk)                             stop = GuardBlock::Fan;
 
     GuardBlock start = GuardBlock::None;
@@ -111,7 +114,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
     GuardBlock stop = common;
     if (stop == GuardBlock::None && in.exerciseCycling)                    stop = GuardBlock::RelayExercise;
     if (stop == GuardBlock::None && !u.heaterEnable)                       stop = GuardBlock::Disabled;
-    if (stop == GuardBlock::None && !(chamberHealthy && cabinetEnough))    stop = GuardBlock::Sensors;
+    if (stop == GuardBlock::None && !tempSensorsOk)                        stop = GuardBlock::Sensors;
     if (stop == GuardBlock::None && !in.fanOk)                             stop = GuardBlock::Fan;
     if (stop == GuardBlock::None && c.cabinetOk > 0 &&
         c.maxC > u.targetTempC + f.cabinetCeilingAboveSetpointC)           stop = GuardBlock::CabinetCeiling;
@@ -137,11 +140,11 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
   {
     GuardBlock stop = common;
     if (stop == GuardBlock::None && !u.humidifierEnable)                   stop = GuardBlock::Disabled;
-    if (stop == GuardBlock::None && !cabinetEnough)                        stop = GuardBlock::Sensors;
+    if (stop == GuardBlock::None && !humidSensorsOk)                       stop = GuardBlock::Sensors;
     if (stop == GuardBlock::None && c.cabinetOk > 0 && c.maxRhPct >= f.rhHardCeilingPct)
                                                                            stop = GuardBlock::RhCeiling;
     if (stop == GuardBlock::None && in.strippingActive)                    stop = GuardBlock::Stripping;
-    // Stage 2 counts every compressor run as temperature-driven: stripping is stage 4.
+    // Until stage 4 every compressor run counts as temperature-driven: stripping is stage 4.
     if (stop == GuardBlock::None && !t.humidifyDuringCooling && (cool_.on || out.cool.run))
                                                                            stop = GuardBlock::CompressorRun;
 
