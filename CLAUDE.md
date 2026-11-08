@@ -46,6 +46,9 @@ fix. Josh takes it to that chat, which updates the spec. Don't work around a spe
 
 - Anything that switches loads **waits for Josh's go-ahead** ("type n to start") so he can meter
   first. Every step is plain and says what to check and what to record.
+- **From stage 4, the `bench` and cabinet builds switch loads by themselves** from the real sensors.
+  On the bench, flash **test builds only** unless Josh has asked for a non-test build. Before
+  flashing one, say plainly what it will switch on and when, and wait for his go.
 - Serial output shows **what is live right now** after each step, never "next" before it's applied.
   See `docs/reference/bp12_outputs_test.cpp` for the format Josh found clear.
 
