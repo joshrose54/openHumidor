@@ -86,7 +86,7 @@ NO2 output.
 |---|---|
 | SD mount at boot | 60 ms |
 | Loop pass, longest per status interval | 1.2–4.5 ms; 2.7–3.1 ms with the RTC lead out |
-| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1% |
+| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1%; stage 5: 77.8% / 82.1% |
 | Free heap | ~268 KB without WiFi, ~170 KB with it |
 | Boot to first NTP sync | 2–16 s |
 | Sensor recovery on the bench after a replug | ~3 min (10 reads × 15 s, plus the serial re-read), then the 30 s hold |
@@ -576,7 +576,7 @@ socket after being refitted. Reseated, it ran as above.
 
 ## B3 — Firmware on the bench, Rev N
 
-Bench profile throughout. Firmware 0.1.0-stage1 to stage4.
+Bench profile throughout. Firmware 0.1.0-stage1 to stage5.
 
 ### B3.1 Guard timing — ✅
 
@@ -711,6 +711,31 @@ DS3231 within 2 s of NTP.
 with a countdown, retried at exactly 2:00.0; model responding by then → `HEATER EFFECTIVE AGAIN`,
 flag cleared. Cooling: `COOLING INEFFECTIVE` at exactly 1:00.0, flagged, compressor still on; flag
 cleared on the next working run (in run 23).
+
+### B3.19 Humidifier guards — ✅
+
+`run 19`. Mean RH 56%: call start, humidifier on after exactly 30.0 s. Off at its max run after
+exactly 2:00.0 (still asked for, RH 58%); on again exactly 20.0 s later, same call. RH stepped to
+62.5%: call end, off at that read after 9.9 s on (no minimum on). A one-read dip to 59% started the
+count, which broke at the next read; stayed off.
+
+### B3.20 Humidifier ceiling and sensors — ✅
+
+`run 20`, running at mean RH 50%. ch3 scripted to 70.5%: off (`rh-ceiling`) at the first read, ch3
+70.7%, mean 55.5%; call kept. ch3 back: on after the 20 s minimum off. ch2 excluded (3 of 4): still
+running. ch4 excluded (2 of 4): off (`sensors`). Both recovered: on exactly 30.0 s later.
+
+### B3.21 Humidifier exclusivity — ✅
+
+`run 21`. During a strip: humidify held (`stripping`). Temperature cooling run (cabinet 21°C),
+"humidify during cooling runs" off: held (`compressor-run`). Setting on: humidifier on at once with
+the compressor running.
+
+### B3.22 Humidifier ineffective — ✅
+
+`run 22`, vapour pressure held flat. On at 0:36.5; off at exactly 1:00.0 (`+0.0000 kPa in 60 s,
+needs +0.0117`), flagged, call kept. Held with a countdown; retried at exactly 2:00.0; model adding
+water → `HUMIDIFIER EFFECTIVE AGAIN`, flag cleared.
 
 ### B3.23 Plenum fan rules — ✅
 
@@ -868,6 +893,8 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **The first serial command after USB goes in** can arrive with a stray byte in front and be rejected as unknown; resend it.
 - **One program on the serial port at a time.** A second one opening it splits the output between them and can crash one; the board is unaffected.
 - **Bench scenarios depend on what ran before** (e.g. which load ran last decides whether a start is a crossover). Scenarios take their baselines at the point they measure from.
+- **Readings trail the cabinet by up to one read (15 s).** A timed check over a short window sees about one read less of change — a 1-minute bench window sees ~45 s. Allow for it when B6 sets the humidifier window; negligible at 20 min.
+- **62% at 20°C sits exactly on the strip release target** (1.447 kPa). Scripted values that must release use 61.5%; irrelevant on real readings.
 - **The firmware's reset record** (test builds) keeps each boot's reason in flash and a heartbeat in RTC memory. An EN reset from the Mac wipes the heartbeat; the boot list survives everything.
 - **Plenum fan ran at full speed for ~2 min once** during stage 2 (20% commanded); not repeated by wiggling J2 or the fan lead. The status line now shows the PWM hardware readback and tach edges per pulse (7–9 normal) to tell a repeat apart.
 - **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.
