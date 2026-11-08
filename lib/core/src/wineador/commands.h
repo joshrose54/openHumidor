@@ -1,6 +1,6 @@
 #pragma once
 // The small serial command reader: "boot", "help", "exercise" (every build),
-// and "stall", "run <n>", "stop", "resets [clear]" (test builds only). The full serial interface
+// and "stall", "run <n>", "stop", "resets [clear]", "fan <pct>|auto" (test builds only). The full serial interface
 // arrives at stage 6.
 // Characters are fed one at a time, so reading never waits.
 
@@ -19,6 +19,8 @@ enum class Command : uint8_t {
   Stop,              // TEST BUILDS ONLY: end the scenario early
   Resets,            // TEST BUILDS ONLY: print the reset record
   ResetsClear,       // TEST BUILDS ONLY: "resets clear" empties it
+  Fan,               // TEST BUILDS ONLY: "fan <pct>" sets the IDLE fan duty (0 or 20-100; 1-19 refused),
+                     //   "fan auto" back to the setting. *arg = pct, -1 = auto, -2 = not a number
   TestOnly,          // "run" or "stop" typed in a cabinet build
   Unknown,
 };
@@ -38,7 +40,7 @@ class LineReader {
 };
 
 // Trims spaces, ignores case. For Run, *arg gets the test number (-1 if missing
-// or not a number).
+// or not a number). For Fan, *arg gets the duty (-1 = auto, -2 = not a number).
 Command parseCommand(const char* line, bool testBuild, int* arg = nullptr);
 
 }  // namespace wineador

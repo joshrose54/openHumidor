@@ -1,6 +1,7 @@
 #include "wineador/commands.h"
 #include <string.h>
 #include <ctype.h>
+#include <strings.h>
 
 namespace wineador {
 
@@ -38,6 +39,22 @@ Command parseCommand(const char* line, bool testBuild, int* arg) {
     while (*line == ' ' || *line == '\t') line++;
     if (arg) *arg = (digits > 0 && *line == 0) ? v : -1;
     return Command::Run;
+  }
+  // "fan <pct>" or "fan auto"
+  if (strcmp(w, "fan") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    if (arg) *arg = -2;
+    if (strncasecmp(line, "auto", 4) == 0) {
+      line += 4;
+      while (*line == ' ' || *line == '\t') line++;
+      if (*line == 0 && arg) *arg = -1;
+      return Command::Fan;
+    }
+    int v = 0, digits = 0;
+    while (*line >= '0' && *line <= '9' && digits < 4) { v = v * 10 + (*line++ - '0'); digits++; }
+    while (*line == ' ' || *line == '\t') line++;
+    if (arg && digits > 0 && *line == 0) *arg = v;
+    return Command::Fan;
   }
   // "resets" or "resets clear"
   if (strcmp(w, "resets") == 0) {

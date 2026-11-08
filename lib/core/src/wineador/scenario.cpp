@@ -50,6 +50,28 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
     // effect on the model is switched off while it runs.
     model.rates().coolResponds = model.rates().heatResponds = model.rates().humidResponds = false;
   }
+  // Stage 4: the scenario scripts the cabinet model; the real control decides.
+  heatStarts_ = coolStarts_ = heatEnds_ = coolEnds_ = 0;
+  kicks_ = 0;
+  kicking_ = false;
+  flag_ = false;
+  dir_ = 1;
+  lastTickMs_ = nowMs;
+  if (usesControl(n)) {
+    ModelRates& r = model.rates();
+    r.driftCPerMin = 0.0f;              // nothing moves unless a load or the scenario moves it
+    r.coolVpKpaPerMin = 0.0f;
+    model.setCabinetRh(62.0f);
+    switch (n) {
+      case 7:  r.coolCPerMin = 0.0f; r.heatCPerMin = 0.0f; sweepC_ = 17.0f; model.setCabinetC(17.0f); break;
+      case 8:  r.coolCPerMin = -1.0f; r.heatCPerMin = 1.0f; model.setCabinetC(21.0f); break;
+      case 9:  r.coolCPerMin = -0.3f; r.coolVpKpaPerMin = 0.05f; model.setCabinetC(20.3f); model.setCabinetRh(62.0f); break;
+      case 10: r.coolCPerMin = -0.5f; model.setCabinetC(20.0f); model.setCabinetRh(69.0f); model.setOffset(0, -1.0f, 0); break;
+      case 17: r.heatResponds = false; r.heatCPerMin = 0.0f; r.coolCPerMin = 0.0f; model.setCabinetC(18.0f); break;
+      case 23: r.coolCPerMin = -1.0f; r.heatCPerMin = 1.0f; model.setCabinetC(20.0f); break;
+      default: break;
+    }
+  }
   for (int L = 0; L < 3; L++) { ranSinceStart_[L] = false; wentOn_[L] = wentOff_[L] = false; }
   relayRose_ = relayFell_ = false;
   phase(0, nowMs);
@@ -67,6 +89,12 @@ void ScenarioRunner::finish(uint32_t nowMs, CabinetModel& model, Result r, const
   demand_ = Demand{};
   for (int i = 0; i < kNumSensors; i++) model.setOffset(i, 0, 0);
   model.rates() = savedRates_;
+  if (usesControl(n_)) {
+    // Back to a settled cabinet, so the control goes idle afterwards.
+    model.setCabinetC(20.0f);
+    model.setCabinetRh(62.0f);
+    if (tc_) tc_->setIdleFanOverride(-1);
+  }
   const char* word = r == Result::Pass ? "PASS" : r == Result::Fail ? "FAIL" : "STOPPED";
   say(nowMs, "======== run %d %s: %s", n_, word, why);
 }
@@ -109,7 +137,8 @@ void ScenarioRunner::edges(const ScenarioView& v) {
   prev_ = v.live;
 }
 
-void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc) {
+  tc_ = &tc;
   if (!running()) { prev_ = v.live; return; }
   edges(v);
   passesInPhase_++;
@@ -132,6 +161,12 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 6:  run6(v, ctl, model); break;
     case 13: run13(v, ctl, model); break;
     case 15: run15(v, ctl, model); break;
+    case 7:  run7(v, ctl, model, tc); break;
+    case 8:  run8(v, ctl, model, tc); break;
+    case 9:  run9(v, ctl, model, tc); break;
+    case 10: run10(v, ctl, model, tc); break;
+    case 17: run17(v, ctl, model, tc); break;
+    case 23: run23(v, ctl, model, tc); break;
     default: break;
   }
 }

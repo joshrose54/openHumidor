@@ -15,6 +15,9 @@ namespace outputs {
 
 void begin();                          // BOOT ONLY, first instruction. All four OUTPUT, LOW
 void apply(const wineador::LoadOutputs& want);
+// Heater PWM cap (heater_pwm.h): while the heater is ON, gates its pin. Never
+// raises the pin when the heater is off, so it cannot break the interlock.
+void heaterGate(bool pinOn);
 void allOff();                         // load signals low first, then the relay
 wineador::LoadOutputs current();       // what is being driven right now
 

@@ -20,6 +20,14 @@
 //   run 6   fan failure: unplug J2 when told; stall kickstarts; replug; loads resume
 //   run 13  relay exercise: three cycles, both loads off, ends on the cooling side
 //   run 15  I2C bus fault: short a sensor's SDA to GND when told; recovery; remove it
+// Stage 4 — these drive the CABINET MODEL and let the real temperature control
+// decide (no demand is scripted):
+//   run 7   deadband: cabinet swept 17 -> 23 -> 17 C
+//   run 8   crossover delay: cooling ends, heating asked for at once (and back)
+//   run 9   RH stripping: sustained high RH; release follows vapour pressure
+//   run 10  RH stripping temperature floor; persistence again once above the floor
+//   run 17  load ineffective: heater, then cooling, with the model not responding
+//   run 23  plenum fan rules: idle, compressor run + harvest, heater run + harvest, 10 % refused
 // `stop` ends a scenario early; the demand goes back to none.
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -30,6 +38,7 @@
 #include "wineador/cabinet_model.h"
 #include "wineador/sensor_health.h"
 #include "wineador/fan_monitor.h"
+#include "wineador/temp_control.h"
 
 namespace wineador {
 
@@ -44,6 +53,8 @@ struct ScenarioView {
   uint32_t busStuck = 0;                  // stuck-bus recoveries since boot
   bool rtcOk = true;
   bool pullupsOn = false;                 // the ESP32's internal I2C pull-ups (must stay off, 5.3)
+  uint8_t fanOut = 0;                     // plenum fan duty driven right now (100 during a kickstart)
+  uint8_t fanTarget = 0;                  // the duty asked of the fan
 };
 
 class ScenarioRunner {
@@ -57,20 +68,24 @@ class ScenarioRunner {
   void stop(uint32_t nowMs, CabinetModel& model);
 
   // Every pass, after the outputs have been applied.
-  void update(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void update(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
 
   bool running() const { return result_ == Result::Running; }
   int number() const { return n_; }
   Result result() const { return result_; }
   const Demand& demand() const { return demand_; }
+  // Stage 4 scenarios: the temperature control asks, not the scenario.
+  bool usesControl() const { return running() && usesControl(n_); }
+  static bool usesControl(int n) { return n == 7 || n == 8 || n == 9 || n == 10 || n == 17 || n == 23; }
 
   // Text to print, oldest first; nullptr when there is none.
   const char* takeLine();
 
   static bool exists(int n) {
-    return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15;
+    return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15 ||
+           usesControl(n);
   }
-  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15"; }
+  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23"; }
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);
@@ -88,6 +103,12 @@ class ScenarioRunner {
   void run6(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run13(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run15(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run7(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run8(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run9(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run10(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run17(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run23(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
 
   Settings s_;
   int n_ = 0;
@@ -115,6 +136,20 @@ class ScenarioRunner {
   uint32_t humidMetMs_ = 0, tempMetMs_ = 0;    // run 4: when each 4.3 requirement was met again
   bool humidBack_ = false, heatBack_ = false;  // run 4: resumed after the hold
   uint32_t deadlineMs_ = 0;
+
+  // Stage 4
+  TemperatureControl* tc_ = nullptr;   // so finish() can clear the idle fan override
+  float sweepC_ = 0;                   // run 7: the scripted cabinet temperature
+  int dir_ = 1;
+  uint32_t lastTickMs_ = 0;
+  int heatStarts_ = 0, coolStarts_ = 0, heatEnds_ = 0, coolEnds_ = 0;
+  uint32_t count0_ = 0;                // a counter's value at the start of a step
+  bool flag_ = false;
+  uint32_t markMs_ = 0;                // a time a step measures from
+  uint8_t fanPrev_ = 0, fanMin_ = 0, fanMax_ = 0;
+  int kicks_ = 0;
+  uint32_t kickAtMs_ = 0;
+  bool kicking_ = false;
 
   static constexpr int kLines = 12;
   static constexpr int kLineLen = 240;

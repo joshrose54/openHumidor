@@ -43,6 +43,7 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   o.add(" | relay %s cool %s heat %s humid %s", s.loads.relayHeating ? "HEAT" : "COOL",
         onOff(s.loads.cool), onOff(s.loads.heat), onOff(s.loads.humid));
   if (s.guardText && s.guardText[0]) o.add(" | %s", s.guardText);
+  if (s.controlText && s.controlText[0]) o.add(" | %s", s.controlText);
   o.add(" | fan %u%% %lurpm", (unsigned)s.fanDutyPct, (unsigned long)s.fanRpm);
   if (s.fanPwmReadback >= 0) {
     // What the PWM hardware is really set to (0-255; 20% = 51), and edges per real pulse.

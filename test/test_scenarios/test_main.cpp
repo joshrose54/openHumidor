@@ -6,6 +6,7 @@
 #include <unity.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <initializer_list>
 #include "wineador/scenario.h"
 #include "wineador/controller.h"
@@ -14,6 +15,8 @@
 #include "wineador/sensor_table.h"
 #include "wineador/fan_monitor.h"
 #include "wineador/settings.h"
+#include "wineador/temp_control.h"
+#include "wineador/fan_controller.h"
 
 using namespace wineador;
 
@@ -30,6 +33,9 @@ struct Sim {
   SensorHealth health;
   RequirementGate gate;
   FanMonitor fanMon;
+  TemperatureControl tc;
+  FanController fan{20, 1000};
+  uint8_t fanOut = 0;
   LoadOutputs live;
   uint32_t now = 0, lastModel = 0, lastSweep = 0, lastWindow = 0;
   // The simulated hardware
@@ -41,7 +47,7 @@ struct Sim {
   int kicks = 0;
   bool verbose = false;
 
-  explicit Sim(Profile p) : s(settingsFor(p)) { begin(); }
+  explicit Sim(Profile p) : s(settingsFor(p)) { verbose = getenv("SIMV") != nullptr; begin(); }
   void begin() {
     ctl.begin(s, 0);
     model.begin(ModelRates{});
@@ -49,11 +55,17 @@ struct Sim {
     health.begin(s);
     gate.begin(s.safety.sensorRecoveryHoldMs);
     fanMon.begin(s.safety.fanStallRetryMs);
+    tc.begin(s, 0);
+    fan = FanController(s.safety.fanMinDutyPct, s.safety.fanKickstartMs);
+    fan.command(s.tuning.fanIdlePct, 0);
+    fanOut = fan.output(0);
+    fanSpinning = true;
     for (int i = 0; i < kNumSensors; i++) health.serialResult(i, BusResult::Ok, kSensors[i].serial);
     sweep();
   }
 
-  bool fanOk() const { return fanPlugged && fanSpinning; }
+  // The fan runs only when driven; a stopped or unplugged fan restarts only on a kickstart.
+  bool fanOk() const { return fanPlugged && fanSpinning && fanOut >= 20; }
 
   // One sensor sweep: serials asked for, then every sensor, as the driver does.
   void sweep() {
@@ -82,12 +94,33 @@ struct Sim {
     in.sensorHoldTemp = gate.tempHolding();
     in.sensorHoldHumid = gate.humidHolding();
     in.live = live;
-    Demand d = sc.running() ? sc.demand() : Demand{};
+    ControlInputs ci;
+    ci.nowMs = now;
+    ci.cab = in.cab;
+    ci.readingsFresh = true;
+    ci.live = live;
+    ci.scriptedDemand = sc.running() && !sc.usesControl();
+    const ControlOutput co = tc.update(ci);
+    in.strippingActive = co.strippingActive;
+    in.heaterIneffectiveHold = co.heaterIneffectiveHold;
+    Demand d = ci.scriptedDemand ? sc.demand() : co.demand;
+    if (co.fanPct != fan.target()) fan.command(co.fanPct, now);
+    fanOut = fan.output(now);
+    if (fanOut == 0) fanSpinning = false;
+    else if (fanOut == 100 && fanPlugged) fanSpinning = true;
     live = ctl.pass(in, d);
     if (now - lastModel >= 1000) { model.step(now - lastModel, live); lastModel = now; }
     if (now - lastWindow >= 5000) {
       lastWindow = now;
-      if (fanMon.window(now, true, fanOk() ? 420 : 0)) { kicks++; if (fanPlugged) fanSpinning = true; }
+      if (fanMon.window(now, fan.target() >= 20, fanOk() ? 420 : 0)) {
+        kicks++;
+        const uint8_t target = fan.target();     // as main: a stall kickstart
+        fan.command(0, now);
+        fan.output(now);
+        fan.command(target, now);
+        fanOut = fan.output(now);
+        if (fanPlugged) fanSpinning = true;
+      }
     }
     bool swept = false;
     if (now - lastSweep >= 15000) { sweep(); swept = true; }
@@ -100,7 +133,9 @@ struct Sim {
     v.health = &health;
     v.fan = &fanMon;
     v.busStuck = busStuck;
-    sc.update(v, ctl, model);
+    v.fanOut = fanOut;
+    v.fanTarget = fan.target();
+    sc.update(v, ctl, model, tc);
     for (const char* l; (l = sc.takeLine()) != nullptr;) {
       if (verbose) printf("%s\n", l);
       // Josh's hands
@@ -217,6 +252,97 @@ void test_run15_bus_fault_passes() {
   TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2, m.busStuck);
 }
 
+// ---------------------------------------------------------------- stage 4
+void test_run7_deadband_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(7, minutes(15)) == ScenarioRunner::Result::Pass);
+}
+
+void test_run7_fails_if_deadband_wrong() {
+  Sim m(Profile::Bench);
+  m.s.tuning.coolingHysteresisC = 0.2f;     // the board starts cooling at 20.2: inside the dead zone
+  m.begin();
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(7, minutes(15)) == ScenarioRunner::Result::Fail);
+}
+
+void test_run8_crossover_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(8, minutes(10)) == ScenarioRunner::Result::Pass);
+  TEST_ASSERT_EQUAL_UINT32(2, m.tc.crossovers());
+}
+
+void test_run8_fails_if_crossover_short() {
+  Sim m(Profile::Bench);
+  m.s.tuning.crossoverDelayMs = seconds(20);
+  m.begin();
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(8, minutes(10)) == ScenarioRunner::Result::Fail);
+}
+
+void test_run9_stripping_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(9, minutes(15)) == ScenarioRunner::Result::Pass);
+}
+
+void test_run9_fails_if_persistence_short() {
+  Sim m(Profile::Bench);
+  m.s.tuning.rhStripPersistMs = seconds(10);
+  m.begin();
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(9, minutes(15)) == ScenarioRunner::Result::Fail);
+}
+
+void test_run10_floor_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(10, minutes(15)) == ScenarioRunner::Result::Pass);
+}
+
+void test_run17_ineffective_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(17, minutes(15)) == ScenarioRunner::Result::Pass);
+  TEST_ASSERT_FALSE(m.tc.heaterIneffective());
+  TEST_ASSERT_TRUE(m.tc.coolingIneffective());
+}
+
+void test_run17_fails_if_retry_wrong() {
+  Sim m(Profile::Bench);
+  m.s.tuning.heaterIneffectiveRetryMs = minutes(1);
+  m.begin();
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(17, minutes(15)) == ScenarioRunner::Result::Fail);
+}
+
+void test_run23_fan_rules_passes() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(23, minutes(15)) == ScenarioRunner::Result::Pass);
+  TEST_ASSERT_EQUAL_INT(-1, m.tc.idleFanOverride());
+}
+
+void test_run23_fails_if_harvest_profile_wrong() {
+  Sim m(Profile::Bench);
+  m.s.tuning.fanCoolHarvestStartPct = 60;   // the board starts the harvest slow
+  m.begin();
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(23, minutes(15)) == ScenarioRunner::Result::Fail);
+}
+
+void test_idle_control_asks_nothing_when_settled() {
+  // After a stage 4 scenario the model is back at 20 C / 62 %: the control idles.
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(8, minutes(10)) == ScenarioRunner::Result::Pass);
+  m.settle(minutes(5));
+  TEST_ASSERT_FALSE(m.live.cool || m.live.heat);
+  TEST_ASSERT_FALSE(m.tc.coolCall() || m.tc.heatCall() || m.tc.stripping());
+}
+
 void test_stop_ends_with_no_demand() {
   Sim m(Profile::Bench);
   m.sc.start(1, m.now, m.model);
@@ -229,7 +355,7 @@ void test_stop_ends_with_no_demand() {
 
 void test_unknown_scenario_not_started() {
   Sim m(Profile::Bench);
-  TEST_ASSERT_FALSE(m.sc.start(7, 0, m.model));
+  TEST_ASSERT_FALSE(m.sc.start(77, 0, m.model));
   TEST_ASSERT_FALSE(m.sc.running());
 }
 
@@ -249,6 +375,18 @@ int main(int, char**) {
   RUN_TEST(test_run13_passes_and_ends_cooling);
   RUN_TEST(test_run13_waits_for_a_running_load);
   RUN_TEST(test_run15_bus_fault_passes);
+  RUN_TEST(test_run7_deadband_passes);
+  RUN_TEST(test_run7_fails_if_deadband_wrong);
+  RUN_TEST(test_run8_crossover_passes);
+  RUN_TEST(test_run8_fails_if_crossover_short);
+  RUN_TEST(test_run9_stripping_passes);
+  RUN_TEST(test_run9_fails_if_persistence_short);
+  RUN_TEST(test_run10_floor_passes);
+  RUN_TEST(test_run17_ineffective_passes);
+  RUN_TEST(test_run17_fails_if_retry_wrong);
+  RUN_TEST(test_run23_fan_rules_passes);
+  RUN_TEST(test_run23_fails_if_harvest_profile_wrong);
+  RUN_TEST(test_idle_control_asks_nothing_when_settled);
   RUN_TEST(test_stop_ends_with_no_demand);
   RUN_TEST(test_unknown_scenario_not_started);
   return UNITY_END();

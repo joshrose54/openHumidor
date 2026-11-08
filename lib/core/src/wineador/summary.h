@@ -11,6 +11,7 @@ struct CabinetSummary {
   int   sensorsOk  = 0;     // of all six
   int   cabinetOk  = 0;     // of ch2-5
   float meanC = 0, minC = 0, maxC = 0, meanRhPct = 0, maxRhPct = 0;
+  float meanVpKpa = 0;      // mean of each healthy cabinet sensor's own vapour pressure (4.7)
   float spreadC = 0;        // max - min of the healthy cabinet sensors
   float controlC = 0;       // control source (4.2): mean, or the warmest when the spread is over 2 C
   bool  controlWarmest = false;

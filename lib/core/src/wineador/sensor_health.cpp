@@ -1,4 +1,5 @@
 #include "wineador/sensor_health.h"
+#include "wineador/psychro.h"
 #include "wineador/sensor_table.h"
 #include <math.h>
 
@@ -210,7 +211,7 @@ int SensorHealth::healthyCabinet() const {
 
 CabinetSummary SensorHealth::summary() const {
   CabinetSummary c;
-  float sumC = 0, sumRh = 0;
+  float sumC = 0, sumRh = 0, sumVp = 0;
   for (int i = 0; i < kNumSensors; i++) {
     if (!healthy(i)) continue;
     c.sensorsOk++;
@@ -222,6 +223,7 @@ CabinetSummary SensorHealth::summary() const {
       if (rh > c.maxRhPct) c.maxRhPct = rh;
       sumC += t;
       sumRh += rh;
+      sumVp += vapourPressureKpa(t, rh);
       c.cabinetOk++;
     } else if (i == kChamberIndex) {
       c.chamberOk = true;
@@ -235,6 +237,7 @@ CabinetSummary SensorHealth::summary() const {
   if (c.cabinetOk > 0) {
     c.meanC = sumC / c.cabinetOk;
     c.meanRhPct = sumRh / c.cabinetOk;
+    c.meanVpKpa = sumVp / c.cabinetOk;
     c.spreadC = c.maxC - c.minC;
     // Control source (4.2): the mean, or the warmest healthy sensor when the spread is over 2 C.
     c.controlWarmest = c.spreadC > 2.0f;

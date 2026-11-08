@@ -24,6 +24,7 @@ struct StatusInfo {
   uint32_t    holdLengthMs    = 0;      // the hold ended this long after boot
   LoadOutputs loads;
   const char* guardText = nullptr;      // demand and held loads (formatGuardText); nullptr = left out
+  const char* controlText = nullptr;    // temperature control (formatControlText); nullptr = left out
   uint8_t     fanDutyPct = 0;
   uint32_t    fanRpm     = 0;
   int32_t     fanPwmReadback = -1;      // 0-255 from the PWM hardware; -1 = left out

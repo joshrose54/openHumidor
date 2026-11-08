@@ -201,6 +201,29 @@ void test_resets_commands() {
   TEST_ASSERT_TRUE(parseCommand("resets now", true) == Command::Unknown);
 }
 
+void test_fan_command() {
+  int arg = 0;
+  TEST_ASSERT_TRUE(parseCommand("fan 10", true, &arg) == Command::Fan);
+  TEST_ASSERT_EQUAL_INT(10, arg);                  // parsed; the refusal is the control's job
+  TEST_ASSERT_TRUE(parseCommand("FAN  0 ", true, &arg) == Command::Fan);
+  TEST_ASSERT_EQUAL_INT(0, arg);
+  TEST_ASSERT_TRUE(parseCommand("fan auto", true, &arg) == Command::Fan);
+  TEST_ASSERT_EQUAL_INT(-1, arg);
+  TEST_ASSERT_TRUE(parseCommand("fan", true, &arg) == Command::Fan);
+  TEST_ASSERT_EQUAL_INT(-2, arg);
+  TEST_ASSERT_TRUE(parseCommand("fan 5x", true, &arg) == Command::Fan);
+  TEST_ASSERT_EQUAL_INT(-2, arg);
+  TEST_ASSERT_TRUE(parseCommand("fan 50", false, &arg) == Command::TestOnly);   // never in a cabinet build
+}
+
+void test_status_line_control_text() {
+  StatusInfo s;
+  s.controlText = "ctl 20.12C mean idle | xover 0";
+  char buf[800];
+  formatStatusLine(buf, sizeof(buf), s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "| ctl 20.12C mean idle | xover 0"));
+}
+
 void test_reset_log_ring_and_format() {
   ResetLog log;
   log.magic = 0;                        // garbage from flash: add() starts a fresh list
@@ -383,6 +406,8 @@ int main() {
   RUN_TEST(test_live_block);
   RUN_TEST(test_summary_cabinet_is_ch2_to_ch5_only);
   RUN_TEST(test_line_reader_and_commands);
+  RUN_TEST(test_fan_command);
+  RUN_TEST(test_status_line_control_text);
   RUN_TEST(test_line_reader_overflow);
   RUN_TEST(test_stage2_commands);
   RUN_TEST(test_status_line_guard_text_and_boot_demand);

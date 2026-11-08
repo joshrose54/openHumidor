@@ -3,6 +3,8 @@
 
 #include "wineador/cabinet_model.h"
 #include "wineador/sensor_health.h"
+#include "wineador/psychro.h"
+#include <math.h>
 
 namespace wineador {
 
@@ -10,7 +12,7 @@ void CabinetModel::begin(const ModelRates& rates, float startC, float startRhPct
                          float ambientC, float ambientRhPct) {
   rates_ = rates;
   cabinetC_ = chamberC_ = startC;
-  cabinetRh_ = startRhPct;
+  cabinetVp_ = vapourPressureKpa(startC, startRhPct);
   ambientC_ = ambientC;
   ambientRh_ = ambientRhPct;
   for (int i = 0; i < kNumSensors; i++) { offC_[i] = 0; offRh_[i] = 0; }
@@ -33,19 +35,32 @@ void CabinetModel::step(uint32_t dtMs, const LoadOutputs& loads) {
 
   if (cooling) {
     cabinetC_ += rates_.coolCPerMin * min;
-    chamberC_ += rates_.coolCPerMin * min;
+    cabinetVp_ -= rates_.coolVpKpaPerMin * min;
+    if (cabinetVp_ < 0.0f) cabinetVp_ = 0.0f;
   } else if (heating) {
     cabinetC_ += rates_.heatCPerMin * min;
-    chamberC_ += rates_.heatCPerMin * min;
   } else {
     cabinetC_ = towards(cabinetC_, rates_.roomC, rates_.driftCPerMin * min);
-    chamberC_ = towards(chamberC_, rates_.roomC, rates_.driftCPerMin * min);
   }
 
+  // The chamber chases cabinet -/+ swing during a run, the cabinet value otherwise.
+  const float target = cabinetC_ + (cooling ? -rates_.chamberSwingC : heating ? rates_.chamberSwingC : 0.0f);
+  const float k = rates_.chamberTauS > 0 ? 1.0f - expf(-(dtMs / 1000.0f) / rates_.chamberTauS) : 1.0f;
+  chamberC_ += (target - chamberC_) * k;
+
   if (loads.humid && rates_.humidResponds) {
-    cabinetRh_ += rates_.humidPctPerMin * min;
-    if (cabinetRh_ > 100.0f) cabinetRh_ = 100.0f;
+    // humidPctPerMin of RH at the present temperature, as vapour pressure
+    cabinetVp_ += saturationVpKpa(cabinetC_) * rates_.humidPctPerMin / 100.0f * min;
+    const float sat = saturationVpKpa(cabinetC_);
+    if (cabinetVp_ > sat) cabinetVp_ = sat;
   }
+}
+
+void CabinetModel::setCabinetRh(float rhPct) { cabinetVp_ = vapourPressureKpa(cabinetC_, rhPct); }
+
+float CabinetModel::cabinetRh() const {
+  float rh = rhFromVp(cabinetC_, cabinetVp_);
+  return rh > 100.0f ? 100.0f : rh;
 }
 
 float CabinetModel::tempC(int i) const {
@@ -56,8 +71,13 @@ float CabinetModel::tempC(int i) const {
 
 float CabinetModel::rhPct(int i) const {
   if (i < 0 || i >= kNumSensors) return 0.0f;
-  float base = (i == kAmbientIndex) ? ambientRh_ : cabinetRh_;
-  return base + offRh_[i];
+  if (i == kAmbientIndex) return ambientRh_ + offRh_[i];
+  // A cabinet sensor scripted warmer or colder reads the RH the cabinet's vapour
+  // pressure gives at ITS temperature. (The chamber keeps the cabinet value: its
+  // RH is never used for control.)
+  float rh = (i < kCabinetSensors) ? rhFromVp(cabinetC_ + offC_[i], cabinetVp_) : cabinetRh();
+  if (rh > 100.0f) rh = 100.0f;
+  return rh + offRh_[i];
 }
 
 void CabinetModel::setOffset(int i, float dC, float dRhPct) {

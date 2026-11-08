@@ -1,4 +1,5 @@
 #include "console.h"
+#include "wineador/psychro.h"
 #include <Arduino.h>
 #include "esp_system.h"
 #include "wineador/build_info.h"
@@ -95,9 +96,27 @@ void printBanner(const Settings& s, const BootInfo& b) {
   if (kBootDemand)
     Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
   else if (kTestBuild)
-    Serial.println("    loads       off. Only a scenario (run <n>) asks for a load; guards and interlock decide");
+    Serial.println("    loads       off. Temperature control runs on the scripted cabinet (settled at 20.0 C / 62%: idle).\n"
+                   "                Stage 4 scenarios (7, 8, 9, 10, 17, 23) script the cabinet; stage 2-3 scenarios ask\n"
+                   "                for loads directly. Guards and interlock decide either way");
   else
-    Serial.println("    loads       off. No control logic yet (stage 4), so nothing asks for a load");
+    Serial.println("    loads       off. Temperature control from the healthy cabinet sensors; guards and interlock decide");
+  {
+    const TuningSettings& t = s.tuning;
+    const float sp = s.user.targetTempC;
+    Serial.printf ("    control     setpoint %.1f C: cool above %.1f (ends %.1f), heat below %.1f (ends %.1f), heater cap %u%%\n",
+                   sp, sp + t.coolingHysteresisC, sp, sp - t.heatingDeadbandC, sp - t.heatingStopBelowSetpointC,
+                   (unsigned)t.heaterPwmCapPct);
+    Serial.printf ("    stripping   %s: RH >= %.0f%% for %lu s; releases at vapour pressure %.3f kPa; floor %.1f C\n",
+                   t.rhStripEnable ? "on" : "OFF", s.user.rhSetpointPct + t.rhStripOffsetPct,
+                   (unsigned long)(t.rhStripPersistMs / 1000),
+                   vapourPressureKpa(sp, s.user.rhSetpointPct), sp - t.rhStripFloorBelowSetpointC);
+    Serial.printf ("    harvest     ends within %.1f C of the cabinet mean, backstop %lu s; fan idle %u%%, compressor %u%%,\n"
+                   "                cooling harvest %u%% -> %u%%, heater %u%%\n",
+                   t.harvestConvergenceC, (unsigned long)(t.harvestBackstopMs / 1000), (unsigned)t.fanIdlePct,
+                   (unsigned)t.fanCompressorPct, (unsigned)t.fanCoolHarvestStartPct, (unsigned)t.fanCoolHarvestEndPct,
+                   (unsigned)t.fanHeatingPct);
+  }
   Serial.printf ("    plenum fan  kickstart 100%% for 1 s, then idle %u%%; on a stall, a kickstart at once and every %lu s\n",
                  (unsigned)s.tuning.fanIdlePct, (unsigned long)(f.fanStallRetryMs / 1000));
   Serial.println("    WiFi / NTP  connecting in the background (pool.ntp.org, time.google.com; every 24 h)");
@@ -142,10 +161,12 @@ void printHelp(bool testBuild) {
   Serial.println("    help      this list");
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
   if (testBuild) {
-    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15)");
+    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
+    Serial.println("              7, 8, 9, 10, 17, 23)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");
+    Serial.println("    fan <n>   TEST BUILD ONLY: idle fan duty n% (0 or 20-100; 1-19 refused); 'fan auto' = the setting");
   }
 }
 

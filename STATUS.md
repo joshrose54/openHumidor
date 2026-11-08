@@ -69,36 +69,33 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
   cabinet ceiling. **`run 2`** kicks the fan every 10 s after J2 is replugged (stage 3 does this
   by itself).
 
-### Next
+### Stage 4 — built, board tests next
 
-Stage 3 — in progress (see below).
+Temperature control. Spec answers committed (`73f9687`).
 
-## Stage 3 — passed (Josh, 2026-11-08)
+- **Mac side:** five ESP32 builds compile with no warnings (cabinet 77.6 %, test builds 81.1 % flash);
+  native tests **187/187** pass.
+- **New:** `temp_control.h/.cpp` (deadband + run ends, crossover count, harvest + fan duty, RH
+  stripping, ineffective checks, events), `psychro.h` (Magnus vapour pressure), `heater_pwm.h`
+  (1 Hz cap, default 100 %), `scenario_stage4.cpp` (`run 7, 8, 9, 10, 17, 23`), guard
+  `heater-ineffective`, test-build `fan <n>|auto`, status line control part, model with chamber
+  swing and vapour pressure.
+- **Board tests:** 7, 8, 9, 10, 17, 23 — all scenarios on `bench_test`, bulb on J10 3-4, SSR input on
+  J10 1-2, humidifier fan on J11, USB in.
 
-Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan stall
-kickstarts (5.6), I2C stuck-bus recovery (5.6), RTC lost time (OSF) and NTP (5.4, 5.6), clock
-summary on `boot`.
+### Decisions taken in building
 
-- **Mac side:** five ESP32 builds, no warnings; native tests **138/138**.
-- **Flash ~78%** (WiFi + SNTP); partition decision at stage 6 (agreed).
-
-### Board results
-
-| B3 test | Result |
-|---|---|
-| 2 heater guards | PASS: off next pass (from the reading reaching the guards) for cabinet ceiling, chamber ceiling, sensors (chamber implausible; recovery + 30 s hold), fan |
-| 4 sensor failure | PASS: (a) run 4 chamber/3-of-4/2-of-4 + recovery hold; (b) swapped plugs -> wrong-serial both; (c) run 41 heater off at 2 of 4; (d) run 42 cooling off with chamber out, J10 1-2 12.3 V / 0 V |
-| 5 divergence | PASS: excluded after 10:15 diverging (first sweep at/after 10 min), recovered 2:45 later |
-| 6 fan failure | PASS: kickstart at once and 30.0 s later; heater off, humidifier unaffected; resumed on replug |
-| 15 I2C bus fault | PASS after a fix: internal pull-ups now switched off after every bus step (ESP-IDF re-enables them on a bus reset) |
-| 16 RTC lost time | PASS: cell out, 12 V cut, booted with USB out: OSF set, NTP at 15 s, DS3231 26.9 years out written, OSF cleared, hold 30 s; cell refitted with power on, OSF clear after |
-
-Logged by the spec chat: B3 2, 4, 5, 6, 13, 14, 15, 16 (with 1, 3, 11, 12 from stage 2). "Logged" is proven once, in test 24.
+- Stage 2-3 scenarios ask for loads directly: the control then asks for nothing, and stripping and
+  the ineffective checks are suspended (run 1 freezes the model, which would trip the heater check).
+- Idle fan duty 0 (B6 option / `fan 0`): an asked-for load gets its fan duty before it starts, or
+  the fan guard would hold it for ever. No change at the 20 % default.
+- Cooling harvest fan in 5 % steps, never rising; holds its duty if the chamber is unreadable.
+- Stripping won't start if vapour pressure is already at target (it would release at once).
+- Fan-only changes print one short line, not the live block.
 
 ## Next
 
-Stage 4 plan (temperature control: deadband, run-end rules, crossover, harvest, RH stripping,
-ineffective checks; B3 7, 8, 9, 10, 17, 23) — plan first, no code until Josh agrees.
+Stage 4 board tests, one at a time.
 
 ## Talking to the board
 

@@ -4,9 +4,18 @@
 // WINEADOR_TEST_BUILD this header declares nothing and cabinet_model.cpp is
 // empty, so any use of the model in a cabinet build fails to compile.
 //
-// Heating raises the scripted chamber and cabinet temperatures, cooling lowers
-// them, humidifying raises cabinet RH; otherwise temperatures drift back towards
-// the room value. Each response can be switched off to test the ineffective checks.
+// Heating raises the scripted cabinet temperature, cooling lowers it,
+// humidifying adds moisture; otherwise the cabinet drifts back towards the room
+// value. Each response can be switched off to test the ineffective checks.
+//
+// Chamber (stage 4): it sits by the plate and heater, so it swings much faster
+// than the cabinet: during a run it heads for cabinet +/- chamberSwingC with a
+// time constant of chamberTauS; afterwards it heads back to the cabinet value
+// (that return is what ends a harvest).
+//
+// Moisture (stage 4): the state is the cabinet's VAPOUR PRESSURE, so RH rises as
+// the air cools and falls as it warms with no water moved — as the real cabinet
+// (4.7). The compressor removes water at coolVpKpaPerMin; the humidifier adds it.
 //
 // The model honours the K1 interlock like the real board: cooling only acts
 // when the relay is on the cooling side, heating only on the heating side.
@@ -27,6 +36,9 @@ struct ModelRates {
   float humidPctPerMin   = +0.1f;
   float driftCPerMin     = 0.006f;   // magnitude, towards the room value
   float roomC            = 20.0f;
+  float chamberSwingC    = 6.0f;     // chamber heads for cabinet -/+ this during a cooling / heating run
+  float chamberTauS      = 30.0f;    // ...and back to the cabinet value afterwards, this time constant
+  float coolVpKpaPerMin  = 0.0f;     // water the compressor takes out (a stripping scenario sets it)
   bool  coolResponds     = true;
   bool  heatResponds     = true;
   bool  humidResponds    = true;
@@ -44,6 +56,13 @@ class CabinetModel {
   float tempC(int index) const;
   float rhPct(int index) const;
 
+  // Scenarios script the cabinet directly (the chamber still follows the loads).
+  void setCabinetC(float c) { cabinetC_ = c; }
+  float cabinetC() const { return cabinetC_; }
+  void setCabinetRh(float rhPct);        // sets the vapour pressure that gives this RH now
+  float cabinetRh() const;
+  float cabinetVpKpa() const { return cabinetVp_; }
+
   // Per-sensor offset, so a scenario can push one sensor away from the rest.
   void setOffset(int index, float dC, float dRhPct);
 
@@ -51,7 +70,7 @@ class CabinetModel {
 
  private:
   ModelRates rates_;
-  float cabinetC_ = 20.0f, chamberC_ = 20.0f, cabinetRh_ = 62.0f;
+  float cabinetC_ = 20.0f, chamberC_ = 20.0f, cabinetVp_ = 1.45f;
   float ambientC_ = 20.0f, ambientRh_ = 50.0f;
   float offC_[kNumSensors] = {};
   float offRh_[kNumSensors] = {};

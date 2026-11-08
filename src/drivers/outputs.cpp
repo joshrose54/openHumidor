@@ -5,6 +5,7 @@
 namespace outputs {
 
 static wineador::LoadOutputs gNow;   // all false
+static bool gHeaterGate = true;      // PWM cap: heater pin allowed high right now
 
 void begin() {
   // Same order as the reference sketches: each pin set LOW as it becomes an output.
@@ -25,9 +26,15 @@ void apply(const wineador::LoadOutputs& w) {
   if (gNow.relayHeating != w.relayHeating) digitalWrite(pins::kRelayK1, w.relayHeating ? HIGH : LOW);
   // 3. Load signals going on
   if (!gNow.cool && w.cool)   digitalWrite(pins::kCoolingSsr, HIGH);
-  if (!gNow.heat && w.heat)   digitalWrite(pins::kHeater, HIGH);
+  if (!gNow.heat && w.heat)   digitalWrite(pins::kHeater, gHeaterGate ? HIGH : LOW);
   if (!gNow.humid && w.humid) digitalWrite(pins::kHumidifier, HIGH);
   gNow = w;
+}
+
+void heaterGate(bool pinOn) {
+  if (pinOn == gHeaterGate) return;
+  gHeaterGate = pinOn;
+  if (gNow.heat) digitalWrite(pins::kHeater, pinOn ? HIGH : LOW);
 }
 
 void allOff() {

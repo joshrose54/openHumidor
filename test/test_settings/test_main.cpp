@@ -108,6 +108,12 @@ void test_validation_catches_bad_fan_duty() {
   TEST_ASSERT_NOT_NULL(validateSettings(s));
 }
 
+void test_validation_catches_harvest_profile_rising() {
+  Settings s = settingsFor(Profile::Real);
+  s.tuning.fanCoolHarvestStartPct = 30;    // below its end duty (40): the profile would rise
+  TEST_ASSERT_NOT_NULL(validateSettings(s));
+}
+
 void test_user_bounds_rejected_not_clamped() {
   UserSettings u;
   TEST_ASSERT_FALSE(setTargetTemp(u, 14.9f));
@@ -139,6 +145,7 @@ int main() {
   RUN_TEST(test_bench_changes_only_timers);
   RUN_TEST(test_both_profiles_valid);
   RUN_TEST(test_validation_catches_bad_fan_duty);
+  RUN_TEST(test_validation_catches_harvest_profile_rising);
   RUN_TEST(test_user_bounds_rejected_not_clamped);
   RUN_TEST(test_version_strings);
   return UNITY_END();

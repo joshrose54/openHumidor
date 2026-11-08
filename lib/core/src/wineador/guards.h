@@ -10,7 +10,7 @@
 // Two kinds of guard:
 //   - STOP guards turn a running load off on the pass they fail: settings problem,
 //     boot hold, relay exercise cycling, sensors, fan, ceilings, max run,
-//     stripping, compressor run (humidifier), user disable.
+//     stripping, compressor run (humidifier), user disable, heater ineffective.
 //   - START guards only stop a load from starting: min-off, crossover, the other
 //     temperature load running, relay exercise waiting.
 // Min-on keeps a load on after its demand stops — never against a stop guard.
@@ -50,6 +50,7 @@ enum class GuardBlock : uint8_t {
   CabinetCeiling,    // heater: a cabinet sensor above setpoint + 3 C
   ChamberCeiling,    // heater: chamber above 30 C
   RhCeiling,         // humidifier: a cabinet sensor at or above 70 %
+  Ineffective,       // heater: failed its ineffective check; held off until the retry (5.6)
   Stripping,         // humidifier: never during RH stripping
   CompressorRun,     // humidifier: compressor running, "humidify during cooling" off
   MaxRun,            // ran its maximum; now rests for its minimum off
@@ -70,7 +71,8 @@ struct GuardInputs {
   CabinetSummary cab;             // from the HEALTHY sensors only (4.3)
   bool sensorHoldTemp = false;    // 4.3 recovery hold running for compressor + heater
   bool sensorHoldHumid = false;   // ...for the humidifier
-  bool strippingActive = false;   // stage 4 sets this
+  bool strippingActive = false;   // RH stripping running (4.7): humidifier off
+  bool heaterIneffectiveHold = false;   // heater failed its check: off until the retry (5.6)
 };
 
 struct LoadDecision {

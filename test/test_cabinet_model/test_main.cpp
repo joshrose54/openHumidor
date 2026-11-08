@@ -3,6 +3,7 @@
 #include "wineador/cabinet_model.h"
 #include "wineador/sensor_health.h"
 #include "wineador/settings.h"
+#include "wineador/psychro.h"
 
 using namespace wineador;
 
@@ -22,17 +23,61 @@ void test_cooling_rate() {
   CabinetModel m; m.begin(ModelRates{});
   run(m, minutes(15), cooling());
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 18.5f, m.tempC(0));
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 18.5f, m.tempC(kChamberIndex));
-  // Chamber falls >= 1.0 C in 15 min: the cooling-ineffective check passes
-  TEST_ASSERT_TRUE(20.0f - m.tempC(kChamberIndex) >= 1.0f);
+  // The chamber, by the plate, settles 6 C below the cabinet during a run
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 12.5f, m.tempC(kChamberIndex));
+}
+
+void test_chamber_passes_checks_inside_the_bench_window() {
+  // Both ineffective windows are 1 min on the bench: the chamber must clearly
+  // move further than the check needs within it.
+  Settings s = settingsFor(Profile::Bench);
+  CabinetModel c; c.begin(ModelRates{});
+  run(c, s.tuning.coolingIneffectiveWindowMs, cooling());
+  TEST_ASSERT_TRUE(20.0f - c.tempC(kChamberIndex) >= 3.0f * s.tuning.coolingIneffectiveFallC);
+  CabinetModel h; h.begin(ModelRates{});
+  run(h, s.tuning.heaterIneffectiveWindowMs, heating());
+  TEST_ASSERT_TRUE(h.tempC(kChamberIndex) - 20.0f >= 3.0f * s.tuning.heaterIneffectiveRiseC);
+}
+
+void test_chamber_returns_to_cabinet_inside_bench_backstop() {
+  // After a run the chamber comes back within 1.0 C of the cabinet well inside
+  // the bench harvest backstop (2 min): harvest ends on convergence, not the timer.
+  Settings s = settingsFor(Profile::Bench);
+  CabinetModel m; m.begin(ModelRates{});
+  run(m, minutes(2), cooling());
+  TEST_ASSERT_TRUE(m.tempC(0) - m.tempC(kChamberIndex) > 4.0f);
+  uint32_t t = 0;
+  while (m.tempC(0) - m.tempC(kChamberIndex) > s.tuning.harvestConvergenceC && t < minutes(10)) { m.step(1000, LoadOutputs{}); t += 1000; }
+  TEST_ASSERT_LESS_THAN_UINT32(s.tuning.harvestBackstopMs / 2, t);
+  TEST_ASSERT_GREATER_THAN_UINT32(seconds(20), t);   // but not instantly: the fan profile has time to fall
+}
+
+void test_rh_follows_temperature_at_constant_vapour_pressure() {
+  // 62 % at 20 C reads ~85 % at 15 C with no water removed (4.7)
+  CabinetModel m; m.begin(ModelRates{}, 20.0f, 62.0f);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.447f, m.cabinetVpKpa());
+  m.setCabinetC(15.0f);
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, 85.0f, m.rhPct(0));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.447f, vapourPressureKpa(m.tempC(0), m.rhPct(0)));
+}
+
+void test_compressor_removes_water() {
+  ModelRates r; r.coolVpKpaPerMin = 0.05f;
+  CabinetModel m; m.begin(r, 20.0f, 68.0f);
+  const float vp0 = m.cabinetVpKpa();
+  run(m, minutes(2), cooling());
+  TEST_ASSERT_FLOAT_WITHIN(0.002f, vp0 - 0.10f, m.cabinetVpKpa());
+  run(m, minutes(2), heating());                 // heating moves no water
+  TEST_ASSERT_FLOAT_WITHIN(0.002f, vp0 - 0.10f, m.cabinetVpKpa());
 }
 
 void test_heating_clearly_passes_ineffective_check() {
   Settings s = settingsFor(Profile::Real);
   CabinetModel m; m.begin(ModelRates{});
   run(m, s.tuning.heaterIneffectiveWindowMs, heating());
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.5f, m.tempC(0));
   float rise = m.tempC(kChamberIndex) - 20.0f;
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.5f, rise);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 7.5f, rise);     // cabinet +1.5, chamber 6 above it
   TEST_ASSERT_TRUE(rise >= 2.0f * s.tuning.heaterIneffectiveRiseC);   // clearly, not just
 }
 
@@ -81,7 +126,9 @@ void test_offsets_and_ambient() {
   CabinetModel m; m.begin(ModelRates{});
   m.setOffset(2, 6.0f, 1.0f);
   TEST_ASSERT_FLOAT_WITHIN(0.001f, 26.0f, m.tempC(2));
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 63.0f, m.rhPct(2));
+  // A warmer sensor reads lower RH (same vapour pressure), plus its RH offset
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, rhFromVp(26.0f, vapourPressureKpa(20.0f, 62.0f)) + 1.0f, m.rhPct(2));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 62.0f, m.rhPct(1));
   TEST_ASSERT_FLOAT_WITHIN(0.001f, 20.0f, m.tempC(kAmbientIndex));
   TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, m.rhPct(kAmbientIndex));
 }
@@ -105,6 +152,10 @@ void test_scripted_swap_keeps_bus_failures() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_cooling_rate);
+  RUN_TEST(test_chamber_passes_checks_inside_the_bench_window);
+  RUN_TEST(test_chamber_returns_to_cabinet_inside_bench_backstop);
+  RUN_TEST(test_rh_follows_temperature_at_constant_vapour_pressure);
+  RUN_TEST(test_compressor_removes_water);
   RUN_TEST(test_heating_clearly_passes_ineffective_check);
   RUN_TEST(test_humidifying_clearly_passes_ineffective_check);
   RUN_TEST(test_drift_back_to_room_and_stops_there);

@@ -63,6 +63,7 @@ const char* validateSettings(const Settings& s) {
   if (!fanDutyOk(t.fanCoolHarvestStartPct, m)) return "fan harvest start duty is 1-19% or over 100%";
   if (!fanDutyOk(t.fanCoolHarvestEndPct, m))   return "fan harvest end duty is 1-19% or over 100%";
   if (!fanDutyOk(t.fanHeatingPct, m))          return "fan heating duty is 1-19% or over 100%";
+  if (t.fanCoolHarvestStartPct < t.fanCoolHarvestEndPct) return "fan harvest start duty below its end duty";
   // The fan must run during compressor, heater and harvest (4.6) — never 0 there.
   if (t.fanCompressorPct == 0 || t.fanHeatingPct == 0 ||
       t.fanCoolHarvestStartPct == 0 || t.fanCoolHarvestEndPct == 0) return "fan set to stop while a load runs";

@@ -14,6 +14,7 @@ const char* guardBlockName(GuardBlock b) {
     case GuardBlock::CabinetCeiling:  return "cabinet-ceiling";
     case GuardBlock::ChamberCeiling:  return "chamber-ceiling";
     case GuardBlock::RhCeiling:       return "rh-ceiling";
+    case GuardBlock::Ineffective:     return "heater-ineffective";
     case GuardBlock::Stripping:       return "stripping";
     case GuardBlock::CompressorRun:   return "compressor-run";
     case GuardBlock::MaxRun:          return "max-run";
@@ -120,6 +121,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
         c.maxC > u.targetTempC + f.cabinetCeilingAboveSetpointC)           stop = GuardBlock::CabinetCeiling;
     if (stop == GuardBlock::None && c.chamberOk && c.chamberC > f.chamberCeilingC)
                                                                            stop = GuardBlock::ChamberCeiling;
+    if (stop == GuardBlock::None && in.heaterIneffectiveHold)              stop = GuardBlock::Ineffective;
 
     GuardBlock start = GuardBlock::None;
     uint32_t wait = 0;
@@ -144,7 +146,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
     if (stop == GuardBlock::None && c.cabinetOk > 0 && c.maxRhPct >= f.rhHardCeilingPct)
                                                                            stop = GuardBlock::RhCeiling;
     if (stop == GuardBlock::None && in.strippingActive)                    stop = GuardBlock::Stripping;
-    // Until stage 4 every compressor run counts as temperature-driven: stripping is stage 4.
+    // A temperature-driven compressor run (a stripping run is caught just above).
     if (stop == GuardBlock::None && !t.humidifyDuringCooling && (cool_.on || out.cool.run))
                                                                            stop = GuardBlock::CompressorRun;
 

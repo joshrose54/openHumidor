@@ -1,18 +1,20 @@
-// Wineador controller firmware — stage 3.
+// Wineador controller firmware — stage 4.
 //
 // The main loop never waits. Each pass:
-//   1. Minimum job (5.2): boot hold, relay exercise, runtime guards and the
-//      interlock sequence decide the four outputs, from whatever readings are
-//      to hand — never waiting for a sensor, the SD card or the network.
+//   1. Temperature control (4.5-4.7, 5.6) asks for cooling / heating and sets
+//      the fan duty, from the readings to hand. Then the minimum job (5.2):
+//      boot hold, relay exercise, runtime guards and the interlock sequence
+//      decide the four outputs — never waiting for a sensor, the SD card or
+//      the network.
 //   2. Plenum fan (kickstart, tach, stall kickstarts), sensors and RTC — each a
 //      small step that returns at once. After each sweep: sensor health (4.3),
 //      serial checks and calibration (5.3).
 //   3. NTP (background) and the DS3231 correction; serial commands; status line;
 //      a "live right now" block when a load changes.
 //
-// No control logic yet (stage 4), so nothing asks a load to run in the
-// cabinet and bench builds: every load stays off. In a test build a scenario
-// (run <n>) or the boot-demand build asks, and the guards decide.
+// In a test build the control acts on the scripted cabinet model; a stage 2-3
+// scenario (or the boot-demand build) asks for loads directly instead.
+// Humidifier control is stage 5: nothing asks for it yet.
 //
 // The logic is in lib/core (plain C++, tested on the Mac). The hardware is in
 // src/drivers. All pins are in include/pins.h.
@@ -35,6 +37,8 @@
 #include "wineador/fan_monitor.h"
 #include "wineador/clock_state.h"
 #include "wineador/decode.h"
+#include "wineador/temp_control.h"
+#include "wineador/heater_pwm.h"
 #include "drivers/outputs.h"
 #include "drivers/fan.h"
 #include "drivers/i2c_bus.h"
@@ -76,6 +80,9 @@ static bool gCheckRtc = false;           // compare the DS3231 with NTP time at 
 static bool gRtcWriteArmed = false;      // write the DS3231 at the next whole second
 static bool gRtcWriting = false;
 static int64_t gRtcErrorS = 0;
+static TemperatureControl gTc;           // deadband, harvest, fan duty, stripping, ineffective checks
+static uint32_t gHeatOnSinceMs = 0;      // for the heater PWM cap
+static bool gHeatWasOn = false;
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -131,6 +138,9 @@ static void printStatus() {
   char guards[160];
   formatGuardText(guards, sizeof(guards), gCtl);
   s.guardText = guards;
+  char control[200];
+  formatControlText(control, sizeof(control), gTc, gTc.lastCab(), millis());
+  s.controlText = control;
   s.fanDutyPct = fan::duty();
   s.fanRpm = fan::rpm();
   s.fanPwmReadback = (int32_t)fan::pwmReadback();
@@ -152,7 +162,7 @@ static void printStatus() {
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
   s.staleAfterMs = 2 * gSettings.tuning.sensorReadMs;
-  char line[600];
+  char line[800];
   formatStatusLine(line, sizeof(line), s);
   Serial.println(line);
 }
@@ -229,12 +239,23 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
     case Command::Resets:
       resetrec::print();
       break;
+    case Command::Fan:
+      if (arg == -2) Serial.println("  fan <n> (0 or 20-100) or fan auto. Nothing changed.");
+      else if (gTc.setIdleFanOverride(arg)) {
+        if (arg < 0) Serial.printf("  Idle fan duty back to the setting (%u%%).\n", (unsigned)gSettings.tuning.fanIdlePct);
+        else         Serial.printf("  Idle fan duty now %d%% (loads and harvest keep their own duties). 'fan auto' to undo.\n", arg);
+      } else {
+        Serial.printf("  REFUSED: %d%% - the fan is never commanded 1-19%% (4.6), nor over 100%%. Fan unchanged at %u%%.\n",
+                      arg, (unsigned)fan::duty());
+      }
+      break;
     case Command::ResetsClear:
       resetrec::clear();                   // SLOW: a flash write, a few ms; only when typed
       break;
 #else
     case Command::Resets:
     case Command::ResetsClear:
+    case Command::Fan:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -279,6 +300,7 @@ void setup() {
   tzset();
 
   gCtl.begin(gSettings, millis());       // boot hold starts now (4.4)
+  gTc.begin(gSettings, millis());
   gHealth.begin(gSettings);
   gGate.begin(gSettings.safety.sensorRecoveryHoldMs);
   gFanMon.begin(gSettings.safety.fanStallRetryMs);
@@ -357,6 +379,14 @@ static void printExerciseEvents() {
         break;
       default: break;
     }
+  }
+}
+
+static void printControlEvents() {
+  char line[240];
+  for (ControlEvent e; gTc.takeEvent(e);) {
+    formatControlEvent(line, sizeof(line), e, gSettings);
+    Serial.printf("  %s\n", line);
   }
 }
 
@@ -490,26 +520,49 @@ void loop() {
   const int cabOk = gHealth.healthyCabinet();
   gGate.update(gHealth.chamberHealthy() && cabOk >= gSettings.safety.minHealthyCabinet,
                cabOk >= gSettings.safety.minHealthyCabinet, now);
-  Demand demand;                          // stage 2: no control logic, so nothing is asked for...
+  const bool fresh = elapsedMs(now, gLastSweepDoneMs) <= 2 * gSettings.tuning.sensorReadMs;
+  const CabinetSummary cab = gHealth.summary();   // healthy sensors only, corrected RH (4.3, 5.3)
+  ControlInputs ci;
+  ci.nowMs = now;
+  ci.cab = cab;
+  ci.readingsFresh = fresh;
+  ci.live = outputs::current();
 #if defined(WINEADOR_TEST_BUILD)
-  if (gScenario.running()) demand = gScenario.demand();          // ...except by a scenario
-  else if (kBootDemand) { demand.heat = true; demand.humid = true; }   // ...or the boot-demand build
+  ci.scriptedDemand = (gScenario.running() && !gScenario.usesControl()) || kBootDemand;
+#endif
+  const ControlOutput co = gTc.update(ci);
+  Demand demand = co.demand;              // the temperature control asks...
+#if defined(WINEADOR_TEST_BUILD)
+  if (gScenario.running() && !gScenario.usesControl()) demand = gScenario.demand();   // ...or a stage 2-3 scenario
+  else if (kBootDemand) { demand = Demand{}; demand.heat = true; demand.humid = true; }   // ...or the boot-demand build
 #endif
   PassInputs in;
   in.nowMs = now;
   in.settingsOk = (gBoot.settingsProblem == nullptr);
   in.fanOk = fan::duty() >= gSettings.safety.fanMinDutyPct && fan::rpm() > 0;
-  in.readingsFresh = elapsedMs(now, gLastSweepDoneMs) <= 2 * gSettings.tuning.sensorReadMs;
-  in.cab = gHealth.summary();             // healthy sensors only, corrected RH (4.3, 5.3)
+  in.readingsFresh = fresh;
+  in.cab = cab;
+  in.strippingActive = co.strippingActive;
+  in.heaterIneffectiveHold = co.heaterIneffectiveHold;
   in.sensorHoldTemp = gGate.tempHolding();
   in.sensorHoldHumid = gGate.humidHolding();
   in.live = outputs::current();
   outputs::apply(gCtl.pass(in, demand));
+  // Heater PWM cap (starting value 100 %: full duty). Gates the pin only while the heater is on.
+  {
+    const bool heatOn = outputs::current().heat;
+    if (heatOn && !gHeatWasOn) gHeatOnSinceMs = now;
+    gHeatWasOn = heatOn;
+    outputs::heaterGate(heaterPinOn(now, gHeatOnSinceMs, gSettings.tuning.heaterPwmCapPct,
+                                    gSettings.tuning.heaterPwmPeriodMs));
+  }
 #if defined(WINEADOR_TEST_BUILD)
   resetrec::heartbeat((uint32_t)(uptimeMs() / 1000), outputs::current());   // RTC memory, cheap
 #endif
 
-  // 2. The fan. After each tach window, the stall check (5.6) may ask for a kickstart.
+  // 2. The fan: the duty the control asks for (4.6); a start from 0 % kickstarts.
+  //    After each tach window, the stall check (5.6) may ask for a kickstart.
+  if (co.fanPct != gFan.target()) gFan.command(co.fanPct, now);
   fan::setDuty(gFan.output(now));
   if (fan::update(now, gSettings.safety.fanTachWindowMs)) {
     if (gFanMon.window(now, gFan.target() >= gSettings.safety.fanMinDutyPct, fan::rpm())) {
@@ -568,18 +621,24 @@ void loop() {
   }
 
   printExerciseEvents();
+  printControlEvents();
 
   // 5. A load changed: show what is live now, and a status line at once
   LoadOutputs loads = outputs::current();
   uint8_t fanNow = fan::duty();
-  if (loads != gShownLoads || fanNow != gShownFan) {
+  if (loads != gShownLoads) {
     char why[120];
-    if (loads == gShownLoads) snprintf(why, sizeof(why), "plenum fan %u%% -> %u%%", (unsigned)gShownFan, (unsigned)fanNow);
-    else                      describeChange(why, sizeof(why), gShownLoads, loads);
+    describeChange(why, sizeof(why), gShownLoads, loads);
     gShownLoads = loads;
     gShownFan = fanNow;
     printLive(why);
     printNow = true;
+  } else if (fanNow != gShownFan) {
+    // Fan-only changes (harvest steps, kickstarts) get one short line, not the whole block.
+    Serial.printf("  plenum fan %u%% -> %u%%%s\n", (unsigned)gShownFan, (unsigned)fanNow,
+                  gFan.kicking() ? " (kickstart, 1 s)" : gTc.harvest() == HarvestKind::Cooling ? " (cooling harvest)" :
+                  gTc.harvest() == HarvestKind::Heating ? " (heating harvest)" : "");
+    gShownFan = fanNow;
   }
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -594,8 +653,10 @@ void loop() {
   view.busStuck = i2cbus::busStuckCount();
   view.rtcOk = i2cbus::rtcOk();
   view.pullupsOn = !i2cbus::internalPullupsOff();
+  view.fanOut = fan::duty();
+  view.fanTarget = gFan.target();
   const bool wasRunning = gScenario.running();
-  gScenario.update(view, gCtl, gModel);
+  gScenario.update(view, gCtl, gModel, gTc);
   for (const char* l; (l = gScenario.takeLine()) != nullptr;) Serial.println(l);
   if (wasRunning && !gScenario.running()) printNow = true;
 #endif

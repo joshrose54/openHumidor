@@ -26,7 +26,8 @@ struct PassInputs {
   bool sensorHoldTemp = false;   // 4.3 recovery hold (RequirementGate)
   bool sensorHoldHumid = false;
   LoadOutputs live;              // what is being driven right now (last pass's result)
-  bool strippingActive = false;  // stage 4
+  bool strippingActive = false;  // RH stripping (TemperatureControl)
+  bool heaterIneffectiveHold = false;   // heater held off after a failed check (TemperatureControl)
 };
 
 class Controller {
