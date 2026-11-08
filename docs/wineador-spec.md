@@ -1681,23 +1681,23 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | ✅ |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | ✅ |
 | 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero); replug after at least one retry | Compressor and heater off; humidifier unaffected; a kickstart at once, then one per retry interval while the tach reads zero; loads resume once it reads normally | ✅ |
-| 7 | Deadband | Sweep simulated temperature 17–23°C and back | Nothing starts inside 18.5–20.5°C; heating ends at 19.0°C and cooling at 20.0°C (at a 20°C setpoint); nothing ever runs between 19.0 and 20.0°C | Pending |
-| 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | Pending |
-| 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |
-| 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | Pending |
+| 7 | Deadband | Sweep simulated temperature 17–23°C and back | Nothing starts inside 18.5–20.5°C; heating ends at the first reading at or above 19.0°C and cooling at the first at or below 20.0°C (at a 20°C setpoint); nothing ever runs between 19.0 and 20.0°C | ✅ |
+| 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | ✅ |
+| 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | ✅ |
+| 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | ✅ |
 | 11 | Watchdog | `stall` command (test builds only) locks the main loop | Reset by the watchdog, reason shown; boot hold applies — a load demanding to run is held off | ✅ |
 | 12 | Power interruption | Test build, scenario demanding heat and humidification from boot. **Heater pad** (KSD in series) on J10 pins 3–4, humidifier fan on J11. **USB unplugged first** (5.1). Cut the 12V; restore it; stopwatch from the moment it returns | Heater pad and humidifier fan both stay off for the boot hold (30 s, bench), then start. Cooling shares the same boot-hold code (native tests, test 11) | ✅ |
 | 13 | Relay exercise | Trigger the maintenance cycle | Three cycles logged; both loads off throughout | ✅ |
 | 14 | Profile safeguard | Boot the bench build | Banner printed and logged; profile on every status line | ✅ |
 | 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | ✅ |
 | 16 | RTC lost time | Remove the RTC cell, cut power, restore with WiFi | OSF detected; warning logged and flagged; time corrected from NTP; boot hold applies | ✅ |
-| 17 | Load ineffective | Each load commanded, chamber temperature simulated not responding | Heater: off, flagged, logged, retried. Cooling: flagged and logged | Pending |
+| 17 | Load ineffective | Each load commanded, chamber temperature simulated not responding | Heater: off, flagged, logged, retried. Cooling: flagged and logged | ✅ |
 | 18 | SD card failure | Remove the card while running | Control unaffected; failure flagged and logged to serial | Pending |
 | 19 | Humidifier guards | Simulated RH stepped below and above the band; rapid demands against a clock | Min-off and max-run enforced; on below setpoint − band, off at setpoint; no minimum on | Pending |
 | 20 | Humidifier ceiling and sensors | One simulated cabinet sensor driven to 70% with the mean still low; then a second cabinet sensor excluded | Off immediately at the ceiling; off when fewer than 3 cabinet sensors are healthy; 5 min hold before resuming | Pending |
 | 21 | Humidifier exclusivity | Demand humidify during a stripping run; during a temperature run with the setting off, then on | Blocked during stripping always; blocked during a temperature run with the setting off; allowed with it on | Pending |
 | 22 | Humidifier ineffective | Humidifier commanded on, simulated RH held flat | Off within the window, flagged, logged, retried at intervals | Pending |
-| 23 | Plenum fan rules (4.6) | Scenario: idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | Pending |
+| 23 | Plenum fan rules (4.6) | Scenario with the idle duty set to 0% (so every start is from 0%): idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | ✅ |
 | 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
 
 ## B4 — Bench soak

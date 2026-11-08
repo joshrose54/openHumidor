@@ -86,7 +86,7 @@ NO2 output.
 |---|---|
 | SD mount at boot | 60 ms |
 | Loop pass, longest per status interval | 1.2–4.5 ms; 2.7–3.1 ms with the RTC lead out |
-| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; **~78% flash** from stage 3 (WiFi + SNTP) |
+| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1% |
 | Free heap | ~268 KB without WiFi, ~170 KB with it |
 | Boot to first NTP sync | 2–16 s |
 | Sensor recovery on the bench after a replug | ~3 min (10 reads × 15 s, plus the serial re-read), then the 30 s hold |
@@ -576,7 +576,7 @@ socket after being refitted. Reseated, it ran as above.
 
 ## B3 — Firmware on the bench, Rev N
 
-Bench profile throughout. Firmware 0.1.0-stage1 to stage3.
+Bench profile throughout. Firmware 0.1.0-stage1 to stage4.
 
 ### B3.1 Guard timing — ✅
 
@@ -625,6 +625,32 @@ re-checked). 13 min, no resets, loop max 3.6 ms.
 `run 6`, heat and humidify: J2 out → stall, kickstart at once, heater off, humidifier unaffected;
 second kickstart exactly 30.0 s later with J2 still out; J2 back → recovered, heater resumed the
 same pass. First reading after the replug 60 RPM (part window), then 444, then 414 steady at 20%.
+
+### B3.7 Deadband — ✅
+
+`run 7`, scripted sweep 17 → 23 → 17°C at 1.5°C/min (~0.37°C between 15 s reads). Heater on 17.37,
+off 19.23 (first read past 19.0). Compressor on 20.71; cut by its 2 min max run at 22.31, on again
+after the rest; off 19.71 (first read past 20.0; previous 20.08). Heater on 18.22. Nothing started
+inside 18.5–20.5; nothing ran between 19.0 and 20.0.
+
+### B3.8 Crossover delay — ✅
+
+`run 8`. Cooling ended at 19.75, cabinet scripted to 18°C: heating asked for, `HELD by crossover`,
+heater on 30.0 s after cooling stopped. Heater ended at 19.25, cabinet scripted to 21°C: cooling on
+30.0 s after the heater stopped. Both crossovers counted.
+
+### B3.9 RH stripping — ✅
+
+`run 9`. Mean RH 68% (trigger 67%); a one-read dip to 65% reset the count; restarted from zero;
+strip started after exactly 30.0 s. Cooling called at 20.3°C (dead zone), continued through a
+max-run cut. Vapour pressure 1.616 → 1.441 kPa while RH fell only 68.0 → 64.7%; released on vapour
+pressure (target 1.447 kPa) with RH still above the 62% setpoint.
+
+### B3.10 RH temperature floor — ✅
+
+`run 10`. RH 69%, ch2 scripted 1°C cold. Strip started; stopped `temperature floor` with ch2 at
+17.88, mean 18.63 (no heating call), RH 75.2%. 60 s below the floor: no count. Cabinet back to
+20°C: count from zero, strip restarted after exactly 30 s.
 
 ### B3.11 Watchdog — ✅
 
@@ -678,6 +704,22 @@ at 15 s, DS3231 −847,462,798 s out (~26.9 years), written at 0:00:16, OSF clea
 trusted; `POWERON`, hold ended at 0:30. Cell refitted with power on → after a restart, OSF clear,
 DS3231 within 2 s of NTP.
 
+
+### B3.17 Load ineffective — ✅
+
+`run 17`, model not responding. Heater: off at exactly 1:00.0 (`HEATER INEFFECTIVE`, flagged), held
+with a countdown, retried at exactly 2:00.0; model responding by then → `HEATER EFFECTIVE AGAIN`,
+flag cleared. Cooling: `COOLING INEFFECTIVE` at exactly 1:00.0, flagged, compressor still on; flag
+cleared on the next working run (in run 23).
+
+### B3.23 Plenum fan rules — ✅
+
+`run 23`, idle duty set to 0% (fan stopped, 0 RPM). Cooling asked: kickstart 100% 1.0 s → 40%,
+compressor on 3.7 s later once the tach read. Cooling harvest 100 → 75 → 55 → 45%, ended on
+convergence after 59.9 s. Heating: kickstart 1.0 s → 60%, heater on; heating harvest held 60%,
+ended on convergence after 59.9 s. Idle back to 20% (kickstart). 10% commanded — refused, in the
+scenario and typed (`REFUSED: 10%`). Fan ran with every load. No resets, exclusions, bus faults or
+stalls across stage 4.
 ---
 
 ## 3. Track A — cabinet findings and data
@@ -824,6 +866,8 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **Hot-plugging probes** at the board connectors is clean: no stuck bus, no parasitic powering.
 - **RTC cell:** refit it with the power on, or the clock loses its time again. With cell out and power cut, the DS3231 restarts at 2000-01-01.
 - **The first serial command after USB goes in** can arrive with a stray byte in front and be rejected as unknown; resend it.
+- **One program on the serial port at a time.** A second one opening it splits the output between them and can crash one; the board is unaffected.
+- **Bench scenarios depend on what ran before** (e.g. which load ran last decides whether a start is a crossover). Scenarios take their baselines at the point they measure from.
 - **The firmware's reset record** (test builds) keeps each boot's reason in flash and a heartbeat in RTC memory. An EN reset from the Mac wipes the heartbeat; the boot list survives everything.
 - **Plenum fan ran at full speed for ~2 min once** during stage 2 (20% commanded); not repeated by wiggling J2 or the fan lead. The status line now shows the PWM hardware readback and tach edges per pulse (7–9 normal) to tell a repeat apart.
 - **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.
