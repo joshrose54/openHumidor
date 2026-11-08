@@ -750,10 +750,13 @@ Automatic exclusion on any of:
 | I²C timeout | 3 consecutive |
 | No response | Absent from mux channel |
 | Implausible value | Outside −10 to 50°C, or RH outside 0–100%, **on the raw value before clamping** |
-| Divergence | >5°C from the median of healthy sensors for 10 min |
+| Divergence — cabinet sensors (ch 2–5) only, and only while ≥3 are healthy | >5°C from the median of the healthy cabinet sensors for 10 min |
 | I²C bus fault | The channel selected when the main bus locked — see 5.6 |
 
-Recovery: 10 consecutive good plausible reads. Both logged.
+Recovery: 10 consecutive good plausible reads — and, after a divergence exclusion, all 10 within
+5°C of the median. Both logged. The chamber and ambient sensors get every check except divergence:
+the chamber reads plenum air by design (4.2), the ambient the room. **At boot** a sensor is healthy
+from its first good, plausible read with the right serial; the boot hold covers the first minutes.
 
 | Requirement | Threshold |
 |---|---|
@@ -1162,7 +1165,8 @@ on a sensor read, a log write or the network.
 - **Read every serial at boot and check it against the expected serial for its channel.** The
   calibration coefficients belong to the serial, not the channel. **A channel whose serial doesn't
   match is excluded and logged** — its coefficients would be wrong — and the 4.3 requirements decide
-  what still runs
+  what still runs. **Re-read the serial before accepting any recovery** (after absence or a bus
+  fault): plugs may have been swapped while it was out
 - Apply the calibration per serial: **RH = gain × raw + offset**, from the build log. Temperatures
   uncorrected
 - Readings lag a temperature change by 30–45 minutes while the surrounding material rebalances —
@@ -1252,8 +1256,11 @@ never deleted. The Mac is the real archive — pull the card or download every f
 
 **Clock:** timestamps from the DS3231 in **UTC**, ISO 8601 with a trailing Z; files named by UTC
 month. **At boot, set the ESP32 system clock from the DS3231 with `settimeofday`, TZ UTC** — the SD
-library dates files from the system clock, and left unset every file is dated 1 January 1980. NTP
-then keeps it corrected. Local time only on the dashboard.
+library dates files from the system clock, and left unset every file is dated 1 January 1980.
+**NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background — WiFi stays
+connected and reconnects by itself; control never waits for it. Each sync sets the system clock and
+writes the DS3231 if it is more than 2 s out; the correction is logged. Until NTP has corrected a
+clock that lost time (OSF, 5.6), timestamps are marked untrusted. Local time only on the dashboard.
 
 Flushes non-blocking and timeout-protected. An SD failure never stalls control; it is flagged.
 
@@ -1352,7 +1359,7 @@ No audible alarms. Faults surface on the dashboard and in the log.
 | CRC failures on one channel | Automatic exclusion per 4.3 |
 | Chamber sensor unhealthy | Compressor and heater off until recovered + 5 min |
 | Fewer than 3 healthy cabinet sensors | Compressor, heater and humidifier off until recovered + 5 min |
-| Fan tach zero with PWM asserted | Compressor and heater off **immediately**; one kickstart attempt; loads resume only once the tach reads normally |
+| Fan tach zero with PWM asserted | Compressor and heater off **immediately**; a kickstart at once, then another every 5 min while the tach reads zero; loads resume only once the tach reads normally |
 | WiFi down | Control and logging continue |
 | SD write failure | Control continues; flag |
 | **I²C bus stuck** — a sensor holding SDA or SCL low | **Pulse mux RST via P16.** Re-initialise the ESP32's I²C driver (`Wire.end()`, `Wire.begin()`). Exclude the channel that was selected, per 4.3, and log it. Control continues if 4.3 is still met |
@@ -1601,6 +1608,7 @@ never a literal. B3–B5 fill it from compile-time constants, B6–B7 from NVS.
 | Crossover delay | 10 min | 30 s |
 | Boot hold | 5 min | 30 s |
 | Sensor recovery hold | 5 min | 30 s |
+| Fan stall — kickstart retry | 5 min | 30 s |
 | RH strip / humidify persistence | 30 min / 10 min | 30 s / 30 s |
 | Ineffective windows — heater, cooling, humidifier | 15 / 15 / 20 min | 1 min each |
 | Ineffective retry — heater, humidifier | 30 min / 2 h | 2 min / 2 min |
@@ -1660,7 +1668,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | ✅ |
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | Pending |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | Pending |
-| 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero) | Compressor and heater off; humidifier unaffected; one kickstart attempted | Pending |
+| 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero); replug after at least one retry | Compressor and heater off; humidifier unaffected; a kickstart at once, then one per retry interval while the tach reads zero; loads resume once it reads normally | Pending |
 | 7 | Deadband | Sweep simulated temperature 17–23°C | Neither load runs 18.5–20.5°C | Pending |
 | 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | Pending |
 | 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |

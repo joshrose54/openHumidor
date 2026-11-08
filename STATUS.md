@@ -7,7 +7,7 @@
 Tests 11 and 14 run and seen passing. Test 11 is logged at stage 2 (needs a load held off),
 14 at stage 6. Spec findings went to the spec chat; its updates are committed (`3d87c1c`, `f2b2e9a`).
 
-## Stage 2 — board tests done (2026-11-08); waiting for Josh to call it passed
+## Stage 2 — passed (Josh, 2026-11-08)
 
 Runtime guards, interlock switching sequence, relay exercise. Plus (test builds) the reset record.
 
@@ -71,9 +71,13 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
 
 ### Next
 
-1. Stage 2 report to the spec chat; Josh calls stage 2 passed.
-2. Stage 3 plan (sensor health, serial check, calibration, fan monitoring, I2C bus recovery, RTC
-   lost time and NTP; B3 4, 5, 6, 15, 16, and 2 re-run with the sensor guard).
+Stage 3 — in progress (see below).
+
+## Stage 3 — building
+
+Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan
+monitoring (5.6), I2C bus recovery (5.6), RTC lost time and NTP (5.4, 5.6). B3 tests 4, 5, 6, 15,
+16, and 2 re-run with the sensor guard. Spec chat's answers committed with the spec.
 
 ## Talking to the board
 
