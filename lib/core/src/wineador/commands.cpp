@@ -39,6 +39,17 @@ Command parseCommand(const char* line, bool testBuild, int* arg) {
     if (arg) *arg = (digits > 0 && *line == 0) ? v : -1;
     return Command::Run;
   }
+  // "resets" or "resets clear"
+  if (strcmp(w, "resets") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    if (*line == 0) return Command::Resets;
+    char w2[8];
+    size_t m = 0;
+    while (*line && *line != ' ' && *line != '\t' && m < sizeof(w2) - 1) w2[m++] = (char)tolower((unsigned char)*line++);
+    w2[m] = 0;
+    while (*line == ' ' || *line == '\t') line++;
+    return (strcmp(w2, "clear") == 0 && *line == 0) ? Command::ResetsClear : Command::Unknown;
+  }
   if (*line) return Command::Unknown;   // anything after the word
 
   if (strcmp(w, "boot") == 0) return Command::Boot;

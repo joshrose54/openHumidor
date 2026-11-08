@@ -164,7 +164,7 @@ uncorrected.
 
 | Item | Spec |
 |---|---|
-| ESP32-WROOM-32 DevKit ×3 | 38-pin, USB-C, 4MB flash, WiFi + BT. **Must have a diode between USB and its 5V pin** — check each unit before use (3.3) |
+| ESP32-WROOM-32 DevKit ×3 | 38-pin, USB-C, 4MB flash, WiFi + BT. **Must have a diode between USB and its 5V pin** — check each unit before use (3.3). **Every unit modified before use: two pull-ups (3.3)** |
 | Terminal adapter | 38-pin narrow-hole, no mounting holes |
 | SD module | 3.3V SPI |
 | SD card | 64GB high-endurance, FAT32, **MBR partition table** |
@@ -564,6 +564,13 @@ off-board 12V WAGOs are gone; the mains WAGOs (4.10) are unchanged.
 **Diode check, for every DevKit before it goes on the board:** off the board, USB from the Mac
 only, meter its 5V pin to GND. **4.4–4.8V** — diode present, fit it. **4.9V or more** — no diode,
 never fit it: the board would drive the Mac's USB port.
+
+**Pull-up modification, for every DevKit before it goes on the board:** solder **2.2kΩ from 3V3 to
+EN** and **2.2kΩ from 3V3 to P0 (GPIO0)**, on the top side, flat, the pins underneath left clean so it
+still seats. Without them the DevKit's USB chip, unpowered when USB is absent, holds EN low (the
+ESP32 never starts) and GPIO0 low (it boots into flashing mode): the board cannot run without USB.
+Check off the board on 5V alone into the 5V pin, no USB: **EN and P0 each ≥ 3.0V**. Auto-reset
+flashing still works with both fitted. Applies to Rev N and Rev P.
 
 ### I²C bus
 
@@ -1112,11 +1119,8 @@ data-capable USB cable. If auto-reset fails: hold BOOT, tap EN, release BOOT, fl
 monitor before uploading. On Rev P, flash and monitor with the ESP32 on the board, USB and 12V in any
 order (2.4). **Rev N** has no D7: **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine. Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.
 
-**Plugging USB into a running board restarts it** (reported as POWERON) — seen on Rev N, most
-likely the DevKit's auto-reset circuit as its USB chip comes up. The power order is still right;
-expect a restart each time USB goes in. To watch a running board, leave USB in and open the monitor;
-never re-plug USB to look at it. In service, connecting a laptop restarts the controller: the boot
-hold and lock-out times start over.
+**With the DevKit pull-ups fitted (3.3)**, USB can be plugged into or unplugged from a running
+board without restarting it, and the board runs with no USB at all.
 
 ## 5.2 Non-blocking architecture
 
@@ -1391,7 +1395,7 @@ the PCB**. A failure in B3 is then a firmware fault.
 | B1 | Bench, perfboard | Low-voltage bring-up | ✅ |
 | B2 | Bench, perfboard | Mains and load hardware | ✅ |
 | BP | Bench, PCB | Bring-up — new on-board parts tested, the perfboard retired | ✅ Rev N — D7 checks, BP15 and BP16 repeat on Rev P |
-| B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | Pending |
+| B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | In progress |
 | B4 | Bench | Soak, real profile, ~24 hours | Pending |
 | BP2 | Bench, next board | Bring-up of the next board (SMD) and repeat of the B3 tests it affects — defined once the board is in the spec | Pending |
 | B5 | Cabinet | Install, on the next board. Fixed settings, serial interface | Pending |
@@ -1532,7 +1536,7 @@ parts** — Q1–Q5, U8, U9, K1, D1–D7 and the 12V path. Parts carried over fr
 wiring. A failure here is a board, assembly or design fault, never a firmware one. **B3 starts on
 the PCB.** Same sketches as B1/B2 unless named.
 
-**Bench unit is Rev N** (no D7, no R17–R20, no TP7): on it **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine; plugging USB in restarts the board (5.1). Any test that cuts the 12V (B3 test 12) runs with USB unplugged first (5.1) — and the D7, R17–R20, TP7, BP15-with-D7
+**Bench unit is Rev N** (no D7, no R17–R20, no TP7): on it **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine. Any test that cuts the 12V (B3 test 12) runs with USB unplugged first (5.1) — and the D7, R17–R20, TP7, BP15-with-D7
 and BP16 checks wait for Rev P. See the build log.
 
 **Three phases, in order:** A nothing fitted · B everything fitted, no power · C power. **Nothing is
@@ -1608,8 +1612,8 @@ its version string.
 
 **Status line:** one every 15 s (the sensor read rate), and at once whenever a load changes state.
 Each carries the profile, test build if it is one, the boot reason, uptime and the boot-hold state
-(counting down, or when it ended). A boot that happened with USB unplugged is read later from the
-SD log, not the status line — plugging USB in restarts the board (5.1).
+(counting down, or when it ended), so a boot that happened with USB unplugged can be read later by
+plugging USB in.
 The `boot` command reprints the banner and boot reason.
 
 **Version string:** `0.1.0-stage<n>` during B3, with `-BENCH` and `-TEST` added when they apply;
@@ -1618,6 +1622,9 @@ The `boot` command reprints the banner and boot reason.
 **Tests run when their parts exist.** A test is first run at the build stage that provides what it
 checks, and is **logged only once every pass criterion is met** — a test whose criteria need a later
 stage (a load held off, a log entry) is re-run then.
+
+**The 12V bulb only with USB connected.** With USB out, its cold-filament switch-on surge crashes or
+freezes the ESP32; use the heater pad.
 
 **Interface:** serial only. **Build order:** drivers from the B1/B2 sketches → config struct →
 non-blocking loop with watchdog → runtime guards → sensor health → control logic, stripping,
@@ -1648,9 +1655,9 @@ checks use the scripted values** — implausible reading, divergence, and every 
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 1 | Guard timing | Rapid on/off demands against a clock | Min-off, min-on and max-run enforced | Pending |
+| 1 | Guard timing | Rapid on/off demands against a clock | Min-off, min-on and max-run enforced | ✅ |
 | 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass | Pending |
-| 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | Pending |
+| 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | ✅ |
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | Pending |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | Pending |
 | 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero) | Compressor and heater off; humidifier unaffected; one kickstart attempted | Pending |
@@ -1658,8 +1665,8 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | Pending |
 | 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |
 | 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | Pending |
-| 11 | Watchdog | `stall` command (test builds only) locks the main loop | Reset by the watchdog, reason shown; boot hold applies — a load demanding to run is held off | Pending |
-| 12 | Power interruption | Test build, scenario demanding heat and humidification from boot. 12V bulb (KSD in series) on J10 pins 3–4, humidifier fan on J11. **USB unplugged first** (5.1). Cut the 12V; restore it; stopwatch from the moment it returns | Bulb and humidifier fan both stay off for the boot hold (30 s, bench), then start. Cooling shares the same boot-hold code (native tests, test 11) | Pending |
+| 11 | Watchdog | `stall` command (test builds only) locks the main loop | Reset by the watchdog, reason shown; boot hold applies — a load demanding to run is held off | ✅ |
+| 12 | Power interruption | Test build, scenario demanding heat and humidification from boot. **Heater pad** (KSD in series) on J10 pins 3–4, humidifier fan on J11. **USB unplugged first** (5.1). Cut the 12V; restore it; stopwatch from the moment it returns | Heater pad and humidifier fan both stay off for the boot hold (30 s, bench), then start. Cooling shares the same boot-hold code (native tests, test 11) | ✅ |
 | 13 | Relay exercise | Trigger the maintenance cycle | Three cycles logged; both loads off throughout | Pending |
 | 14 | Profile safeguard | Boot the bench build | Banner printed and logged; profile on every status line | Pending |
 | 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | Pending |

@@ -34,6 +34,7 @@
 #include "drivers/sd_card.h"
 #include "drivers/watchdog.h"
 #include "drivers/core_log.h"
+#include "drivers/reset_record.h"
 #include "app/console.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
@@ -175,7 +176,15 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
       if (gScenario.running()) gScenario.stop(nowMs, gModel);
       else Serial.println("  No scenario is running.");
       break;
+    case Command::Resets:
+      resetrec::print();
+      break;
+    case Command::ResetsClear:
+      resetrec::clear();                   // SLOW: a flash write, a few ms; only when typed
+      break;
 #else
+    case Command::Resets:
+    case Command::ResetsClear:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -210,6 +219,9 @@ void setup() {
 
   gBoot.watchdogOk = watchdog::begin(gSettings.safety.watchdogMs);
   gBoot.bootReason = console::resetReasonName((int)esp_reset_reason());
+#if defined(WINEADOR_TEST_BUILD)
+  resetrec::begin((int)esp_reset_reason());   // BOOT ONLY: one flash write (reset record, test builds)
+#endif
   gBoot.version = makeVersionString(gVersion, sizeof(gVersion), kFirmwareStage, kBuildProfile, kTestBuild);
   gBoot.settingsProblem = validateSettings(gSettings);
 
@@ -235,6 +247,9 @@ void setup() {
 #endif
 
   console::printBanner(gSettings, gBoot);
+#if defined(WINEADOR_TEST_BUILD)
+  resetrec::print();
+#endif
   gShownLoads = outputs::current();
   gShownFan = fan::duty();
   printLive("at boot: all loads off, fan kickstart");
@@ -313,6 +328,9 @@ void loop() {
   in.cab = summarise(gReadings);
   in.live = outputs::current();
   outputs::apply(gCtl.pass(in, demand));
+#if defined(WINEADOR_TEST_BUILD)
+  resetrec::heartbeat((uint32_t)(uptimeMs() / 1000), outputs::current());   // RTC memory, cheap
+#endif
 
   // 2. The fan
   fan::setDuty(gFan.output(now));

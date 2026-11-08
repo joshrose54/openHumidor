@@ -14,27 +14,34 @@ Draft, to send after B4. Compared with **Rev P**.
 
 ## 1. The ESP32 as an SMD module, with USB
 
-- Replace the plug-in ESP32 DevKit with an **ESP32 module soldered directly onto the board by
-  JLCPCB** (an SMD module such as the ESP32-S3-WROOM-1, which has the chip, flash and antenna
-  built in). Nothing plugs in. We'd rather not use the bare chip, which means designing the antenna,
-  flash and crystal from scratch, unless you think it's worth it.
+- Replace the plug-in ESP32 DevKit with an **ESP32-S3-WROOM-1 module soldered directly onto the
+  board by JLCPCB** (chip, flash and antenna built in). Nothing plugs in. Not the bare chip.
+  Variant: we suggest **N8R2** (8MB flash, 2MB PSRAM) for the LCD and web dashboard — confirm or
+  recommend otherwise.
+- **USB must use the S3's built-in USB** (its USB D− and D+ pins, GPIO19 and GPIO20) wired to the
+  USB-C socket. **No USB-to-serial chip (CP2102, CH340 or similar) and no auto-reset transistors.**
+  Flashing then needs no buttons and no auto-reset circuit, and nothing on the USB side touches EN.
+  This is the main fix for the first two problems below.
 - **A USB-C socket for flashing and the serial monitor.** USB and 12V must still be safe to plug in
   and pull out in any order, protecting the board and the laptop, as Rev P does with D7.
 - **Plugging USB into a running board must not restart it,** and nor must opening or closing the
-  serial monitor. On the current board (DevKit with a CP2102 and its auto-reset transistors),
-  plugging USB in restarts the ESP32. In the cabinet that means connecting a laptop restarts the
-  controller and its lock-out timers. Flashing should still work without pressing buttons if
-  possible; if that needs auto-reset, please explain the trade-off and we'll decide.
-- **The board must run with no USB connected.** The current DevKit doesn't: powered from its 5V pin
-  with no USB, its EN pin sits at ~0V and the ESP32 never starts (two DevKits, same result, off the
-  board). We believe the USB-serial chip and auto-reset circuit hold EN low when the chip has no USB
-  power. Please design the EN and auto-reset circuit so nothing on the USB side can hold EN low
-  when USB is absent, and say how you've ensured it.
+  serial monitor: in the cabinet, connecting a laptop must not restart the controller and its
+  lock-out timers.
+- **The board must run with no USB connected.** The unmodified DevKit can't: powered from its 5V
+  pin with no USB, its USB-serial chip and auto-reset circuit hold EN at ~0V (the ESP32 never
+  starts) and GPIO0 low (it boots into flashing mode) — two DevKits, same result, off the board. We
+  fixed it on the current boards with 2.2kΩ pull-ups on EN and GPIO0. With the S3's built-in USB
+  (above) there is no such circuit; please confirm nothing on the USB side can hold EN or GPIO0
+  low when USB is absent.
+- **The board must recover by itself from a supply dip:** a clean reset, never a hang. On the
+  current board, a sharp disturbance (a 21W bulb switching on, with USB out) once froze the ESP32
+  in a state its own watchdogs couldn't catch; only an external EN reset recovered it.
+- **A supply supervisor (reset chip) on EN**, holding EN low cleanly whenever 3.3V is out of range
+  and releasing it only once 3.3V is good. Please choose the part and threshold for the module,
+  and confirm it works with the EN capacitor and the USB flashing reset.
 - This removes the DevKit's AMS1117 regulator and D7's voltage drop. Please give the board a proper
   3.3V regulator with good headroom.
-- **Question:** which SMD module do you recommend? An ESP32-S3 module has USB built into the chip,
-  so no separate USB-serial chip is needed on the board. It also has more pins, which the LCD will
-  use. Keep the antenna end at the board edge with nothing under it.
+- Keep the module's antenna end at the board edge with nothing under it.
 - **Support circuit checklist.** Please confirm each is covered:
   - 3.3V regulator with good headroom for WiFi current bursts, with input and output capacitors
   - Decoupling capacitors at the module's power pins
@@ -45,8 +52,8 @@ Draft, to send after B4. Compared with **Rev P**.
   - USB power-path diode or ideal diode, so USB never powers the board's rails and the board never
     feeds the laptop
   - Strapping pins held in their correct boot states
-  - If the original ESP32 is used instead of the S3: a USB-to-serial chip and the auto-reset
-    transistors for flashing, designed so plugging in doesn't restart the board (above)
+  - **EN connects only to its pull-up, its capacitor, the reset button and the supervisor (below)**
+    — nothing else
 - **Question:** we'd like the **RTC on its own I²C bus**, separate from the mux and sensors, so a
   faulty sensor holding the bus low can't take the clock down with it. Both the ESP32 and the
   ESP32-S3 have two I²C controllers. Is that worth doing?

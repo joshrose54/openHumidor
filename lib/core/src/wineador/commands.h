@@ -1,6 +1,6 @@
 #pragma once
 // The small serial command reader: "boot", "help", "exercise" (every build),
-// and "stall", "run <n>", "stop" (test builds only). The full serial interface
+// and "stall", "run <n>", "stop", "resets [clear]" (test builds only). The full serial interface
 // arrives at stage 6.
 // Characters are fed one at a time, so reading never waits.
 
@@ -17,6 +17,8 @@ enum class Command : uint8_t {
   Exercise,          // start the relay exercise now (every build; loads held off)
   Run,               // TEST BUILDS ONLY: "run <n>" plays B3 test n's scenario
   Stop,              // TEST BUILDS ONLY: end the scenario early
+  Resets,            // TEST BUILDS ONLY: print the reset record
+  ResetsClear,       // TEST BUILDS ONLY: "resets clear" empties it
   TestOnly,          // "run" or "stop" typed in a cabinet build
   Unknown,
 };

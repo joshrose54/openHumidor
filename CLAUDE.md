@@ -25,7 +25,8 @@ fix. Josh takes it to that chat, which updates the spec. Don't work around a spe
 
 - Board: **Rev N** (the design is Rev P; see the BP section of the spec and the build log's Rev N
   note). Rev N has **no D7, no R17–R20, no TP7**. Pins and behaviour are otherwise as the spec.
-- ESP32 DevKit (ESP-WROOM-32D, CP2102, AMS1117), port `/dev/cu.SLAB_USBtoUART`.
+- ESP32 DevKit (ESP-WROOM-32D, CP2102, AMS1117), port `/dev/cu.SLAB_USBtoUART`. **Modified** with
+  2.2kΩ 3V3–EN and 2.2kΩ 3V3–P0 (spec 3.3): without them it can't run without USB.
 - Pins: spec 3.1. Loads switch through U9 (74HCT08) to IRLZ44N MOSFETs; K1 relay in the 12V feed is
   the heat/cool interlock (spec 3.2).
 
@@ -35,8 +36,10 @@ fix. Josh takes it to that chat, which updates the spec. Don't work around a spe
   on the board is then fine.
 - **Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.** Tell Josh this
   explicitly every time.
-- **Plugging USB in restarts the board** (POWERON). To read a running board, keep USB in and open the
-  monitor; never re-plug USB to look at it.
+- With the DevKit pull-ups fitted (above), plugging USB in or out doesn't restart the board, and it
+  runs with no USB.
+- **The 12V bulb only with USB connected.** With USB out its switch-on surge crashes or freezes the
+  ESP32; use the heater pad (spec B3).
 - Bench instructions to Josh always state the power-up order.
 
 ### Test sketches and test builds

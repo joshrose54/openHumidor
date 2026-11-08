@@ -26,6 +26,7 @@ themselves are in the **spec**.
 | Port (macOS) | /dev/cu.SLAB_USBtoUART |
 | Onboard LED | GPIO2 |
 | Spares | Two boards |
+| Pull-up modification (spec 3.3) | Fitted to the unit on the board: 2.2kΩ 3V3–EN, 2.2kΩ 3V3–P0. **Spare not yet modified** |
 
 ### SHT40 sensors
 
@@ -73,7 +74,7 @@ above 32GB, and the ESP32 library needs MBR not GPT.
 |---|---|
 | 10kΩ P26, P27, P32 to GND | 9.5–10kΩ each |
 | 1kΩ P34 to 3.3V | Just under 1kΩ; 3.29V at the pin, power on |
-| Plenum fan at 20%, Rev N | 414–426 RPM, steady — against 438–450 in B1.1.8 |
+| Plenum fan at 20%, Rev N | 414–426 RPM, steady — against 438–450 in B1.1.8; ~7.3 tach edges per pulse |
 
 **Wire colours:** green SDA · yellow SCL · red 3.3V or 5V · black GND · white NC1 output · orange
 NO2 output.
@@ -569,6 +570,52 @@ socket after being refitted. Reseated, it ran as above.
 
 ---
 
+## B3 — Firmware on the bench, Rev N
+
+Bench profile throughout. Firmware 0.1.0-stage2.
+
+### B3.1 Guard timing — ✅
+
+Native tests on both profiles; on the board, `run 1`, passed twice. Measured by the board:
+
+| Load | Min on | Min off | Max run |
+|---|---|---|---|
+| Compressor | 10.0 s | 30.0 s | 2:00.0 |
+| Heater | 10.0 s | 20.0 s | 2:00.0 |
+| Humidifier | none — off at once | 20.0 s | 2:00.0 |
+
+The heater also waited the 30.0 s crossover after the compressor.
+
+### B3.3 Interlock impossibility — ✅
+
+`run 3`, both loads demanded at once. Cooling ran, heater held: J10 pin 1 12V, pin 3 0V, bulb dark.
+After the cooling demand dropped and the 30 s crossover passed: pin 1 0V, pin 3 12V, bulb lit.
+
+### B3.11 Watchdog — ✅
+
+`bench_test_boot`, heater and humidifier running, then `stall`. Both stayed on until the task
+watchdog fired ~5 s later (`task_wdt` … loopTask, backtrace, `rst:0xc`), then went off. Banner and
+status line: `Boot reason: TASK_WATCHDOG`. Both held through the 30 s boot hold and restarted at
+exactly 30 s.
+
+### B3.12 Power interruption — ✅ after a change
+
+**Change: the DevKit pull-up modification (spec 3.3).** Unmodified, the DevKit holds the ESP32 in
+reset whenever USB is absent: off the board, 5V into the 5V pin, no USB, EN read **0.06V** on both
+DevKits, and the board never started. With 2.2kΩ 3V3–EN alone EN read 3.14V (4.7kΩ: 3.01V), but a
+cold start booted into flashing mode (GPIO0 held low). With 2.2kΩ on both EN and P0: **EN 3.13V,
+P0 3.13V**, and auto-reset flashing still works.
+
+**Load: heater pad, not the bulb** (spec B3 note) — with USB out, the 21W bulb's switch-on crashed
+or froze the ESP32.
+
+Heater pad (KSD in series) on J10 3–4, humidifier fan on J11, `bench_test_boot`, USB out, 12V cut
+and restored. Pad and fan stayed off, then started at ~30 s by stopwatch. USB in at 5:30 on the
+stopwatch: uptime 5:45 from the same boot, `POWERON`, hold ended at 0:30. A second cold start with no
+USB then ran 10:45, loads cycling, with no reset of any kind.
+
+---
+
 ## 3. Track A — cabinet findings and data
 
 Inkbird-controlled, before the controller. Moisture as vapour pressure (kPa) where stated, which
@@ -683,10 +730,11 @@ hold a day, and compare that level's dip against its A2 average.
 
 ## 4. Open issues
 
-**BP16(b) may fail on Rev P.** On Rev N, plugging USB into a running board restarts it. If the
-cause is the DevKit's auto-reset circuit rather than power, D7 won't stop it, and BP16(b)'s "no
-reset" fails. If so: accept it and change the pass criterion, or change the board (a capacitor on
-EN, or a way to disconnect auto-reset).
+**A freeze the ESP32's own watchdogs can't catch.** With USB out, the 21W bulb's switch-on surge
+once crashed the ESP32 (`INT_WATCHDOG`, recovered by itself) and once froze it: silent, not in
+flashing mode, no brownout or watchdog reset — only an EN reset recovered it. Not seen with the
+cabinet's loads (heater pad and humidifier fan). Likely a ground or supply jolt from the cold
+filament's surge through Q3. Watch for it in B4.
 
 **RTC lost ~2h27m before 2026-10-07.** Found at a calibration pre-flight. The cell held the clock
 through a deliberate 10-minute unplug, so the cause is unknown — possibly intermittent cell contact
@@ -704,7 +752,10 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **Floating outputs read stray volts.** With nothing on J10, pin 3 (K1's open NO side) reads ~0.9V on a 10MΩ meter. Load it with 10kΩ and it reads 0V. Probably flux trapped under K1.
 - **Mux board (HW-617) pull-ups, measured:** SDA–VIN and SCL–VIN 10kΩ; SD2–VIN and SC2–VIN open. The main bus has 10kΩ on the mux plus 4.7kΩ on the DS3231; the channels have only the probes' own.
 - **Female sockets:** probe their solder joints underneath; meter tips don't reach the contacts from above.
-- **USB into a running DevKit restarts it,** even with 12V on (POWERON). Never re-plug USB to read a running board; leave it in and open the monitor.
+- **An unmodified DevKit can't run without USB** — EN and GPIO0 held low by its unpowered USB chip. In stage 1 this looked like "plugging USB in restarts the board": the board had been held in reset while USB was out, and plugging in let it start. With the pull-ups (spec 3.3) plugging and unplugging USB doesn't restart it.
+- **The 12V bulb with USB out** crashes or freezes the ESP32 at switch-on (cold-filament surge); with USB in, the USB 5V holds the DevKit up. Use the heater pad with USB out.
+- **The firmware's reset record** (test builds) keeps each boot's reason in flash and a heartbeat in RTC memory. An EN reset from the Mac wipes the heartbeat; the boot list survives everything.
+- **Plenum fan ran at full speed for ~2 min once** during stage 2 (20% commanded); not repeated by wiggling J2 or the fan lead. The status line now shows the PWM hardware readback and tach edges per pulse (7–9 normal) to tell a repeat apart.
 - **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.
 - **ESP32 core error messages can stall the loop.** With the RTC not answering, the core's I²C error print waited behind the boot banner and held a loop pass for 175 ms. The firmware turns them off; the watchdog, panic and reset-reason output are kept. Proved with J9 unplugged while running.
 - **Arduino-ESP32 3.3.11 I²C default timeout is 50 ms.** Set it explicitly (the firmware uses 20 ms).

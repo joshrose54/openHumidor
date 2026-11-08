@@ -7,6 +7,7 @@
 #include "wineador/decode.h"
 #include "wineador/sensor_table.h"
 #include "wineador/summary.h"
+#include "wineador/reset_log.h"
 
 using namespace wineador;
 
@@ -176,6 +177,34 @@ void test_status_fan_readback() {
   TEST_ASSERT_FALSE(has(b, "pwm-hw"));
 }
 
+void test_resets_commands() {
+  TEST_ASSERT_TRUE(parseCommand("resets", true) == Command::Resets);
+  TEST_ASSERT_TRUE(parseCommand("Resets Clear", true) == Command::ResetsClear);
+  TEST_ASSERT_TRUE(parseCommand("resets", false) == Command::TestOnly);
+  TEST_ASSERT_TRUE(parseCommand("resets now", true) == Command::Unknown);
+}
+
+void test_reset_log_ring_and_format() {
+  ResetLog log;
+  log.magic = 0;                        // garbage from flash: add() starts a fresh list
+  for (int i = 0; i < 13; i++) { ResetEntry x; x.reason = (uint8_t)i; log.add(x); }
+  TEST_ASSERT_TRUE(log.valid());
+  TEST_ASSERT_EQUAL_UINT32(13, log.boots);
+  TEST_ASSERT_EQUAL_UINT8(ResetLog::kMax, log.count);
+  TEST_ASSERT_EQUAL_UINT32(4, log.at(0).bootNo);              // oldest kept
+  TEST_ASSERT_EQUAL_UINT32(13, log.at(ResetLog::kMax - 1).bootNo);
+
+  char b[160];
+  ResetEntry x; x.bootNo = 7; x.prevKnown = 1; x.prevAliveS = 171;
+  LoadOutputs l; l.heat = true; l.relayHeating = true; l.humid = true;
+  x.prevLoads = loadMask(l);
+  formatResetEntry(b, sizeof(b), x, "BROWNOUT");
+  TEST_ASSERT_EQUAL_STRING("boot 7  BROWNOUT      previous boot last alive at 0:02:51, live: heat humid K1-heat", b);
+  x.prevKnown = 0;
+  formatResetEntry(b, sizeof(b), x, "POWERON");
+  TEST_ASSERT_EQUAL_STRING("boot 7  POWERON       previous boot: heartbeat lost", b);
+}
+
 void test_summary_max_rh() {
   Readings r;
   for (int i = 0; i < kNumSensors; i++) { r.s[i].bus = BusResult::Ok; r.s[i].rhRawPct = 60.0f; }
@@ -299,6 +328,8 @@ int main() {
   RUN_TEST(test_status_line_guard_text_and_boot_demand);
   RUN_TEST(test_summary_max_rh);
   RUN_TEST(test_status_fan_readback);
+  RUN_TEST(test_resets_commands);
+  RUN_TEST(test_reset_log_ring_and_format);
   RUN_TEST(test_sht40_crc_datasheet_example);
   RUN_TEST(test_sht40_measurement);
   RUN_TEST(test_sht40_rh_not_clamped);

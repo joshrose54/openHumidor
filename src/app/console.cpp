@@ -140,6 +140,7 @@ void printHelp(bool testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (stage 2: 1, 2, 3, 13)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
+    Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");
   }
 }
 
