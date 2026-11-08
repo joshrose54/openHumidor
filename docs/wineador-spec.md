@@ -978,7 +978,9 @@ the count.
 | Ceiling | Any healthy cabinet sensor ≥ 70% — off immediately, regardless of the mean |
 
 RH from the healthy cabinet sensors, channels 2–5; never the chamber sensor. All 4.4 humidifier
-guards apply unchanged.
+guards apply unchanged. **A call stays on until RH reaches setpoint**: guards (max run and rest,
+sensors, ceiling) only pause the humidifier, and it resumes when they clear, with no fresh count.
+**The persistence count runs only while no strip is active**; it starts from zero when a strip ends.
 
 **Never during RH stripping** — the two are opposite actions. **During a temperature-driven
 compressor run** the plate pulls some of the added water straight back out, but cabinet air still
@@ -1329,7 +1331,7 @@ values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces 
 | Heater PWM cap | 100%; 1Hz period when below 100% | 0–100% |
 | Heater ineffective | Chamber rise ≥0.5°C within 15 min; retry after 30 min | From B2 step 6, set in B6 |
 | Cooling ineffective | Chamber fall ≥1.0°C within 15 min | B6 |
-| Humidifier ineffective | Cabinet mean RH rise ≥0.5 points within 20 min; retry after 2 h | B6 step 8 |
+| Humidifier ineffective | Cabinet mean **vapour pressure** rise ≥ the equivalent of 0.5 points at setpoint conditions (~0.012 kPa at 62%/20°C) within 20 min; retry after 2 h | B6 step 8 |
 | Disturbance detection | **Off** (4.7a) | B6 |
 | Disturbance rate threshold, exclusion after load switch, hold-off, hold-off cap | — (detection off) | B6 |
 | Log rate, steady / active | 60s / 15s | 30–600s / 10–120s |
@@ -1374,7 +1376,7 @@ No audible alarms. Faults surface on the dashboard and in the log.
 | Reboot | Compressor, heater and humidifier held off 5 min |
 | **Heater ineffective** — commanded on, chamber temperature not rising | Most likely a tripped KSD9700 not yet reset; also K1's NO contact, Q3 or the pad. Heater off, flag, log; retry at intervals. Window and expected rise from B2 step 6 and B6 |
 | **Cooling ineffective** — commanded on, chamber temperature not falling | K1's NC contact, Q2, the SSR, or the fridge. Flag and log; cooling continues to be called. Window from B6 |
-| **Humidifier ineffective** — commanded on, cabinet RH not rising | Empty tank, dry wick, failed fan or Q4. Humidifier off, flag, log; retry at intervals. Window and expected rise from B6 step 8 |
+| **Humidifier ineffective** — commanded on, cabinet vapour pressure not rising (RH moves with temperature; vapour pressure only with water) | Empty tank, dry wick, failed fan or Q4. Humidifier off, flag, log; retry at intervals. Window and expected rise from B6 step 8 |
 | **RTC lost time** — OSF set at boot | Warn, flag, resync from NTP. Control unaffected: the boot hold applies regardless |
 
 **Ineffective checks** run once per run, measured from the chamber reading at load start; a run
@@ -1694,9 +1696,9 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 17 | Load ineffective | Each load commanded, chamber temperature simulated not responding | Heater: off, flagged, logged, retried. Cooling: flagged and logged | ✅ |
 | 18 | SD card failure | Remove the card while running | Control unaffected; failure flagged and logged to serial | Pending |
 | 19 | Humidifier guards | Simulated RH stepped below and above the band; rapid demands against a clock | Min-off and max-run enforced; on below setpoint − band, off at setpoint; no minimum on | Pending |
-| 20 | Humidifier ceiling and sensors | One simulated cabinet sensor driven to 70% with the mean still low; then a second cabinet sensor excluded | Off immediately at the ceiling; off when fewer than 3 cabinet sensors are healthy; 5 min hold before resuming | Pending |
+| 20 | Humidifier ceiling and sensors | One simulated cabinet sensor driven to 70% with the mean still low; then cabinet sensors excluded one at a time | Off immediately at the ceiling; off when fewer than 3 cabinet sensors are healthy; the recovery hold before resuming | Pending |
 | 21 | Humidifier exclusivity | Demand humidify during a stripping run; during a temperature run with the setting off, then on | Blocked during stripping always; blocked during a temperature run with the setting off; allowed with it on | Pending |
-| 22 | Humidifier ineffective | Humidifier commanded on, simulated RH held flat | Off within the window, flagged, logged, retried at intervals | Pending |
+| 22 | Humidifier ineffective | Humidifier commanded on, simulated vapour pressure held flat | Off within the window, flagged, logged, retried at intervals | Pending |
 | 23 | Plenum fan rules (4.6) | Scenario with the idle duty set to 0% (so every start is from 0%): idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | ✅ |
 | 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
 
