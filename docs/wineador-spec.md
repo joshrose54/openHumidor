@@ -909,7 +909,7 @@ harvest.
 
 | State | Fan |
 |---|---|
-| Idle | Minimum PWM, or stopped — B6 step 3 |
+| Idle | Minimum PWM, or stopped — B6 step 3. If stopped: the fan starts (with its kickstart) as soon as a load is asked for, and the fan guard is judged once it is running — otherwise a stopped fan's zero tach would block every start |
 | Compressor on | Set in B6 step 1 — likely slow, to reduce stripping, limited by mixing |
 | Cooling harvest | Profile — fast at first, slowing towards setpoint |
 | Heater on | Must be running |
@@ -1681,7 +1681,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | ✅ |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | ✅ |
 | 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero); replug after at least one retry | Compressor and heater off; humidifier unaffected; a kickstart at once, then one per retry interval while the tach reads zero; loads resume once it reads normally | ✅ |
-| 7 | Deadband | Sweep simulated temperature 17–23°C | Neither load runs 18.5–20.5°C | Pending |
+| 7 | Deadband | Sweep simulated temperature 17–23°C and back | Nothing starts inside 18.5–20.5°C; heating ends at 19.0°C and cooling at 20.0°C (at a 20°C setpoint); nothing ever runs between 19.0 and 20.0°C | Pending |
 | 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | Pending |
 | 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |
 | 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | Pending |
