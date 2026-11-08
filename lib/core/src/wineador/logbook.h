@@ -23,6 +23,10 @@ namespace wineador {
 
 constexpr int kLogSchema = 1;
 constexpr int kReadingsBatch = 16;         // rows per SD write (5.4 wear)
+// FAT32 holds no file of 4 GiB or more. No log file should ever get near it
+// (~12 MB of readings a month), but if one would pass this limit the logger
+// starts a numbered part: 2026-11-readings-p2.csv, -p3 ... each with its header.
+constexpr uint64_t kMaxLogFileBytes = 3900000000ULL;
 
 // ---------------------------------------------------------------- CSV helpers
 // Appends detail to out as one CSV field: quoted if it holds a comma, quote or
@@ -35,7 +39,12 @@ enum class LogKind : uint8_t { Readings, Events, Hourly };
 int logPath(char* out, size_t n, LogKind k, int year, int month, int schema = kLogSchema);
 // "/logs/2026"
 int logYearDir(char* out, size_t n, int year);
-// Parses "2026-11-readings.csv" (or "-readings-s2.csv"): true with year and month.
+// Part `part` (>= 2) of a log file: "/logs/2026/2026-11-readings.csv" -> "...-readings-p2.csv";
+// part 1 is the path itself.
+int logPartPath(char* out, size_t n, const char* path, int part);
+// Would adding `addBytes` to a file of `fileBytes` pass the limit? (Then use the next part.)
+inline bool logFileFull(uint64_t fileBytes, uint64_t addBytes) { return fileBytes + addBytes > kMaxLogFileBytes; }
+// Parses "2026-11-readings.csv" (also "-s2" schema and "-p2" part forms): true with year and month.
 bool parseReadingsName(const char* name, int* year, int* month);
 
 // ---------------------------------------------------------------- headers

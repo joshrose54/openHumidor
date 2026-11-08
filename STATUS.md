@@ -135,9 +135,9 @@ the 1 min check with 15 s reads), re-flashed before test 20.
 - Test scenarios that need RH exactly at the strip release target use 61.5 % (62 % at 20 C sits on
   the target, and float rounding can leave it a hair above).
 
-## Stage 6 — built, board tests next (SD logging, serial interface; B3 18, 24, then B4)
+## Stage 6 — B3 part passed (Josh, 2026-11-08): B3 complete. B4 next (SD logging, serial interface; B3 18, 24, then B4)
 
-Spec answers committed (`861584a`). Not yet committed: the stage 6 code.
+Spec answers committed (`861584a`, `b89d4cc`); stage 6 checkpoint `3e0983e`.
 
 - **Partition:** `min_spiffs` (two ~1.9 MB firmware slots, OTA possible later; NVS unchanged at
   0x9000). Builds: cabinet 53.6 %, test builds 56.7 % flash; RAM ~30 %.
@@ -169,9 +169,22 @@ Spec answers committed (`861584a`). Not yet committed: the stage 6 code.
 - The soak: 10 phases, ~9.5 h a cycle, to 24 h; on the Mac: starts 17/16/18, max-run stops 6/2/4,
   strips 2, crossovers 9, audit clean; minima set below that (12/6/4, 2/1/2, 2, 4).
 
+### Board results (bench_test)
+
+| B3 test | Result |
+|---|---|
+| 24 logging | PASS (28/28 checks, `tools/check_logs.py --test24`). Card reformatted (FAT32/MBR/WINEADOR) and filled to 8 % free: boot deleted 2025-09 (-> 14.6 %) then 2025-10 (-> 21.2 %) and stopped. Cell out: RTC LOST TIME, NTP correction (DS3231 -847478700 s, OSF cleared). `run 24` PASS (11:55) + by hand: crc/timeout ch4, set temp/defaults, J4 unplugged (absent/recovered), J2 unplugged (stall/kick/recovered), J5 SDA short (bus stuck/excluded/recovered), card pulled (flush failure, remount). 97 events, every 5.4 type; 49 rows in 16-row batches; RH = gain x raw + offset every row; files by UTC month; run 30:45 |
+| 18 SD card failure | PASS. Card pulled during `run 8`: "SD FLUSH FAILURE: write failed ... control unaffected" at the next write (1:21), status `SD FAIL`; run 8 PASSED with the card out (crossover 30.0 s both ways, loop max <= 6.5 ms; the failed write took 4.1 s inside the SD task only). Card back: remounted within 30 s, 16 kept events written in order, 6 readings rows dropped while out, 0 events dropped |
+
+Found in test 24 and fixed (re-flashed, lost-time boot repeated): logging started before the RTC's
+lost-time flag was read, so the first boot's first events and row were marked trusted; the NTP
+correction event was marked untrusted. Also: tools/fill_card.py wrote one 46.9 GB file — FAT32
+holds nothing of 4 GiB or more; now parts under 3.9 GB. The logger now starts a -p2 part file if a
+log file would pass 3.9 GB (Mac-tested; never near it in practice).
+
 ## Next
 
-Board tests: 18 (card pulled during a run), 24 (logging, 30 min + physical events), then B4 soak.
+The B4 soak (`run soak`, real_test build, 24 h), after tidying the card.
 
 ## Talking to the board
 

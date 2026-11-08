@@ -641,9 +641,7 @@ static void afterSweep(uint32_t now) {
                                   channelOf(e.index), kSensors[e.index].position);
   }
 
-  if (i2cbus::lastSweepWasBoot()) {
-    gClock.osfKnown = i2cbus::rtcStatusKnown();
-    gClock.osfAtBoot = i2cbus::rtcOsf();
+  if (i2cbus::lastSweepWasBoot()) {       // (the OSF flag itself was read before logging started)
     if (!gClock.osfKnown)
       eventlog::log("rtc", "!! RTC status register not read: lost-time check (OSF) not done this boot");
     else if (gClock.osfAtBoot) {
@@ -682,6 +680,7 @@ static bool afterNtp(uint32_t now) {
       gClock.corrected = true;
       gClock.lastCorrectionS = gRtcErrorS;
       gClock.correctedAtMs = uptimeMs();
+      eventlog::setClock(gClockSet, gClock.trusted());
       eventlog::log("ntp", "NTP: DS3231 within 2 s (%+lld s); not written", (long long)gRtcErrorS);
       printed = true;
     }
@@ -704,6 +703,7 @@ static bool afterNtp(uint32_t now) {
       gClock.lastCorrectionS = gRtcErrorS;
       gClock.rtcWritten = true;
       gClock.correctedAtMs = uptimeMs();
+      eventlog::setClock(gClockSet, gClock.trusted());   // the correction itself carries trusted time
       char ts[24];
       timestamp(ts, sizeof(ts));
       eventlog::log("ntp", "NTP correction: DS3231 was %+lld s out; set to %s%s", (long long)gRtcErrorS, ts,
@@ -954,7 +954,13 @@ void loop() {
     sweptThisPass = true;
     gBusReadings = i2cbus::readings();
     gLastSweepDoneMs = now;
-    setClockFromRtc();                    // first, so the boot event and every row after it carry real time
+    if (i2cbus::lastSweepWasBoot()) {
+      // The lost-time flag (OSF), before anything is logged: until NTP corrects a
+      // clock that lost time, every event and row is marked untrusted (5.4).
+      gClock.osfKnown = i2cbus::rtcStatusKnown();
+      gClock.osfAtBoot = i2cbus::rtcOsf();
+    }
+    setClockFromRtc();                    // first, so the boot event and every row after it carry the RTC's time
     eventlog::setClock(gClockSet, gClock.trusted());
     startLogging();
     afterSweep(now);

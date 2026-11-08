@@ -60,14 +60,33 @@ int logPath(char* out, size_t n, LogKind k, int year, int month, int schema) {
 
 int logYearDir(char* out, size_t n, int year) { return snprintf(out, n, "/logs/%04d", year); }
 
+int logPartPath(char* out, size_t n, const char* path, int part) {
+  if (part <= 1) return snprintf(out, n, "%s", path);
+  const char* dot = strrchr(path, '.');
+  const int stem = dot ? (int)(dot - path) : (int)strlen(path);
+  return snprintf(out, n, "%.*s-p%d%s", stem, path, part, dot ? dot : "");
+}
+
+namespace {
+// "-<letter><digits>" at s: returns the length matched, 0 if none.
+size_t suffix(const char* s, char letter) {
+  if (s[0] != '-' || s[1] != letter || s[2] < '0' || s[2] > '9') return 0;
+  size_t k = 2;
+  while (s[k] >= '0' && s[k] <= '9') k++;
+  return k;
+}
+}  // namespace
+
 bool parseReadingsName(const char* name, int* year, int* month) {
   // YYYY-MM-readings.csv or YYYY-MM-readings-sN.csv
   if (strlen(name) < 20) return false;
   for (int i = 0; i < 4; i++) if (name[i] < '0' || name[i] > '9') return false;
   if (name[4] != '-' || name[5] < '0' || name[5] > '9' || name[6] < '0' || name[6] > '9') return false;
   if (strncmp(name + 7, "-readings", 9) != 0) return false;
-  const char* rest = name + 16;
-  if (strcmp(rest, ".csv") != 0 && !(rest[0] == '-' && rest[1] == 's' && strstr(rest, ".csv"))) return false;
+  const char* rest = name + 16;                 // then optional -sN, optional -pN, then .csv
+  rest += suffix(rest, 's');
+  rest += suffix(rest, 'p');
+  if (strcmp(rest, ".csv") != 0) return false;
   const int y = atoi(name), m = (name[5] - '0') * 10 + (name[6] - '0');
   if (m < 1 || m > 12) return false;
   *year = y;

@@ -50,6 +50,27 @@ void test_parse_readings_name() {
   TEST_ASSERT_FALSE(parseReadingsName("hourly.csv", &y, &m));
   TEST_ASSERT_FALSE(parseReadingsName("2026-13-readings.csv", &y, &m));
   TEST_ASSERT_FALSE(parseReadingsName("._2026-09-readings.csv", &y, &m));   // macOS litter
+  TEST_ASSERT_TRUE(parseReadingsName("2026-09-readings-p2.csv", &y, &m));   // a second part (file limit)
+  TEST_ASSERT_EQUAL_INT(9, m);
+  TEST_ASSERT_TRUE(parseReadingsName("2027-01-readings-s2-p3.csv", &y, &m));
+  TEST_ASSERT_FALSE(parseReadingsName("2026-09-readings-x2.csv", &y, &m));
+  TEST_ASSERT_FALSE(parseReadingsName("2026-09-readings-p.csv", &y, &m));
+}
+
+void test_file_parts_under_the_fat32_limit() {
+  char p[64];
+  logPartPath(p, sizeof(p), "/logs/2026/2026-11-readings.csv", 1);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-11-readings.csv", p);
+  logPartPath(p, sizeof(p), "/logs/2026/2026-11-readings.csv", 2);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-11-readings-p2.csv", p);
+  logPartPath(p, sizeof(p), "/logs/hourly.csv", 12);
+  TEST_ASSERT_EQUAL_STRING("/logs/hourly-p12.csv", p);
+  TEST_ASSERT_TRUE(kMaxLogFileBytes < 4294967296ULL);           // under FAT32's 4 GiB
+  TEST_ASSERT_TRUE(kMaxLogFileBytes > 3500000000ULL);
+  TEST_ASSERT_FALSE(logFileFull(1000, 9000));
+  TEST_ASSERT_FALSE(logFileFull(kMaxLogFileBytes - 600, 600));
+  TEST_ASSERT_TRUE(logFileFull(kMaxLogFileBytes - 600, 601));
+  TEST_ASSERT_TRUE(logFileFull(4294967295ULL, 16 * 600));        // no 32-bit wrap
 }
 
 void test_readings_header_has_profile_serials_and_columns() {
@@ -246,6 +267,7 @@ int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_paths);
   RUN_TEST(test_parse_readings_name);
+  RUN_TEST(test_file_parts_under_the_fat32_limit);
   RUN_TEST(test_readings_header_has_profile_serials_and_columns);
   RUN_TEST(test_readings_row_matches_header_columns);
   RUN_TEST(test_rh_column_is_gain_times_raw_plus_offset);

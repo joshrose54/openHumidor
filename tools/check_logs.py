@@ -136,8 +136,13 @@ def check_readings(path, table):
 
 
 def file_date_ok(path):
+    """The file's date comes from the board's system clock. Real (2026 on), or - for a
+    file written while the clock had lost time - the same year as its own name (5.4:
+    rows go to the month the clock says). 1980 means the clock was never set."""
     y = dt.datetime.fromtimestamp(os.stat(path).st_mtime).year
-    return y >= 2026, y
+    name = os.path.basename(path)
+    named = int(name[:4]) if name[:4].isdigit() else None
+    return y >= 2026 or (named is not None and y == named and y != 1980), y
 
 
 def load_events(paths):
@@ -223,22 +228,29 @@ def main():
             if f.startswith("._"):
                 continue
             p = os.path.join(yd, f)
-            if re.fullmatch(rf"{year}-\d\d-readings(-s\d+)?\.csv", f):
+            if re.fullmatch(rf"{year}-\d\d-readings(-s\d+)?(-p\d+)?\.csv", f):
                 readings.append(p)
-            elif re.fullmatch(rf"{year}-\d\d-events(-s\d+)?\.csv", f):
+            elif re.fullmatch(rf"{year}-\d\d-events(-s\d+)?(-p\d+)?\.csv", f):
                 events_files.append(p)
             elif not f.startswith("."):
                 report(None, f"unexpected file {year}/{f}")
     report(bool(readings) and bool(events_files), "files as /logs/YYYY/YYYY-MM-readings.csv and -events.csv",
            f"{len(readings)} readings, {len(events_files)} events files")
-    hourly = os.path.join(logs, "hourly.csv")
+    hourly = os.path.join(logs, "hourly.csv")   # (a part file hourly-p2.csv would only follow a 3.9 GB hourly.csv)
     report(os.path.isfile(hourly), "/logs/hourly.csv exists")
 
     for p in readings + events_files + ([hourly] if os.path.isfile(hourly) else []):
         ok, y = file_date_ok(p)
         if not ok:
             report(False, f"{os.path.basename(p)} file date", f"year {y}: the system clock was not set from the RTC")
-    report(True, "file dates checked (none dated 1980)") if all(file_date_ok(p)[0] for p in readings + events_files) else None
+    if all(file_date_ok(p)[0] for p in readings + events_files):
+        report(True, "file dates from the system clock (none dated 1980)")
+    for p in readings + events_files:
+        name = os.path.basename(p)
+        if name[:4].isdigit() and int(name[:4]) < 2026:
+            comments, h, rows = read_csv(p)
+            trusted = [r[1] for r in rows if len(r) > 1]
+            report(None, f"{name}: written while the clock read {name[:7]} (lost time); time_trusted values {sorted(set(trusted))}")
 
     all_rows, header = [], []
     for p in readings:

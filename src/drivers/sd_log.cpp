@@ -83,6 +83,22 @@ void monthOf(const char* line, int* y, int* m) {
   *m = gMonth;
 }
 
+// The part number in use for each file (part 1 = the file itself), for the three
+// files written at any one time; a new month's file starts at part 1 again.
+int* partFor(const char* path) {
+  struct Slot { char path[40]; int part; };
+  static Slot slots[4] = {};
+  static int next = 0;
+  for (Slot& sl : slots)
+    if (strcmp(sl.path, path) == 0) return &sl.part;
+  Slot& sl = slots[next];
+  next = (next + 1) % 4;
+  strncpy(sl.path, path, sizeof(sl.path) - 1);
+  sl.path[sizeof(sl.path) - 1] = 0;
+  sl.part = 1;
+  return &sl.part;
+}
+
 // The one place the card is written. Makes the folders, writes the header into a
 // new (empty) file, then the data. Timed. False on any failure.
 bool appendFile(const char* path, const char* header, const char* data, size_t len) {
@@ -101,10 +117,21 @@ bool appendFile(const char* path, const char* header, const char* data, size_t l
       if (strcmp(dir, "/logs") != 0 && !SD.exists(dir) && !SD.mkdir(dir)) ok = false;
     }
   }
+  // FAT32 holds no file of 4 GiB or more: if this write would pass the limit, move
+  // on to the next part (-p2, -p3 ...). The part in use is remembered per file.
   File f;
+  char partPath[48];
   if (ok) {
-    f = SD.open(path, FILE_APPEND);
-    if (!f) ok = false;
+    int* part = partFor(path);
+    for (;;) {
+      wineador::logPartPath(partPath, sizeof(partPath), path, *part);
+      f = SD.open(partPath, FILE_APPEND);
+      if (!f) { ok = false; break; }
+      const uint64_t add = len + (f.size() == 0 && header ? strlen(header) : 0);
+      if (!wineador::logFileFull(f.size(), add)) break;
+      f.close();
+      if (++*part > 99) { ok = false; break; }
+    }
   }
   if (ok && f.size() == 0 && header) ok = f.write((const uint8_t*)header, strlen(header)) == strlen(header);
   if (ok) ok = f.write((const uint8_t*)data, len) == len;
