@@ -69,7 +69,7 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
   cabinet ceiling. **`run 2`** kicks the fan every 10 s after J2 is replugged (stage 3 does this
   by itself).
 
-### Stage 4 — board tests done, waiting for Josh's verdict
+### Stage 4 — passed (Josh, 2026-11-08)
 
 Temperature control. Spec answers committed (`73f9687`, `f10b7af`); stage 4 checkpoint `7d30b47`.
 
@@ -103,9 +103,31 @@ Temperature control. Spec answers committed (`73f9687`, `f10b7af`); stage 4 chec
 - Fan-only changes print one short line, not the live block.
 - Ineffective event text says "chamber changed +/-x C" (after the board run; not yet flashed).
 
+## Stage 5 — built, board tests next (humidifier, B3 19-22)
+
+Spec answers committed (`4ae15c0`): humidifier check on vapour pressure (~0.012 kPa = 0.5 points at
+setpoint); a call stays on through guard pauses; persistence only outside strips; test 20 excludes
+sensors one at a time by scripted readings; test-build toggle for "humidify during cooling runs".
+
+- **Mac side:** five ESP32 builds compile with no warnings (cabinet 77.8 %, test builds 82.1 % flash);
+  native tests **216/216** pass.
+- **New:** `humid_control.h/.cpp` (call with persistence, release at setpoint, call held through guard
+  pauses, persistence only outside strips, vapour-pressure ineffective check with retry hold, events,
+  status text), guard `humid-ineffective`, `setHumidifyDuringCooling` + test-build `humidcool on|off`,
+  `scenario_stage5.cpp` (`run 19, 20, 21, 22`; run 21 adds a direct humidify demand), banner line,
+  status line humid part. `test_humid_control` (16) + simulated-board scenario tests.
+- **Board tests:** 19, 20, 21, 22 on `bench_test`. Load to watch: humidifier fan on J11.
+
+### Decisions taken in building
+
+- The call is judged only on fresh readings from >= 3 healthy cabinet sensors; otherwise it is left
+  as it is (the sensor guard pauses the humidifier).
+- Test scenarios that need RH exactly at the strip release target use 61.5 % (62 % at 20 C sits on
+  the target, and float rounding can leave it a hair above).
+
 ## Next
 
-Josh's verdict on stage 4; then stage 5 (humidifier: B3 19-22), plan first.
+Stage 5 board tests, one at a time: 19, 20, 21, 22.
 
 ## Talking to the board
 

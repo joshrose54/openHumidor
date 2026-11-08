@@ -15,6 +15,7 @@ const char* guardBlockName(GuardBlock b) {
     case GuardBlock::ChamberCeiling:  return "chamber-ceiling";
     case GuardBlock::RhCeiling:       return "rh-ceiling";
     case GuardBlock::Ineffective:     return "heater-ineffective";
+    case GuardBlock::HumidIneffective: return "humid-ineffective";
     case GuardBlock::Stripping:       return "stripping";
     case GuardBlock::CompressorRun:   return "compressor-run";
     case GuardBlock::MaxRun:          return "max-run";
@@ -145,6 +146,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
     if (stop == GuardBlock::None && !humidSensorsOk)                       stop = GuardBlock::Sensors;
     if (stop == GuardBlock::None && c.cabinetOk > 0 && c.maxRhPct >= f.rhHardCeilingPct)
                                                                            stop = GuardBlock::RhCeiling;
+    if (stop == GuardBlock::None && in.humidIneffectiveHold)               stop = GuardBlock::HumidIneffective;
     if (stop == GuardBlock::None && in.strippingActive)                    stop = GuardBlock::Stripping;
     // A temperature-driven compressor run (a stripping run is caught just above).
     if (stop == GuardBlock::None && !t.humidifyDuringCooling && (cool_.on || out.cool.run))

@@ -1,4 +1,4 @@
-// Wineador controller firmware — stage 4.
+// Wineador controller firmware — stage 5.
 //
 // The main loop never waits. Each pass:
 //   1. Temperature control (4.5-4.7, 5.6) asks for cooling / heating and sets
@@ -14,7 +14,7 @@
 //
 // In a test build the control acts on the scripted cabinet model; a stage 2-3
 // scenario (or the boot-demand build) asks for loads directly instead.
-// Humidifier control is stage 5: nothing asks for it yet.
+// The humidifier control (4.7b) asks for the humidifier the same way.
 //
 // The logic is in lib/core (plain C++, tested on the Mac). The hardware is in
 // src/drivers. All pins are in include/pins.h.
@@ -38,6 +38,7 @@
 #include "wineador/clock_state.h"
 #include "wineador/decode.h"
 #include "wineador/temp_control.h"
+#include "wineador/humid_control.h"
 #include "wineador/heater_pwm.h"
 #include "drivers/outputs.h"
 #include "drivers/fan.h"
@@ -81,6 +82,7 @@ static bool gRtcWriteArmed = false;      // write the DS3231 at the next whole s
 static bool gRtcWriting = false;
 static int64_t gRtcErrorS = 0;
 static TemperatureControl gTc;           // deadband, harvest, fan duty, stripping, ineffective checks
+static HumidControl gHc;                 // humidifier call and its ineffective check
 static uint32_t gHeatOnSinceMs = 0;      // for the heater PWM cap
 static bool gHeatWasOn = false;
 #if defined(WINEADOR_TEST_BUILD)
@@ -141,6 +143,9 @@ static void printStatus() {
   char control[200];
   formatControlText(control, sizeof(control), gTc, gTc.lastCab(), millis());
   s.controlText = control;
+  char humid[100];
+  formatHumidText(humid, sizeof(humid), gHc, millis());
+  s.humidText = humid;
   s.fanDutyPct = fan::duty();
   s.fanRpm = fan::rpm();
   s.fanPwmReadback = (int32_t)fan::pwmReadback();
@@ -162,7 +167,7 @@ static void printStatus() {
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
   s.staleAfterMs = 2 * gSettings.tuning.sensorReadMs;
-  char line[800];
+  char line[900];
   formatStatusLine(line, sizeof(line), s);
   Serial.println(line);
 }
@@ -239,6 +244,14 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
     case Command::Resets:
       resetrec::print();
       break;
+    case Command::HumidCool:
+      if (arg < 0) Serial.println("  humidcool on | humidcool off. Nothing changed.");
+      else {
+        gCtl.setHumidifyDuringCooling(arg == 1);
+        Serial.printf("  Humidify during cooling runs: %s (test build; the setting is %s)\n", arg == 1 ? "ON" : "OFF",
+                      gSettings.tuning.humidifyDuringCooling ? "on" : "off");
+      }
+      break;
     case Command::Fan:
       if (arg == -2) Serial.println("  fan <n> (0 or 20-100) or fan auto. Nothing changed.");
       else if (gTc.setIdleFanOverride(arg)) {
@@ -256,6 +269,7 @@ static void handleCommand(Command c, int arg, uint32_t nowMs) {
     case Command::Resets:
     case Command::ResetsClear:
     case Command::Fan:
+    case Command::HumidCool:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -301,6 +315,7 @@ void setup() {
 
   gCtl.begin(gSettings, millis());       // boot hold starts now (4.4)
   gTc.begin(gSettings, millis());
+  gHc.begin(gSettings, millis());
   gHealth.begin(gSettings);
   gGate.begin(gSettings.safety.sensorRecoveryHoldMs);
   gFanMon.begin(gSettings.safety.fanStallRetryMs);
@@ -386,6 +401,14 @@ static void printControlEvents() {
   char line[240];
   for (ControlEvent e; gTc.takeEvent(e);) {
     formatControlEvent(line, sizeof(line), e, gSettings);
+    Serial.printf("  %s\n", line);
+  }
+}
+
+static void printHumidEvents() {
+  char line[240];
+  for (HumidEvent e; gHc.takeEvent(e);) {
+    formatHumidEvent(line, sizeof(line), e, gSettings);
     Serial.printf("  %s\n", line);
   }
 }
@@ -531,8 +554,18 @@ void loop() {
   ci.scriptedDemand = (gScenario.running() && !gScenario.usesControl()) || kBootDemand;
 #endif
   const ControlOutput co = gTc.update(ci);
-  Demand demand = co.demand;              // the temperature control asks...
+  HumidInputs hi;
+  hi.nowMs = now;
+  hi.cab = cab;
+  hi.readingsFresh = fresh;
+  hi.live = ci.live;
+  hi.stripping = co.strippingActive;
+  hi.scriptedDemand = ci.scriptedDemand;
+  const HumidOutput ho = gHc.update(hi);
+  Demand demand = co.demand;              // the temperature and humidifier controls ask...
+  demand.humid = ho.demand;
 #if defined(WINEADOR_TEST_BUILD)
+  if (gScenario.usesControl()) demand.humid = demand.humid || gScenario.demand().humid;   // run 21 "demands humidify"
   if (gScenario.running() && !gScenario.usesControl()) demand = gScenario.demand();   // ...or a stage 2-3 scenario
   else if (kBootDemand) { demand = Demand{}; demand.heat = true; demand.humid = true; }   // ...or the boot-demand build
 #endif
@@ -544,6 +577,7 @@ void loop() {
   in.cab = cab;
   in.strippingActive = co.strippingActive;
   in.heaterIneffectiveHold = co.heaterIneffectiveHold;
+  in.humidIneffectiveHold = ho.ineffectiveHold;
   in.sensorHoldTemp = gGate.tempHolding();
   in.sensorHoldHumid = gGate.humidHolding();
   in.live = outputs::current();
@@ -622,6 +656,7 @@ void loop() {
 
   printExerciseEvents();
   printControlEvents();
+  printHumidEvents();
 
   // 5. A load changed: show what is live now, and a status line at once
   LoadOutputs loads = outputs::current();
@@ -655,6 +690,7 @@ void loop() {
   view.pullupsOn = !i2cbus::internalPullupsOff();
   view.fanOut = fan::duty();
   view.fanTarget = gFan.target();
+  view.hc = &gHc;
   const bool wasRunning = gScenario.running();
   gScenario.update(view, gCtl, gModel, gTc);
   for (const char* l; (l = gScenario.takeLine()) != nullptr;) Serial.println(l);

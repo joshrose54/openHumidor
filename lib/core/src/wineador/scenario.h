@@ -28,6 +28,11 @@
 //   run 10  RH stripping temperature floor; persistence again once above the floor
 //   run 17  load ineffective: heater, then cooling, with the model not responding
 //   run 23  plenum fan rules: idle, compressor run + harvest, heater run + harvest, 10 % refused
+// Stage 5 — the humidifier, the same way (19 and 21 also ask for it directly where the test says "demand"):
+//   run 19  humidifier guards: persistence, max run and rest, release at setpoint (no min on), a quick re-ask
+//   run 20  humidifier ceiling and sensors: one sensor at 70 %; cabinet sensors excluded one at a time
+//   run 21  humidifier exclusivity: during a strip; during a temperature run with the setting off, then on
+//   run 22  humidifier ineffective: vapour pressure held flat; off, flagged, held, retried
 // `stop` ends a scenario early; the demand goes back to none.
 
 #if defined(WINEADOR_TEST_BUILD)
@@ -39,6 +44,7 @@
 #include "wineador/sensor_health.h"
 #include "wineador/fan_monitor.h"
 #include "wineador/temp_control.h"
+#include "wineador/humid_control.h"
 
 namespace wineador {
 
@@ -55,6 +61,7 @@ struct ScenarioView {
   bool pullupsOn = false;                 // the ESP32's internal I2C pull-ups (must stay off, 5.3)
   uint8_t fanOut = 0;                     // plenum fan duty driven right now (100 during a kickstart)
   uint8_t fanTarget = 0;                  // the duty asked of the fan
+  const HumidControl* hc = nullptr;       // stage 5
 };
 
 class ScenarioRunner {
@@ -76,7 +83,10 @@ class ScenarioRunner {
   const Demand& demand() const { return demand_; }
   // Stage 4 scenarios: the temperature control asks, not the scenario.
   bool usesControl() const { return running() && usesControl(n_); }
-  static bool usesControl(int n) { return n == 7 || n == 8 || n == 9 || n == 10 || n == 17 || n == 23; }
+  // (Their demand() is then added on top of the control's: run 21 'demands humidify'.)
+  static bool usesControl(int n) {
+    return n == 7 || n == 8 || n == 9 || n == 10 || n == 17 || n == 23 || n == 19 || n == 20 || n == 21 || n == 22;
+  }
 
   // Text to print, oldest first; nullptr when there is none.
   const char* takeLine();
@@ -85,7 +95,7 @@ class ScenarioRunner {
     return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15 ||
            usesControl(n);
   }
-  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23"; }
+  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22"; }
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);
@@ -109,6 +119,10 @@ class ScenarioRunner {
   void run10(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void run17(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void run23(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run19(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run20(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run21(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void run22(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
 
   Settings s_;
   int n_ = 0;
@@ -139,6 +153,7 @@ class ScenarioRunner {
 
   // Stage 4
   TemperatureControl* tc_ = nullptr;   // so finish() can clear the idle fan override
+  Controller* ctl_ = nullptr;          // ...and put 'humidify during cooling runs' back (run 21)
   float sweepC_ = 0;                   // run 7: the scripted cabinet temperature
   int dir_ = 1;
   uint32_t lastTickMs_ = 0;

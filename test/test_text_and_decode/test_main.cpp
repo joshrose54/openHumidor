@@ -216,6 +216,27 @@ void test_fan_command() {
   TEST_ASSERT_TRUE(parseCommand("fan 50", false, &arg) == Command::TestOnly);   // never in a cabinet build
 }
 
+void test_humidcool_command() {
+  int arg = 0;
+  TEST_ASSERT_TRUE(parseCommand("humidcool on", true, &arg) == Command::HumidCool);
+  TEST_ASSERT_EQUAL_INT(1, arg);
+  TEST_ASSERT_TRUE(parseCommand("HUMIDCOOL Off", true, &arg) == Command::HumidCool);
+  TEST_ASSERT_EQUAL_INT(0, arg);
+  TEST_ASSERT_TRUE(parseCommand("humidcool", true, &arg) == Command::HumidCool);
+  TEST_ASSERT_EQUAL_INT(-2, arg);
+  TEST_ASSERT_TRUE(parseCommand("humidcool yes", true, &arg) == Command::HumidCool);
+  TEST_ASSERT_EQUAL_INT(-2, arg);
+  TEST_ASSERT_TRUE(parseCommand("humidcool on", false, &arg) == Command::TestOnly);   // never in a cabinet build
+}
+
+void test_status_line_humid_text() {
+  StatusInfo s;
+  s.humidText = "humid CALL | calls 1 runs 2";
+  char buf[900];
+  formatStatusLine(buf, sizeof(buf), s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "| humid CALL | calls 1 runs 2"));
+}
+
 void test_status_line_control_text() {
   StatusInfo s;
   s.controlText = "ctl 20.12C mean idle | xover 0";
@@ -408,6 +429,8 @@ int main() {
   RUN_TEST(test_line_reader_and_commands);
   RUN_TEST(test_fan_command);
   RUN_TEST(test_status_line_control_text);
+  RUN_TEST(test_humidcool_command);
+  RUN_TEST(test_status_line_humid_text);
   RUN_TEST(test_line_reader_overflow);
   RUN_TEST(test_stage2_commands);
   RUN_TEST(test_status_line_guard_text_and_boot_demand);

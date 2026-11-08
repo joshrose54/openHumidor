@@ -33,6 +33,7 @@ LoadOutputs Controller::pass(const PassInputs& in, const Demand& demand) {
   g.sensorHoldHumid = in.sensorHoldHumid;
   g.strippingActive = in.strippingActive;
   g.heaterIneffectiveHold = in.heaterIneffectiveHold;
+  g.humidIneffectiveHold = in.humidIneffectiveHold;
   decisions_ = guards_.evaluate(g, demand, in.live);
 
   return seq_.step(in.nowMs, decisions_.cool.run, decisions_.heat.run, decisions_.humid.run,

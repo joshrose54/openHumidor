@@ -56,6 +56,21 @@ Command parseCommand(const char* line, bool testBuild, int* arg) {
     if (arg && digits > 0 && *line == 0) *arg = v;
     return Command::Fan;
   }
+  // "humidcool on" / "humidcool off"
+  if (strcmp(w, "humidcool") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    if (arg) *arg = -2;
+    char w2[8];
+    size_t m = 0;
+    while (*line && *line != ' ' && *line != '\t' && m < sizeof(w2) - 1) w2[m++] = (char)tolower((unsigned char)*line++);
+    w2[m] = 0;
+    while (*line == ' ' || *line == '\t') line++;
+    if (*line == 0 && arg) {
+      if (strcmp(w2, "on") == 0) *arg = 1;
+      else if (strcmp(w2, "off") == 0) *arg = 0;
+    }
+    return Command::HumidCool;
+  }
   // "resets" or "resets clear"
   if (strcmp(w, "resets") == 0) {
     if (!testBuild) return Command::TestOnly;

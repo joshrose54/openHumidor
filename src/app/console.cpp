@@ -97,7 +97,7 @@ void printBanner(const Settings& s, const BootInfo& b) {
     Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
   else if (kTestBuild)
     Serial.println("    loads       off. Temperature control runs on the scripted cabinet (settled at 20.0 C / 62%: idle).\n"
-                   "                Stage 4 scenarios (7, 8, 9, 10, 17, 23) script the cabinet; stage 2-3 scenarios ask\n"
+                   "                Stage 4-5 scenarios (7-10, 17, 19-23) script the cabinet; stage 2-3 scenarios ask\n"
                    "                for loads directly. Guards and interlock decide either way");
   else
     Serial.println("    loads       off. Temperature control from the healthy cabinet sensors; guards and interlock decide");
@@ -111,6 +111,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
                    t.rhStripEnable ? "on" : "OFF", s.user.rhSetpointPct + t.rhStripOffsetPct,
                    (unsigned long)(t.rhStripPersistMs / 1000),
                    vapourPressureKpa(sp, s.user.rhSetpointPct), sp - t.rhStripFloorBelowSetpointC);
+    Serial.printf ("    humidifier  %s: on at RH <= %.0f%% for %lu s, off at %.0f%%; ceiling %.0f%%; check +%.4f kPa in %lu s\n",
+                   s.user.humidifierEnable ? "on" : "OFF", s.user.rhSetpointPct - t.humidifyBandPct,
+                   (unsigned long)(t.humidifyPersistMs / 1000), s.user.rhSetpointPct, s.safety.rhHardCeilingPct,
+                   saturationVpKpa(sp) * t.humidIneffectiveRisePct / 100.0f, (unsigned long)(t.humidIneffectiveWindowMs / 1000));
     Serial.printf ("    harvest     ends within %.1f C of the cabinet mean, backstop %lu s; fan idle %u%%, compressor %u%%,\n"
                    "                cooling harvest %u%% -> %u%%, heater %u%%\n",
                    t.harvestConvergenceC, (unsigned long)(t.harvestBackstopMs / 1000), (unsigned)t.fanIdlePct,
@@ -162,11 +166,12 @@ void printHelp(bool testBuild) {
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
-    Serial.println("              7, 8, 9, 10, 17, 23)");
+    Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");
     Serial.println("    fan <n>   TEST BUILD ONLY: idle fan duty n% (0 or 20-100; 1-19 refused); 'fan auto' = the setting");
+    Serial.println("    humidcool on|off  TEST BUILD ONLY: humidify during cooling runs (the setting is off)");
   }
 }
 

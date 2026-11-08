@@ -1,6 +1,6 @@
 #pragma once
 // The small serial command reader: "boot", "help", "exercise" (every build),
-// and "stall", "run <n>", "stop", "resets [clear]", "fan <pct>|auto" (test builds only). The full serial interface
+// and "stall", "run <n>", "stop", "resets [clear]", "fan <pct>|auto", "humidcool on|off" (test builds only). The full serial interface
 // arrives at stage 6.
 // Characters are fed one at a time, so reading never waits.
 
@@ -21,6 +21,8 @@ enum class Command : uint8_t {
   ResetsClear,       // TEST BUILDS ONLY: "resets clear" empties it
   Fan,               // TEST BUILDS ONLY: "fan <pct>" sets the IDLE fan duty (0 or 20-100; 1-19 refused),
                      //   "fan auto" back to the setting. *arg = pct, -1 = auto, -2 = not a number
+  HumidCool,         // TEST BUILDS ONLY: "humidcool on|off" — humidify during cooling runs (B3 test 21).
+                     //   *arg = 1 on, 0 off, -2 neither
   TestOnly,          // "run" or "stop" typed in a cabinet build
   Unknown,
 };

@@ -69,6 +69,16 @@ bool ScenarioRunner::start(int n, uint32_t nowMs, CabinetModel& model) {
       case 10: r.coolCPerMin = -0.5f; model.setCabinetC(20.0f); model.setCabinetRh(69.0f); model.setOffset(0, -1.0f, 0); break;
       case 17: r.heatResponds = false; r.heatCPerMin = 0.0f; r.coolCPerMin = 0.0f; model.setCabinetC(18.0f); break;
       case 23: r.coolCPerMin = -1.0f; r.heatCPerMin = 1.0f; model.setCabinetC(20.0f); break;
+      // Stage 5: the cabinet temperature stays put unless the scenario moves it; the
+      // humidifier adds water at 1 RH point a minute (passes its check inside the bench window).
+      case 19: case 20: case 21: case 22:
+        r.coolCPerMin = 0.0f; r.heatCPerMin = 0.0f; r.humidPctPerMin = 1.0f;
+        model.setCabinetC(20.0f);
+        if (n == 19 || n == 22) model.setCabinetRh(56.0f);
+        if (n == 20) model.setCabinetRh(50.0f);
+        if (n == 21) model.setCabinetRh(68.0f);
+        if (n == 22) r.humidResponds = false;
+        break;
       default: break;
     }
   }
@@ -94,6 +104,7 @@ void ScenarioRunner::finish(uint32_t nowMs, CabinetModel& model, Result r, const
     model.setCabinetC(20.0f);
     model.setCabinetRh(62.0f);
     if (tc_) tc_->setIdleFanOverride(-1);
+    if (ctl_) ctl_->setHumidifyDuringCooling(s_.tuning.humidifyDuringCooling);
   }
   const char* word = r == Result::Pass ? "PASS" : r == Result::Fail ? "FAIL" : "STOPPED";
   say(nowMs, "======== run %d %s: %s", n_, word, why);
@@ -139,6 +150,7 @@ void ScenarioRunner::edges(const ScenarioView& v) {
 
 void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc) {
   tc_ = &tc;
+  ctl_ = &ctl;
   if (!running()) { prev_ = v.live; return; }
   edges(v);
   passesInPhase_++;
@@ -167,6 +179,10 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 10: run10(v, ctl, model, tc); break;
     case 17: run17(v, ctl, model, tc); break;
     case 23: run23(v, ctl, model, tc); break;
+    case 19: run19(v, ctl, model, tc); break;
+    case 20: run20(v, ctl, model, tc); break;
+    case 21: run21(v, ctl, model, tc); break;
+    case 22: run22(v, ctl, model, tc); break;
     default: break;
   }
 }

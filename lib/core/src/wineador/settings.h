@@ -79,7 +79,7 @@ struct TuningSettings {
   uint32_t heaterIneffectiveRetryMs  = minutes(30);
   float coolingIneffectiveFallC   = 1.0f;
   uint32_t coolingIneffectiveWindowMs = minutes(15);
-  float humidIneffectiveRisePct   = 0.5f;
+  float humidIneffectiveRisePct   = 0.5f;   // RH points at setpoint conditions, checked as vapour pressure (~0.012 kPa)
   uint32_t humidIneffectiveWindowMs = minutes(20);
   uint32_t humidIneffectiveRetryMs  = hours(2);
 

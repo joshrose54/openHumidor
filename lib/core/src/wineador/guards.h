@@ -51,6 +51,7 @@ enum class GuardBlock : uint8_t {
   ChamberCeiling,    // heater: chamber above 30 C
   RhCeiling,         // humidifier: a cabinet sensor at or above 70 %
   Ineffective,       // heater: failed its ineffective check; held off until the retry (5.6)
+  HumidIneffective,  // humidifier: failed its ineffective check; held off until the retry (5.6)
   Stripping,         // humidifier: never during RH stripping
   CompressorRun,     // humidifier: compressor running, "humidify during cooling" off
   MaxRun,            // ran its maximum; now rests for its minimum off
@@ -73,6 +74,7 @@ struct GuardInputs {
   bool sensorHoldHumid = false;   // ...for the humidifier
   bool strippingActive = false;   // RH stripping running (4.7): humidifier off
   bool heaterIneffectiveHold = false;   // heater failed its check: off until the retry (5.6)
+  bool humidIneffectiveHold = false;    // humidifier failed its check: off until the retry (5.6)
 };
 
 struct LoadDecision {
@@ -93,6 +95,11 @@ class RuntimeGuards {
 
   // actual = what is live right now (the previous pass's outputs).
   GuardDecisions evaluate(const GuardInputs& in, const Demand& demand, const LoadOutputs& actual);
+
+  // TEST BUILDS ONLY call this (B3 test 21): "humidify during cooling runs" at run
+  // time. The cabinet build only ever uses the settings value.
+  void setHumidifyDuringCooling(bool on) { s_.tuning.humidifyDuringCooling = on; }
+  bool humidifyDuringCooling() const { return s_.tuning.humidifyDuringCooling; }
 
  private:
   struct Timer {

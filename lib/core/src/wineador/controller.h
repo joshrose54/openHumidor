@@ -28,6 +28,7 @@ struct PassInputs {
   LoadOutputs live;              // what is being driven right now (last pass's result)
   bool strippingActive = false;  // RH stripping (TemperatureControl)
   bool heaterIneffectiveHold = false;   // heater held off after a failed check (TemperatureControl)
+  bool humidIneffectiveHold = false;    // humidifier held off after a failed check (HumidControl)
 };
 
 class Controller {
@@ -46,6 +47,10 @@ class Controller {
   const GuardDecisions& decisions() const { return decisions_; }
   const Demand& demand() const { return demand_; }
   const InterlockSequencer& interlock() const { return seq_; }
+
+  // TEST BUILDS ONLY (B3 test 21, 'humidcool on|off'): see RuntimeGuards.
+  void setHumidifyDuringCooling(bool on) { guards_.setHumidifyDuringCooling(on); }
+  bool humidifyDuringCooling() const { return guards_.humidifyDuringCooling(); }
 
  private:
   BootHold hold_;
