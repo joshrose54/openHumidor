@@ -1629,7 +1629,8 @@ The `boot` command reprints the banner and boot reason.
 
 **Tests run when their parts exist.** A test is first run at the build stage that provides what it
 checks, and is **logged only once every pass criterion is met** — a test whose criteria need a later
-stage (a load held off, a log entry) is re-run then.
+stage (a load held off) is re-run then. **"Logged" in a pass criterion is proven once, in test 24**,
+which checks that every event type reaches the SD log; earlier tests pass on the serial event.
 
 **The 12V bulb only with USB connected.** With USB out, its cold-filament switch-on surge crashes or
 freezes the ESP32; use the heater pad.
@@ -1664,7 +1665,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
 | 1 | Guard timing | Rapid on/off demands against a clock | Min-off, min-on and max-run enforced | ✅ |
-| 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass | Pending |
+| 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass of the reading reaching the guards (readings arrive with each 15 s sweep) | Pending |
 | 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | ✅ |
 | 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | Pending |
 | 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | Pending |
@@ -1686,7 +1687,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 21 | Humidifier exclusivity | Demand humidify during a stripping run; during a temperature run with the setting off, then on | Blocked during stripping always; blocked during a temperature run with the setting off; allowed with it on | Pending |
 | 22 | Humidifier ineffective | Humidifier commanded on, simulated RH held flat | Off within the window, flagged, logged, retried at intervals | Pending |
 | 23 | Plenum fan rules (4.6) | Scenario: idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | Pending |
-| 24 | Logging (5.4) | Run 30 min with loads cycling; then read the card on the Mac | Files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
+| 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
 
 ## B4 — Bench soak
 

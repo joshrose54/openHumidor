@@ -91,14 +91,15 @@ the credentials from the same file.
 
 | Stage | Adds | B3 tests |
 |---|---|---|
-| 1 | Drivers from the reference sketches, settings struct, real/bench profiles, test-build switch, boot banner, non-blocking loop, watchdog | 11, 14 (run, not logged: 11 at stage 2, 14 at stage 6) |
+| 1 | Drivers from the reference sketches, settings struct, real/bench profiles, test-build switch, boot banner, non-blocking loop, watchdog | 11, 14 (11 logged at stage 2) |
 | 2 | Runtime guards, interlock switching sequence, relay exercise | 1, 2, 3, 13, plus 11 (a load held off) and 12 (new method) |
 | 3 | Sensor health, serial check, calibration, fan monitoring, I²C bus recovery, RTC lost-time and NTP | 4, 5, 6, 15, 16 |
 | 4 | Temperature control: deadband, run-end rules, crossover, harvest, RH stripping, ineffective checks | 7, 8, 9, 10, 17, 23 |
 | 5 | Humidifier | 19, 20, 21, 22 |
 | 6 | SD logging per 5.4, serial interface, soak scenario for B4 | 18, 24, then B4 |
 
-**Guards before control logic.** One stage at a time: build it, run its native tests, then hand
+"Logged" in a B3 pass criterion is proven once, in test 24; earlier tests pass on the serial
+event (spec B3). **Guards before control logic.** One stage at a time: build it, run its native tests, then hand
 Josh the on-board tests step by step. Don't start the next stage until Josh says the current one
 passed.
 
