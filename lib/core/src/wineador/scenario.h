@@ -14,6 +14,8 @@
 //           fan (unplug J2 when told). The heater shows lit for 5 s before each trip.
 //   run 3   interlock: both loads asked for at once; meter J10 pins 1 and 3
 //   run 4   sensor failure: unplug sensors when told; thresholds and the recovery hold
+//   run 41  test 4c: heat asked for, chamber in; two cabinet sensors out -> heater off at the second
+//   run 42  test 4d: cooling asked for; chamber out -> cooling off (meter J10 pin 1 to pin 2)
 //   run 5   divergence: one cabinet sensor scripted 5.5 C high for over 10 min, then back
 //   run 6   fan failure: unplug J2 when told; stall kickstarts; replug; loads resume
 //   run 13  relay exercise: three cycles, both loads off, ends on the cooling side
@@ -65,8 +67,10 @@ class ScenarioRunner {
   // Text to print, oldest first; nullptr when there is none.
   const char* takeLine();
 
-  static bool exists(int n) { return n == 1 || n == 2 || n == 3 || n == 4 || n == 5 || n == 6 || n == 13 || n == 15; }
-  static const char* list() { return "run 1, 2, 3, 4, 5, 6, 13, 15"; }
+  static bool exists(int n) {
+    return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15;
+  }
+  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15"; }
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);
@@ -78,6 +82,8 @@ class ScenarioRunner {
   void run2(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run3(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run4(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run41(const ScenarioView& v, Controller& ctl, CabinetModel& model);
+  void run42(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run5(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run6(const ScenarioView& v, Controller& ctl, CabinetModel& model);
   void run13(const ScenarioView& v, Controller& ctl, CabinetModel& model);

@@ -126,6 +126,8 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 2:  run2(v, ctl, model); break;
     case 3:  run3(v, ctl, model); break;
     case 4:  run4(v, ctl, model); break;
+    case 41: run41(v, ctl, model); break;
+    case 42: run42(v, ctl, model); break;
     case 5:  run5(v, ctl, model); break;
     case 6:  run6(v, ctl, model); break;
     case 13: run13(v, ctl, model); break;
@@ -679,6 +681,149 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       break;
     }
+  }
+}
+
+// ------------------------------------------------------------------ run 41 (test 4c)
+// Heat asked for, chamber plugged in. Two cabinet sensors unplugged in turn: at 3 of 4
+// the heater is still allowed; at 2 of 4 it goes off (sensors). Both back: recovery,
+// the hold, and the heater resumes. Judged on the guard's reason, so a normal
+// max-run stop part-way through doesn't confuse it.
+void ScenarioRunner::run41(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  const uint32_t now = v.nowMs;
+  const SafetySettings& f = s_.safety;
+  const SensorHealth* h = v.health;
+  char a[16];
+  if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
+  const GuardBlock hb = ctl.decisions().heat.block;
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 4c - heater and the cabinet sensors. Heat asked for, chamber plugged in. You will unplug two cabinet sensors.");
+      demand_ = Demand{};
+      demand_.heat = true;
+      deadlineMs_ = ctl.hold().remainingMs() + f.heaterMinOffMs + s_.tuning.crossoverDelayMs + 20000;
+      phase(1, now);
+      break;
+    case 1:
+      if (v.live.heat) {
+        say(now, "heater ON (bulb lit)");
+        say(now, "4c.1 >>> UNPLUG ch2 (top front) NOW <<<");
+        target_ = 0;
+        phase(2, now);
+      } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
+        finish(now, model, Result::Fail, "the heater did not start");
+      }
+      break;
+    case 2: case 4:
+      if (!h->healthy(target_)) {
+        say(now, "ch%d excluded: %s", channelOf(target_), exclusionName(h->reason(target_)));
+        phase(phase_ + 1, now);
+      } else if (elapsedMs(now, phaseAtMs_) > 90000) {
+        finish(now, model, Result::Fail, "the sensor was never excluded - is it unplugged?");
+      }
+      break;
+    case 3:   // 3 of 4 cabinet, chamber in: the heater is still allowed
+      if (hb == GuardBlock::Sensors) { finish(now, model, Result::Fail, "heater held for sensors at 3 of 4 cabinet with the chamber in"); break; }
+      say(now, "3 of 4 cabinet healthy, chamber in: heater still allowed - correct (%s)", v.live.heat ? "bulb lit" : guardBlockName(hb));
+      say(now, "4c.2 >>> UNPLUG ch3 (bottom front) NOW <<<");
+      target_ = 1;
+      phase(4, now);
+      break;
+    case 5:   // 2 of 4: off now
+      if (v.live.heat || hb != GuardBlock::Sensors) { finish(now, model, Result::Fail, "heater not off for sensors at 2 of 4 cabinet"); break; }
+      say(now, "2 of 4 cabinet healthy: heater OFF (sensors) - correct (bulb dark)");
+      say(now, "4c.3 >>> PLUG ch2 AND ch3 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      tempMetMs_ = 0;
+      phase(6, now);
+      break;
+    case 6:
+      if (h->healthyCabinet() >= f.minHealthyCabinet && h->chamberHealthy() && tempMetMs_ == 0) {
+        tempMetMs_ = now ? now : 1;
+        say(now, "3 of 4 cabinet healthy again: heater recovery hold starts");
+      }
+      if (wentOn_[1]) {
+        if (tempMetMs_ == 0 || elapsedMs(now, tempMetMs_) + 50 < f.sensorRecoveryHoldMs) {
+          finish(now, model, Result::Fail, "heater resumed before the recovery hold");
+          break;
+        }
+        say(now, "heater ON %s after the requirement was met again - correct", secs(a, sizeof(a), elapsedMs(now, tempMetMs_)));
+        finish(now, model, Result::Pass, "heater allowed at 3 of 4 cabinet, off at 2 of 4; resumed after recovery and the hold");
+      } else if (elapsedMs(now, phaseAtMs_) > 420000) {
+        finish(now, model, Result::Fail, "the heater did not resume within 7 min");
+      }
+      break;
+  }
+}
+
+// ------------------------------------------------------------------ run 42 (test 4d)
+// Cooling asked for. Josh meters J10 pin 1 (red) to pin 2 (black): ~12 V while the
+// SSR control is driven, ~0 V off. Chamber unplugged: cooling off (sensors).
+// Chamber back: recovery, the hold, cooling resumes.
+void ScenarioRunner::run42(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
+  const uint32_t now = v.nowMs;
+  const SafetySettings& f = s_.safety;
+  const SensorHealth* h = v.health;
+  char a[16];
+  if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
+  const GuardBlock cb = ctl.decisions().cool.block;
+
+  switch (phase_) {
+    case 0:
+      say(now, "TEST 4d - cooling and the chamber sensor. Cooling asked for. Meter J10 pin 1 (red) to pin 2 (black).");
+      demand_ = Demand{};
+      demand_.cool = true;
+      deadlineMs_ = ctl.hold().remainingMs() + f.compressorMinOffMs + s_.tuning.crossoverDelayMs + 20000;
+      phase(1, now);
+      break;
+    case 1:
+      if (v.live.cool) {
+        say(now, "COOLING ON. >>> METER NOW: J10 pin 1 to pin 2 = about 12 V <<<");
+        phase(2, now);
+      } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
+        finish(now, model, Result::Fail, "cooling did not start");
+      }
+      break;
+    case 2:   // 15 s to meter, then the unplug
+      if (elapsedMs(now, phaseAtMs_) < 15000) break;
+      say(now, "4d.1 >>> UNPLUG THE CHAMBER SENSOR (ch6) NOW <<<");
+      phase(3, now);
+      break;
+    case 3:
+      if (!h->healthy(kChamberIndex)) {
+        say(now, "ch6 excluded: %s", exclusionName(h->reason(kChamberIndex)));
+        phase(4, now);
+      } else if (elapsedMs(now, phaseAtMs_) > 90000) {
+        finish(now, model, Result::Fail, "ch6 was never excluded - is it unplugged?");
+      }
+      break;
+    case 4:
+      if (v.live.cool || cb != GuardBlock::Sensors) { finish(now, model, Result::Fail, "cooling not off for sensors with the chamber out"); break; }
+      say(now, "cooling OFF (sensors: chamber) - correct. >>> METER NOW: J10 pin 1 to pin 2 = about 0 V <<<");
+      phase(5, now);
+      break;
+    case 5:   // 15 s to meter, then the replug
+      if (elapsedMs(now, phaseAtMs_) < 15000) break;
+      say(now, "4d.2 >>> PLUG ch6 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      tempMetMs_ = 0;
+      phase(6, now);
+      break;
+    case 6:
+      if (h->chamberHealthy() && h->healthyCabinet() >= f.minHealthyCabinet && tempMetMs_ == 0) {
+        tempMetMs_ = now ? now : 1;
+        say(now, "chamber healthy again: cooling recovery hold starts");
+      }
+      if (wentOn_[0]) {
+        if (tempMetMs_ == 0 || elapsedMs(now, tempMetMs_) + 50 < f.sensorRecoveryHoldMs) {
+          finish(now, model, Result::Fail, "cooling resumed before the recovery hold");
+          break;
+        }
+        say(now, "cooling ON %s after the chamber recovered - correct (meter about 12 V again)", secs(a, sizeof(a), elapsedMs(now, tempMetMs_)));
+        finish(now, model, Result::Pass, "cooling off with the chamber sensor out; resumed after recovery and the hold");
+      } else if (elapsedMs(now, phaseAtMs_) > 420000) {
+        finish(now, model, Result::Fail, "cooling did not resume within 7 min");
+      }
+      break;
   }
 }
 

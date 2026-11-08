@@ -142,7 +142,7 @@ void printHelp(bool testBuild) {
   Serial.println("    help      this list");
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
   if (testBuild) {
-    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 5, 6, 13, 15)");
+    Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15)");
     Serial.println("    stop      TEST BUILD ONLY: end the scenario; nothing asked for");
     Serial.println("    stall     TEST BUILD ONLY: lock up the main loop - the watchdog resets the board in 5 s");
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");

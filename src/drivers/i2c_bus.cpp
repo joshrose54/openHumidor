@@ -136,14 +136,22 @@ static bool rtcClearOsf() {
   return true;
 }
 
+// The ESP32's internal pull-ups off (5.3). The Arduino core creates the bus with
+// enable_internal_pullup set, and ESP-IDF's driver turns them back on whenever it
+// resets the bus after a timeout (seen on the bench, B3 test 15: on during a
+// stuck-bus recovery). So this runs after every Wire start AND at the end of every
+// bus step — two register writes.
+static void pullupsOff() {
+  gpio_pullup_dis((gpio_num_t)pins::kI2cSda);
+  gpio_pullup_dis((gpio_num_t)pins::kI2cScl);
+}
+
 // Wire set up as spec 5.3: 25 kHz, hard timeout, the ESP32's internal pull-ups off.
 static void wireStart() {
   Wire.begin(pins::kI2cSda, pins::kI2cScl);
   Wire.setClock(kBusHz);
   Wire.setTimeOut(kWireTimeoutMs);
-  // The Arduino core turns the ESP32's internal pull-ups on. Spec 5.3: off.
-  gpio_pullup_dis((gpio_num_t)pins::kI2cSda);
-  gpio_pullup_dis((gpio_num_t)pins::kI2cScl);
+  pullupsOff();
 }
 
 // A sensor transaction failed: check the main bus before blaming the sensor.
@@ -213,7 +221,21 @@ bool rtcDateTime(wineador::DateTime& dt) {
   return true;
 }
 
+static void step(uint32_t nowMs);
+
 void update(uint32_t nowMs) {
+  const St before = gSt;
+  step(nowMs);
+  // Any state that may have run a transaction: the driver may have reset the bus
+  // and switched the pull-ups back on (see pullupsOff).
+  if (before != St::Idle && before != St::ResetLow && before != St::ResetRecover &&
+      before != St::SerialWait && before != St::MeasWait && before != St::StuckResetLow &&
+      before != St::StuckRecover) {
+    pullupsOff();
+  }
+}
+
+static void step(uint32_t nowMs) {
   switch (gSt) {
     case St::ResetLow:
       if (nowMs - gT >= kResetLowMs) {

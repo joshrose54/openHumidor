@@ -109,7 +109,7 @@ struct Sim {
       if (strstr(l, "UNPLUG THE CHAMBER SENSOR")) plugged[kChamberIndex] = false;
       if (strstr(l, "UNPLUG ch2")) plugged[0] = false;
       if (strstr(l, "UNPLUG ch3")) plugged[1] = false;
-      if (strstr(l, "BACK IN NOW") && strstr(l, "ch6")) for (bool& p : plugged) p = true;
+      if (strstr(l, "BACK IN NOW") && !strstr(l, "J2")) for (bool& p : plugged) p = true;
       if (strstr(l, "SHORT ONE SENSOR'S SDA")) shorted = 2;
       if (strstr(l, "REMOVE THE SHORT")) shorted = -1;
     }
@@ -167,6 +167,18 @@ void test_run4_bench_passes() {
   Sim m(Profile::Bench);
   m.settle(seconds(31));
   TEST_ASSERT_TRUE(m.run(4, minutes(20)) == ScenarioRunner::Result::Pass);
+}
+
+void test_run41_heater_two_cabinet_sensors() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(41, minutes(15)) == ScenarioRunner::Result::Pass);
+}
+
+void test_run42_cooling_chamber_out() {
+  Sim m(Profile::Bench);
+  m.settle(seconds(31));
+  TEST_ASSERT_TRUE(m.run(42, minutes(15)) == ScenarioRunner::Result::Pass);
 }
 
 void test_run5_divergence_passes_both_profiles() {
@@ -230,6 +242,8 @@ int main(int, char**) {
   RUN_TEST(test_run2_fails_if_the_recovery_hold_is_short);
   RUN_TEST(test_run3_bench_passes);
   RUN_TEST(test_run4_bench_passes);
+  RUN_TEST(test_run41_heater_two_cabinet_sensors);
+  RUN_TEST(test_run42_cooling_chamber_out);
   RUN_TEST(test_run5_divergence_passes_both_profiles);
   RUN_TEST(test_run6_bench_passes);
   RUN_TEST(test_run13_passes_and_ends_cooling);
