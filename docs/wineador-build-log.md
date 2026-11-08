@@ -56,6 +56,7 @@ the serial, on each probe.
 |---|---|---|
 | 2026-10-08 10:44 | −0.0s | Baseline |
 | 2026-10-08 10:54 | −0.3s | 11 min, after a 10-minute unplug |
+| 2026-11-08 | Set from NTP | B3 test 16; cell refitted with power on, within 2 s of NTP after a restart |
 | 2026-11-07 | Time lost | Read 2000-01-01 after the J9 lead was reseated; then kept counting through a 12V cut. Not reset — the DS3231 is replaced on the next board |
 
 ### SD card
@@ -85,7 +86,10 @@ NO2 output.
 |---|---|
 | SD mount at boot | 60 ms |
 | Loop pass, longest per status interval | 1.2–4.5 ms; 2.7–3.1 ms with the RTC lead out |
-| Build size, each ESP32 build | ~8% RAM, ~31% flash |
+| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; **~78% flash** from stage 3 (WiFi + SNTP) |
+| Free heap | ~268 KB without WiFi, ~170 KB with it |
+| Boot to first NTP sync | 2–16 s |
+| Sensor recovery on the bench after a replug | ~3 min (10 reads × 15 s, plus the serial re-read), then the 30 s hold |
 
 **Cabinet model rates** (test builds only, B3):
 
@@ -572,7 +576,7 @@ socket after being refitted. Reseated, it ran as above.
 
 ## B3 — Firmware on the bench, Rev N
 
-Bench profile throughout. Firmware 0.1.0-stage2.
+Bench profile throughout. Firmware 0.1.0-stage1 to stage3.
 
 ### B3.1 Guard timing — ✅
 
@@ -586,10 +590,41 @@ Native tests on both profiles; on the board, `run 1`, passed twice. Measured by 
 
 The heater also waited the 30.0 s crossover after the compressor.
 
+### B3.2 Heater guards — ✅
+
+`run 2`, heater lit 5 s before each trip. Off on the pass after the reading reached the guards, each
+with its reason: cabinet ceiling (ch2 scripted 23.5°C against 23.0), chamber ceiling (ch6 30.5°C),
+sensors (ch6 scripted −20°C — excluded as implausible; recovered after 10 reads and a serial
+re-check, heater back exactly 30.0 s later), fan (J2 pulled — stall, kickstart, bulb dark).
+
 ### B3.3 Interlock impossibility — ✅
 
 `run 3`, both loads demanded at once. Cooling ran, heater held: J10 pin 1 12V, pin 3 0V, bulb dark.
 After the cooling demand dropped and the 30 s crossover passed: pin 1 0V, pin 3 12V, bulb lit.
+
+### B3.4 Sensor failure — ✅
+
+- **(a) `run 4`, heat and humidify:** ch6 unplugged → excluded (absent), heater off, humidifier
+  kept running. ch2 out (3 of 4) → humidifier still allowed. ch3 out (2 of 4) → humidifier off. All
+  replugged → each recovered with its serial re-checked; both loads back exactly 30.0 s later.
+- **(b) Swapped plugs:** ch3 and ch4 swapped, restart → both `WRONG SENSOR` (each naming the probe
+  really there), excluded as wrong-serial, sensors 4/6. Swapped back → 6/6.
+- **(c) `run 41`, heat, chamber in:** heater on at 3 of 4 cabinet, off at 2 of 4; back 30.0 s after
+  recovery.
+- **(d) `run 42`, cooling,** SSR control input on J10 1–2 as the load (no mains): 12.3V on; ch6
+  unplugged → cooling off, 0V; back about 12V after recovery and the 30.0 s hold.
+
+### B3.5 Sensor divergence — ✅
+
+`run 5`: ch3 scripted 5.5°C above the others → excluded for divergence at the first sweep at or
+after 10 min (10:15 on the board); back in line → recovered 2:45 later (10 reads within 5°C, serial
+re-checked). 13 min, no resets, loop max 3.6 ms.
+
+### B3.6 Fan failure — ✅
+
+`run 6`, heat and humidify: J2 out → stall, kickstart at once, heater off, humidifier unaffected;
+second kickstart exactly 30.0 s later with J2 still out; J2 back → recovered, heater resumed the
+same pass. First reading after the replug 60 RPM (part window), then 444, then 414 steady at 20%.
 
 ### B3.11 Watchdog — ✅
 
@@ -613,6 +648,35 @@ Heater pad (KSD in series) on J10 3–4, humidifier fan on J11, `bench_test_boot
 and restored. Pad and fan stayed off, then started at ~30 s by stopwatch. USB in at 5:30 on the
 stopwatch: uptime 5:45 from the same boot, `POWERON`, hold ended at 0:30. A second cold start with no
 USB then ran 10:45, loads cycling, with no reset of any kind.
+
+### B3.13 Relay exercise — ✅
+
+`run 13`: three cycles, each 1.0 s energised / 1.0 s released, loads off throughout, ending on the
+cooling side. Six clicks; bulb and humidifier fan stayed off.
+
+### B3.14 Profile safeguard — ✅
+
+Bench build: banner with the bench warning, version `0.1.0-stage1-BENCH`, `BENCH-PROFILE` on every
+status line.
+
+### B3.15 I²C bus fault recovery — ✅ after a firmware fix
+
+SDA shorted to GND on J5 (ch4) with the probe in → `I2C BUS STUCK` with ch4 selected: mux RST
+pulsed, I²C restarted, ch4 excluded as bus-fault. With the short left on, the bus recovered every
+sweep (11 in a row): RTC and the other five sensors kept reading. Short removed → ch4 recovered,
+serial re-checked.
+
+**Problem and fix:** on the first attempt the internal pull-ups came back on during the recovery —
+the core creates the bus with them enabled and ESP-IDF re-enables them when it resets the bus after
+a timeout. The firmware now disables them after every bus step (spec 5.3); re-run, off on every
+pass.
+
+### B3.16 RTC lost time — ✅
+
+Cell out, 12V cut, booted with USB out. `boot` clock summary: OSF set at this boot, NTP first sync
+at 15 s, DS3231 −847,462,798 s out (~26.9 years), written at 0:00:16, OSF cleared, timestamps
+trusted; `POWERON`, hold ended at 0:30. Cell refitted with power on → after a restart, OSF clear,
+DS3231 within 2 s of NTP.
 
 ---
 
@@ -754,6 +818,12 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **Female sockets:** probe their solder joints underneath; meter tips don't reach the contacts from above.
 - **An unmodified DevKit can't run without USB** — EN and GPIO0 held low by its unpowered USB chip. In stage 1 this looked like "plugging USB in restarts the board": the board had been held in reset while USB was out, and plugging in let it start. With the pull-ups (spec 3.3) plugging and unplugging USB doesn't restart it.
 - **The 12V bulb with USB out** crashes or freezes the ESP32 at switch-on (cold-filament surge); with USB in, the USB 5V holds the DevKit up. Use the heater pad with USB out.
+- **ESP-IDF re-enables the internal I²C pull-ups** after a bus reset; disabling them once at start-up isn't enough (spec 5.3).
+- **Sensor connectors J3–J8 (XH):** 1 = 3.3V (red), 2 = GND (black), 3 = SCL (yellow), 4 = SDA (green). Pin 1 sits next to GND at the end of the row — keep a GND jumper clear of it.
+- **Shorting a sensor's SDA:** a Dupont pin pushed into the XH socket beside the plug doesn't make contact; a firm jumper across pins 4 and 2 does.
+- **Hot-plugging probes** at the board connectors is clean: no stuck bus, no parasitic powering.
+- **RTC cell:** refit it with the power on, or the clock loses its time again. With cell out and power cut, the DS3231 restarts at 2000-01-01.
+- **The first serial command after USB goes in** can arrive with a stray byte in front and be rejected as unknown; resend it.
 - **The firmware's reset record** (test builds) keeps each boot's reason in flash and a heartbeat in RTC memory. An EN reset from the Mac wipes the heartbeat; the boot list survives everything.
 - **Plenum fan ran at full speed for ~2 min once** during stage 2 (20% commanded); not repeated by wiggling J2 or the fan lead. The status line now shows the PWM hardware readback and tach edges per pulse (7–9 normal) to tell a repeat apart.
 - **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.

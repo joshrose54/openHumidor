@@ -1157,7 +1157,9 @@ on a sensor read, a log write or the network.
 
 ## 5.3 Sensor handling
 
-- I²C 25kHz, explicitly set. Internal pull-ups disabled
+- I²C 25kHz, explicitly set. Internal pull-ups disabled — **after every bus step**: the Arduino core
+  creates the bus with them enabled, and ESP-IDF re-enables them whenever it resets the bus after a
+  timeout
 - **Pulse mux RST once at every boot** before the first I²C access — the mux keeps its channel
   selection across an ESP32 reset
 - Select the mux channel at 0x70, then address the SHT40. Verify CRC on every reading; log failures
@@ -1665,21 +1667,21 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
 | 1 | Guard timing | Rapid on/off demands against a clock | Min-off, min-on and max-run enforced | ✅ |
-| 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass of the reading reaching the guards (readings arrive with each 15 s sweep) | Pending |
+| 2 | Heater guards | Trip each heater guard in turn | Heater off within one control pass of the reading reaching the guards (readings arrive with each 15 s sweep) | ✅ |
 | 3 | Interlock impossibility | Test-build scenario demands both loads at once, through the guards (4.4 — no test mode bypasses them); meter J10 pins 1 and 3. The hardware half — both signals high, K1 alone keeps the other off — was proved in BP13 | Only one load has a 12V feed | ✅ |
-| 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | Pending |
-| 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | Pending |
-| 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero); replug after at least one retry | Compressor and heater off; humidifier unaffected; a kickstart at once, then one per retry interval while the tach reads zero; loads resume once it reads normally | Pending |
+| 4 | Sensor failure | Unplug sensors one at a time; then swap two sensor plugs and reboot | Correct exclusion; compressor and heater off at the 3-of-4 and chamber thresholds; **humidifier keeps running with the chamber sensor failed** and stops at the 3-of-4 threshold; swapped plugs: both channels excluded for wrong serial, logged | ✅ |
+| 5 | Sensor divergence | Script one sensor >5°C from the others for over 10 min | Divergence exclusion; recovery | ✅ |
+| 6 | Fan failure | Unplug J2 with PWM asserted (tach reads zero); replug after at least one retry | Compressor and heater off; humidifier unaffected; a kickstart at once, then one per retry interval while the tach reads zero; loads resume once it reads normally | ✅ |
 | 7 | Deadband | Sweep simulated temperature 17–23°C | Neither load runs 18.5–20.5°C | Pending |
 | 8 | Crossover delay | Stop one load, immediately demand the other | Blocked for the full delay | Pending |
 | 9 | RH stripping | Simulate sustained high RH; then cooling with RH still high but vapour pressure falling to target | Cooling called, reason logged; **release follows vapour pressure** | Pending |
 | 10 | RH temperature floor | High RH at the floor | Stripping stops; reason logged | Pending |
 | 11 | Watchdog | `stall` command (test builds only) locks the main loop | Reset by the watchdog, reason shown; boot hold applies — a load demanding to run is held off | ✅ |
 | 12 | Power interruption | Test build, scenario demanding heat and humidification from boot. **Heater pad** (KSD in series) on J10 pins 3–4, humidifier fan on J11. **USB unplugged first** (5.1). Cut the 12V; restore it; stopwatch from the moment it returns | Heater pad and humidifier fan both stay off for the boot hold (30 s, bench), then start. Cooling shares the same boot-hold code (native tests, test 11) | ✅ |
-| 13 | Relay exercise | Trigger the maintenance cycle | Three cycles logged; both loads off throughout | Pending |
-| 14 | Profile safeguard | Boot the bench build | Banner printed and logged; profile on every status line | Pending |
-| 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | Pending |
-| 16 | RTC lost time | Remove the RTC cell, cut power, restore with WiFi | OSF detected; warning logged and flagged; time corrected from NTP; boot hold applies | Pending |
+| 13 | Relay exercise | Trigger the maintenance cycle | Three cycles logged; both loads off throughout | ✅ |
+| 14 | Profile safeguard | Boot the bench build | Banner printed and logged; profile on every status line | ✅ |
+| 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | ✅ |
+| 16 | RTC lost time | Remove the RTC cell, cut power, restore with WiFi | OSF detected; warning logged and flagged; time corrected from NTP; boot hold applies | ✅ |
 | 17 | Load ineffective | Each load commanded, chamber temperature simulated not responding | Heater: off, flagged, logged, retried. Cooling: flagged and logged | Pending |
 | 18 | SD card failure | Remove the card while running | Control unaffected; failure flagged and logged to serial | Pending |
 | 19 | Humidifier guards | Simulated RH stepped below and above the band; rapid demands against a clock | Min-off and max-run enforced; on below setpoint − band, off at setpoint; no minimum on | Pending |

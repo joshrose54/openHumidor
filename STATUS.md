@@ -73,7 +73,7 @@ Runtime guards, interlock switching sequence, relay exercise. Plus (test builds)
 
 Stage 3 — in progress (see below).
 
-## Stage 3 — board tests done (2026-11-08); waiting for Josh to call it passed
+## Stage 3 — passed (Josh, 2026-11-08)
 
 Sensor health (4.3), serial check and calibration (5.3), control-source figures (4.2), fan stall
 kickstarts (5.6), I2C stuck-bus recovery (5.6), RTC lost time (OSF) and NTP (5.4, 5.6), clock
@@ -93,7 +93,12 @@ summary on `boot`.
 | 15 I2C bus fault | PASS after a fix: internal pull-ups now switched off after every bus step (ESP-IDF re-enables them on a bus reset) |
 | 16 RTC lost time | PASS: cell out, 12 V cut, booted with USB out: OSF set, NTP at 15 s, DS3231 26.9 years out written, OSF cleared, hold 30 s; cell refitted with power on, OSF clear after |
 
-All logged at the end of stage 3 by the spec chat ("logged" proven once in test 24).
+Logged by the spec chat: B3 2, 4, 5, 6, 13, 14, 15, 16 (with 1, 3, 11, 12 from stage 2). "Logged" is proven once, in test 24.
+
+## Next
+
+Stage 4 plan (temperature control: deadband, run-end rules, crossover, harvest, RH stripping,
+ineffective checks; B3 7, 8, 9, 10, 17, 23) — plan first, no code until Josh agrees.
 
 ## Talking to the board
 
