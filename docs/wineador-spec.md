@@ -1230,14 +1230,14 @@ Local to SD, CSV throughout. Nothing pushed off the device.
 | Events | Starts, stops, faults, setting changes, boots | Forever |
 | Hourly | Min, max and mean per hour, each channel and derived value | Forever — what the dashboard graphs from |
 
-**Readings row:** timestamp · per-channel temperature and RH · ambient temperature and RH · cabinet
+**Readings row:** timestamp · per-channel temperature, RH and raw RH (before calibration) · ambient temperature and RH · cabinet
 mean, min and max temperature · cabinet mean RH · active control value · fan
 PWM · fan RPM · compressor state · heater duty · humidifier state · interlock position ·
 per-channel error flags · time trusted (0/1) · longest loop pass in the interval · free heap · worst
 SD write time. Cabinet aggregates cover channels 2–5 only. In test builds, the real sensor readings
 are logged alongside the scripted ones.
 
-**Events row:** timestamp · type · detail. Types: compressor on/off with reason · heater on/off ·
+**Events row:** timestamp · uptime (ms, so timings survive a clock correction) · type · detail. Types: compressor on/off with reason · heater on/off ·
 interlock change · harvest start and end · guard blocks · CRC failures and timeouts per channel ·
 sensor excluded or recovered · fan tach stall · settings changed with old and new values · boot,
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
