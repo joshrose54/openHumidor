@@ -1248,7 +1248,8 @@ an asked-for load becomes blocked, another when the reason changes or clears —
 **CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
 
 **Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
-Monthly files in year folders; a month of readings is ~12 MB.
+Monthly files in year folders; a month of readings is ~12 MB. FAT32 holds no file of 4 GB or more:
+a log file that would pass 3.9 GB continues in a `-p2` part file.
 
 **Self-describing headers** — comment lines then a column header:
 
@@ -1390,7 +1391,8 @@ No audible alarms. Faults surface on the dashboard and in the log.
 **Ineffective checks** run once per run, measured from the chamber reading at load start; a run
 that ends inside the window gives no result; a flag clears on a later passing window.
 
-**On every boot, check the DS3231's oscillator stop flag** — status 0x0F bit 7. If set, the clock
+**On every boot, check the DS3231's oscillator stop flag** — status 0x0F bit 7, **before anything is
+logged**, so the first rows are marked correctly. If set, the clock
 stopped while unpowered: log, flag, correct from NTP before trusting any timestamp, then clear it.
 
 **Never use the DS3231's temperature register** — it returns garbage under automatic conversion.
@@ -1423,7 +1425,7 @@ the PCB**. A failure in B3 is then a firmware fault.
 | B1 | Bench, perfboard | Low-voltage bring-up | ✅ |
 | B2 | Bench, perfboard | Mains and load hardware | ✅ |
 | BP | Bench, PCB | Bring-up — new on-board parts tested, the perfboard retired | ✅ Rev N — D7 checks, BP15 and BP16 repeat on Rev P |
-| B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | In progress |
+| B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | ✅ |
 | B4 | Bench | Soak, real profile, ~24 hours | Pending |
 | BP2 | Bench, next board | Bring-up of the next board (SMD) and repeat of the B3 tests it affects — defined once the board is in the spec | Pending |
 | B5 | Cabinet | Install, on the next board. Fixed settings, serial interface | Pending |
@@ -1673,8 +1675,8 @@ test build says so on its banner and every status line, like the bench profile.
 
 **Scripted readings respond to the loads.** On the bench nothing real warms or cools, so scenarios
 run a **simple cabinet model**: heating raises the scripted chamber and cabinet temperatures at a set
-rate, cooling lowers them, humidifying raises cabinet RH, and otherwise they drift back towards a
-set room value. Loads then start, stop and harvest by the real rules. A scenario can switch a
+rate, cooling lowers them, humidifying raises cabinet RH, and **all the time** they drift towards a
+set room value, as a real cabinet leaks heat — so a strong drift can outrun a load. Loads then start, stop and harvest by the real rules. A scenario can switch a
 response off on purpose — heater on, chamber not rising — to test the ineffective checks.
 **Rates are test-only and set per scenario.** The default set, used for B4, follows Track A (A2) for
 cooling and heating; the B4 soak sets the room value and drift per phase, so every load cycles
@@ -1704,13 +1706,13 @@ checks use the scripted values** — implausible reading, divergence, and every 
 | 15 | I²C bus fault recovery | Short one sensor's SDA to GND while running | Stuck bus detected, RST pulsed, channel excluded and logged; RTC and others keep working; channel recovers when the short is removed | ✅ |
 | 16 | RTC lost time | Remove the RTC cell, cut power, restore with WiFi | OSF detected; warning logged and flagged; time corrected from NTP; boot hold applies | ✅ |
 | 17 | Load ineffective | Each load commanded, chamber temperature simulated not responding | Heater: off, flagged, logged, retried. Cooling: flagged and logged | ✅ |
-| 18 | SD card failure | Remove the card while running | Control unaffected; failure flagged and logged to serial | Pending |
+| 18 | SD card failure | Remove the card while running | Control unaffected; failure flagged and logged to serial | ✅ |
 | 19 | Humidifier guards | Simulated RH stepped below and above the band; rapid demands against a clock | Min-off and max-run enforced; on below setpoint − band, off at setpoint; no minimum on | ✅ |
 | 20 | Humidifier ceiling and sensors | One simulated cabinet sensor driven to 70% with the mean still low; then cabinet sensors excluded one at a time | Off immediately at the ceiling; off when fewer than 3 cabinet sensors are healthy; the recovery hold before resuming | ✅ |
 | 21 | Humidifier exclusivity | Demand humidify during a stripping run; during a temperature run with the setting off, then on | Blocked during stripping always; blocked during a temperature run with the setting off; allowed with it on | ✅ |
 | 22 | Humidifier ineffective | Humidifier commanded on, simulated vapour pressure held flat | Off within the window, flagged, logged, retried at intervals | ✅ |
 | 23 | Plenum fan rules (4.6) | Scenario with the idle duty set to 0% (so every start is from 0%): idle, a compressor run and harvest, a heater run and harvest; then command 10% duty | Fan running whenever compressor or heater runs; 1s kickstart at every start from 0%; harvest ends on chamber convergence, not a timer; a 1–19% command is refused | ✅ |
-| 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac. Disturbance detection exempt (off until B6). CRC failure by a test-build-only command that corrupts one checksum; RTC lost time by pulling the cell, as test 16. Card made nearly full with dummy files from the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; system clock set from the RTC at boot (file dates correct); **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | Pending |
+| 24 | Logging (5.4) | Run 30 min with loads cycling, triggering each event type in 5.4 (the earlier B3 scenarios can supply them); then read the card on the Mac. Disturbance detection exempt (off until B6). CRC failure by a test-build-only command that corrupts one checksum; RTC lost time by pulling the cell, as test 16. Card made nearly full with dummy files from the Mac | **Every event type in 5.4 present**; files and folders as 5.4, named by UTC month; header lines including profile and each serial's gain and offset; readings flushed ~16 rows at a time, events at once; RH columns = gain × raw + offset per the build log's table; file dates follow the system clock, never 1980 — files written before NTP corrects a lost clock carry that clock's month, with time trusted 0; **loop time logged — maximum per log interval**; with the card made nearly full, the oldest month deleted at boot | ✅ |
 
 ## B4 — Bench soak
 

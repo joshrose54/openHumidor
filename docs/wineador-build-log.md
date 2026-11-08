@@ -86,8 +86,9 @@ NO2 output.
 |---|---|
 | SD mount at boot | 60 ms |
 | Loop pass, longest per status interval | 1.2–4.5 ms; 2.7–3.1 ms with the RTC lead out |
-| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1%; stage 5: 77.8% / 82.1% |
-| Free heap | ~268 KB without WiFi, ~170 KB with it |
+| Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1%; stage 5: 77.8% / 82.1%. **Stage 6, min_spiffs (1.9 MB slots): cabinet 53.6%, test builds 56.7%** |
+| Free heap | ~268 KB without WiFi, ~170 KB with it, ~98 KB with the stage 6 logging buffers |
+| Longest loop pass, stuck-bus recovery | ~39 ms (the SDA short) |
 | Boot to first NTP sync | 2–16 s |
 | Sensor recovery on the bench after a replug | ~3 min (10 reads × 15 s, plus the serial re-read), then the 30 s hold |
 
@@ -576,7 +577,7 @@ socket after being refitted. Reseated, it ran as above.
 
 ## B3 — Firmware on the bench, Rev N
 
-Bench profile throughout. Firmware 0.1.0-stage1 to stage5.
+Bench profile throughout. Firmware 0.1.0-stage1 to stage6. **B3 complete.**
 
 ### B3.1 Guard timing — ✅
 
@@ -712,6 +713,13 @@ with a countdown, retried at exactly 2:00.0; model responding by then → `HEATE
 flag cleared. Cooling: `COOLING INEFFECTIVE` at exactly 1:00.0, flagged, compressor still on; flag
 cleared on the next working run (in run 23).
 
+### B3.18 SD card failure — ✅
+
+Card pulled during `run 8`. At the next write (1:21 later): `SD FLUSH FAILURE … control
+unaffected`, status `SD FAIL`. Run 8 passed with the card out (crossover exactly 30.0 s both ways).
+The failed write took 4.1 s, inside the SD task only. Card back: remounted within 30 s, 16 kept
+events written in order, 0 lost; 6 readings rows dropped while out, as designed.
+
 ### B3.19 Humidifier guards — ✅
 
 `run 19`. Mean RH 56%: call start, humidifier on after exactly 30.0 s. Off at its max run after
@@ -745,6 +753,22 @@ convergence after 59.9 s. Heating: kickstart 1.0 s → 60%, heater on; heating h
 ended on convergence after 59.9 s. Idle back to 20% (kickstart). 10% commanded — refused, in the
 scenario and typed (`REFUSED: 10%`). Fan ran with every load. No resets, exclusions, bus faults or
 stalls across stage 4.
+
+### B3.24 Logging — ✅ after a firmware fix
+
+Card reformatted (FAT32, MBR) and filled to 8% free with dummy files. Retention at boot deleted
+2025-09 (free 14.6%), then 2025-10, to over 20%; events and hourly untouched. RTC cell pulled: `RTC
+LOST TIME`, then `NTP correction … OSF cleared`. `run 24` passed (11:55); by hand: `crc ch4`,
+`timeout ch4`, `set temp 19.5` and `set defaults`, J4 unplugged, J2 unplugged, J5 SDA shorted,
+card pulled. `tools/check_logs.py`: **28 of 28 checks** — 97 events, every 5.4 type present
+(disturbance exempt); 49 readings rows in 16-row batches; RH = gain × raw + offset in every row
+for every serial; files by UTC month, none dated 1980; loop time logged (highest 38.9 ms, during
+the SDA short).
+
+**Problem and fix:** at the first lost-time boot, logging started before the OSF flag was read, so
+the boot event, RTC event and first readings row were marked trusted and the NTP correction
+untrusted. The firmware now reads OSF before anything is logged (spec 5.6); repeated, all marked
+correctly.
 ---
 
 ## 3. Track A — cabinet findings and data
@@ -895,6 +919,9 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 - **Bench scenarios depend on what ran before** (e.g. which load ran last decides whether a start is a crossover). Scenarios take their baselines at the point they measure from.
 - **Readings trail the cabinet by up to one read (15 s).** A timed check over a short window sees about one read less of change — a 1-minute bench window sees ~45 s. Allow for it when B6 sets the humidifier window; negligible at 20 min.
 - **62% at 20°C sits exactly on the strip release target** (1.447 kPa). Scripted values that must release use 61.5%; irrelevant on real readings.
+- **A pulled SD card is only noticed at the next write** — the next event or readings batch; 1:21 in test 18.
+- **Reformatting the card on the Mac:** `diskutil list external physical` for the disk number, then `sudo diskutil eraseDisk FAT32 WINEADOR MBRFormat /dev/diskN`, then `mdutil -i off /Volumes/WINEADOR` (stops Spotlight writing to it).
+- **Filling the card** with dummy files took ~15 min for 55 GB on this reader.
 - **The firmware's reset record** (test builds) keeps each boot's reason in flash and a heartbeat in RTC memory. An EN reset from the Mac wipes the heartbeat; the boot list survives everything.
 - **Plenum fan ran at full speed for ~2 min once** during stage 2 (20% commanded); not repeated by wiggling J2 or the fan lead. The status line now shows the PWM hardware readback and tach edges per pulse (7–9 normal) to tell a repeat apart.
 - **Monitor resets the board with RTS/DTR at 0** on this Mac — fixed with 1/1 (spec 5.1). A custom serial script must clear RTS before DTR.
