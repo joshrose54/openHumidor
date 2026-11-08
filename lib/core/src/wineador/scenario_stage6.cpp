@@ -3,7 +3,7 @@
 //   run 24    B3 test 24 (logging), the automatic part: a chain that makes the
 //             control event types appear in the events file. Josh adds the
 //             physical ones by hand (see the bench steps).
-//   run soak  B4 step 1: ~24 h on the real_test build (REAL timers). A cycle of
+//   run soak  B4 step 1: 21 h on the real_test build (REAL timers). A cycle of
 //             phases sets the model's room value and drift so every load cycles
 //             several times and runs into its real limits; every pass audited.
 #include "wineador/scenario.h"
@@ -105,7 +105,7 @@ struct SoakPhase {
   float setRh;          // < 0: leave RH as it is
   float coolVpKpaPerMin;
 };
-// One cycle, about 9.5 h. Repeated until 24 h. A2 cooling/heating rates (0.1 C/min).
+// One cycle, about 9.5 h. Repeated until the end (21 h). A2 cooling/heating rates (0.1 C/min).
 const SoakPhase kPhases[] = {
   {"warm: normal cooling cycles",               90, 23.0f, 0.02f, -1.0f, 0.002f},
   {"heat wave: compressor into its max run",    45, 30.0f, 0.15f, -1.0f, 0.002f},
@@ -123,11 +123,11 @@ const SoakPhase kPhases[] = {
 };
 constexpr int kNumPhases = sizeof(kPhases) / sizeof(kPhases[0]);
 
-// The least each must reach over the 24 h (calibrated on the Mac with the same
+// The least each must reach over the 21 h (calibrated on the Mac with the same
 // model; the board must match it).
-constexpr uint32_t kMinStarts[3] = {12, 6, 4};       // compressor, heater, humidifier (the Mac run: 17 / 16 / 18)
-constexpr uint32_t kMinMaxRun[3] = {2, 1, 2};        // stops at the max run (the Mac run: 6 / 2 / 4)
-constexpr uint32_t kMinStrips = 2, kMinCrossovers = 4;   // the Mac run: 2, 9
+constexpr uint32_t kMinStarts[3] = {10, 6, 4};       // compressor, heater, humidifier (the Mac run, 21 h: 15 / 12 / 15)
+constexpr uint32_t kMinMaxRun[3] = {2, 1, 2};        // stops at the max run (the Mac run: 4 / 2 / 4)
+constexpr uint32_t kMinStrips = 2, kMinCrossovers = 4;   // the Mac run: 2, 8
 }  // namespace
 
 void ScenarioRunner::runSoak(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc) {
@@ -165,7 +165,7 @@ void ScenarioRunner::runSoak(const ScenarioView& v, Controller& ctl, CabinetMode
   }
 
   if (elapsedMs(now, startMs_) < kSoakMs) return;
-  // 24 h: the counts
+  // the end: the counts
   const char* shortOf = nullptr;
   static const char* names[3] = {"compressor starts", "heater starts", "humidifier starts"};
   static const char* maxNames[3] = {"compressor max-run stops", "heater max-run stops", "humidifier max-run stops"};
@@ -175,7 +175,7 @@ void ScenarioRunner::runSoak(const ScenarioView& v, Controller& ctl, CabinetMode
   }
   if (!shortOf && tc.stripCount() < kMinStrips) shortOf = "strips";
   if (!shortOf && tc.crossovers() < kMinCrossovers) shortOf = "crossovers";
-  snprintf(m, sizeof(m), "24 h: starts %lu/%lu/%lu (need %lu/%lu/%lu), max-run stops %lu/%lu/%lu, strips %lu, crossovers %lu, "
+  snprintf(m, sizeof(m), "21 h: starts %lu/%lu/%lu (need %lu/%lu/%lu), max-run stops %lu/%lu/%lu, strips %lu, crossovers %lu, "
                          "humidifier calls %lu; no guard breached",
            (unsigned long)audit_.starts(0), (unsigned long)audit_.starts(1), (unsigned long)audit_.starts(2),
            (unsigned long)kMinStarts[0], (unsigned long)kMinStarts[1], (unsigned long)kMinStarts[2],

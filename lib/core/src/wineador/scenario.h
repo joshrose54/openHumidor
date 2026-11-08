@@ -37,7 +37,7 @@
 //   run 24    test 24 (logging): the automatic part — a chain that produces the control event
 //             types (loads, interlock, harvest, guard blocks, crossover, strip, humidify,
 //             ineffective, relay exercise). The physical ones are added by hand.
-//   run soak  B4 step 1: ~24 h with REAL timers (real_test build). Room value and drift set per
+//   run soak  B4 step 1: 21 h with REAL timers (real_test build). Room value and drift set per
 //             phase so every load cycles several times and reaches its real limits; every pass
 //             audited (guard_audit.h); PASS with the counts at the end.
 // `stop` ends a scenario early; the demand goes back to none.
@@ -108,7 +108,8 @@ class ScenarioRunner {
   static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24, soak"; }
   // The soak's running audit (for the status of a long run).
   const GuardAudit& audit() const { return audit_; }
-  static constexpr uint32_t kSoakMs = 24UL * 60UL * 60UL * 1000UL;
+  // 21 h: Josh's run is 20:30 to 18:00 (B4 step 1, 2026-11-08); the verdict comes before he stops it.
+  static constexpr uint32_t kSoakMs = 21UL * 60UL * 60UL * 1000UL;
 
  private:
   void say(uint32_t nowMs, const char* fmt, ...);

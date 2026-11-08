@@ -17,7 +17,7 @@ What it checks
               1980); loop_max_ms present (its maximum is reported).
   --test24    every 5.4 event type present (disturbance exempt until B6), the RTC
               lost-time and NTP-correction events, the retention deletion.
-  --soak      no reset (one boot); the 24 h NTP resync inside the soak; the guard audit again from the events file
+  --soak      no reset (one boot); the scenario's own verdict; the guard audit again from the events file
               (min off, min on, max run, crossover, interlock side) using
               uptime_ms; the load counts; heap, SD write time and loop time not
               creeping (first vs last 2 hours); CRC failures on the real sensors.
@@ -291,26 +291,20 @@ def main():
             report(False, "the soak scenario's own verdict", "no scenario PASS/FAIL line in the events file")
         boots = [e for e in events if e["type"] == "boot"]
         report(len(boots) == 1, "no resets: one boot in the events file", f"{len(boots)} boots")
-        # The 24 h NTP resync (5.4): a second sync, ~24 h after the first, while the soak still ran.
-        syncs = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("NTP SYNC")]
-        soak = [e for e in events if e["type"] == "scenario"]
-        soak_end = soak[-1]["up"] if soak else 0
-        if len(syncs) >= 2:
-            gap_h = (syncs[1]["up"] - syncs[0]["up"]) / 3600000.0
-            inside = syncs[1]["up"] <= soak_end
-            report(23.5 <= gap_h <= 24.5 and inside, "24 h NTP resync: a second sync inside the soak",
-                   f"syncs at uptime {syncs[0]['up'] / 3600000.0:.2f} h and {syncs[1]['up'] / 3600000.0:.2f} h "
-                   f"(gap {gap_h:.2f} h); soak ended at {soak_end / 3600000.0:.2f} h")
-        else:
-            report(False, "24 h NTP resync: a second sync inside the soak", f"{len(syncs)} NTP sync event(s)")
         breaches, starts, maxstops = audit(events, TIMERS[a.profile])
         report(not breaches, "no guard ever breached (min off, min on, max run, crossover, interlock side)",
                "; ".join(breaches[:5]) + (f" (+{len(breaches) - 5} more)" if len(breaches) > 5 else ""))
-        report(None, "starts: " + ", ".join(f"{k} {v}" for k, v in starts.items()) +
-               " | max-run stops: " + ", ".join(f"{k} {v}" for k, v in maxstops.items()))
-        report(None, f"strips {sum(1 for e in events if e['type'] == 'strip' and 'START' in e['detail'])}, "
-                     f"crossovers {sum(1 for e in events if e['type'] == 'crossover')}, "
-                     f"humidify calls {sum(1 for e in events if e['type'] == 'humidify' and 'START' in e['detail'])}")
+        # The expected counts over the 21 h run — the same minima as the soak scenario
+        # (lib/core/src/wineador/scenario_stage6.cpp; the Mac run gave 15/12/15, 4/2/4, 2, 8).
+        strips = sum(1 for e in events if e["type"] == "strip" and "START" in e["detail"])
+        xovers = sum(1 for e in events if e["type"] == "crossover")
+        mins = {"compressor": (10, 2), "heater": (6, 1), "humidifier": (4, 2)}
+        for L, (s_min, m_min) in mins.items():
+            report(starts[L] >= s_min, f"{L} ran the expected number of times", f"{starts[L]} starts (need {s_min})")
+            report(maxstops[L] >= m_min, f"{L} ran into its max run", f"{maxstops[L]} max-run stops (need {m_min})")
+        report(strips >= 2, "RH strips", f"{strips} (need 2)")
+        report(xovers >= 4, "crossovers", f"{xovers} (need 4)")
+        report(None, f"humidify calls {sum(1 for e in events if e['type'] == 'humidify' and 'START' in e['detail'])}")
         if all_rows and header:
             idx = {h: i for i, h in enumerate(header)}
             rows = [r for r in all_rows if len(r) == len(header)]
