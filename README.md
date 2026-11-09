@@ -1,2 +1,2 @@
 # openHumidor
-Open-source ESP32 firmware and hardware designs to convert a compressor wine fridge into a temperature, humidity, and VOC-controlled cigar humidor.
+openHumidor is an open-source electronics and embedded software platform designed to convert standard compressor wine coolers into precision aging environments. It provides closed-loop control for cooling, heating, humidification, dehumidification, and active air purification/ammonia mitigation.
