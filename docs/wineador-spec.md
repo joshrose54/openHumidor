@@ -89,7 +89,8 @@ header is 12V; the 5V NF-A8 must never be connected to it.**
 shelves; **intake open to the cabinet, no opening through the panel** — they recirculate cabinet air
 only, so the plenum stays sealed apart from the slots and the Noctua alone sets the airflow across
 the plate. Run 24/7 from the board's 12V rail through J12–J15 (3.3). Not controlled or monitored by
-the firmware.
+the firmware on Rev P. The next board adds voltage speed control, full speed by default
+(`next-board-changes.md`).
 Sensors sit out of their streams (B5).
 
 ## 2.3 Sensors
@@ -172,7 +173,7 @@ uncorrected.
 | PSU | **Mean Well IRM-60-12ST** — 12V 5A encapsulated, screw terminals, inside the enclosure. Mains design pending (4.10) |
 | On-board 5V | Traco **TSR 3-2450N** switching regulator, 12V → 5V 3A, on the PCB (U8) |
 | Controller PCB | **Rev P**, 108.7 × 96.0mm, 4-layer. All 12V loads switched on the board; full parts list in the board notes |
-| Enclosure, glands | Order after panel and controller finalised. Minimum ~200 × 150 × 80mm. Carries a BS 1363 socket for the fridge (Pro Elec 9143) and an M16 gland (Multicomp PP001702) for the mains lead |
+| Enclosure, glands | Minimum ~200 × 150 × 80mm. Carries a BS 1363 socket for the fridge (Pro Elec 9143) and an M16 gland (Multicomp PP001702) for the mains lead |
 | Mains joints | Genuine WAGO 221 lever connectors (450V) for the live, neutral and earth splits; insulated ring terminals at the SSR, hole to suit its screws |
 | Mains lead | 13A plug, 3-core flex 1.0mm² or more, **5A BS 1362 fuse** (the SSR's 5A AC-53 motor rating), into the enclosure through the M16 gland |
 | Extension lead | 1-gang, 13A, cut to insert the SSR — the **bench harness** (4.10), 5A plug fuse |
@@ -1167,6 +1168,10 @@ humidifier guards — the 70% RH ceiling included — and turn off any load whos
 unsatisfied. Turning a load off must never depend
 on a sensor read, a log write or the network.
 
+**OTA updates** (from B6/B7): authenticated (5.5); a new image that fails to start properly rolls
+back to the previous one (min_spiffs keeps two app slots); after any update the normal boot hold
+applies.
+
 ## 5.3 Sensor handling
 
 - I²C 25kHz, explicitly set. Internal pull-ups disabled — **after every bus step**: the Arduino core
@@ -1249,7 +1254,13 @@ an asked-for load becomes blocked, another when the reason changes or clears —
 
 **Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
 Monthly files in year folders; a month of readings is ~12 MB. FAT32 holds no file of 4 GB or more:
-a log file that would pass 3.9 GB continues in a `-p2` part file.
+a log file that would pass 3.9 GB continues in a `-p2` part file. **A failed write is retried once
+after a remount;** a recovered retry is logged and counted, not a failure. Only a second failure
+sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and remount —
+logging needs very little bandwidth. **During a card outage,** events (up to 100), readings rows (up
+to 60) and pending hourly rows are kept in RAM and written in order when the card returns; beyond
+that the oldest are dropped and counted. Buffer sizes are set per board (larger on the next board's
+PSRAM).
 
 **Self-describing headers** — comment lines then a column header:
 
@@ -1287,6 +1298,12 @@ Flushes non-blocking and timeout-protected. An SD failure never stalls control; 
 
 Production dashboard, delivered in B7. B3–B5 use serial only; B6 a rough tuning dashboard. Served
 by the ESP32 over home WiFi, LAN only.
+
+**Two interfaces** (next board):
+- **LCD** on the enclosure — the walk-past display (temperature, RH, what's running, faults) and the
+  everyday user settings; which ones is decided when the LCD section is written.
+- **Web dashboard** — everything: all user settings (and tuning settings in B6), graphs, events,
+  log downloads, OTA updates.
 
 **Display:** current temperature and RH, all six sensors · cabinet mean, min, max, spread · state:
 compressor, heater, humidifier, fan PWM and RPM, interlock · graphs over hour, day, week, month ·
@@ -1368,6 +1385,12 @@ the cabinet.
 
 **Implementation:** static page plus JSON endpoints; the browser graphs. Serve pre-aggregated data
 for wide ranges.
+
+**The JSON endpoints are a documented API**, used by the dashboard and by tools on the Mac alike:
+- **Read** — status, readings, events, hourly data, and log file downloads. Open on the LAN.
+- **Write** — user settings, tuning settings (B6), and a door-test marker; the same bounds as
+  everywhere else. **Writes and OTA need a password or token.**
+- **Safety settings are never exposed**, through the API or anywhere else.
 
 ## 5.6 Fault handling
 
@@ -1718,7 +1741,13 @@ checks use the scripted values** — implausible reading, divergence, and every 
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 1 | Bench soak | **Test build, real profile timers**, ~24 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures, latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
+| 1 | Bench soak | **Test build, real profile timers**, ~24 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures — retried writes logged and counted, and more than an occasional retry investigated, not accepted; SD latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
+
+**A firmware fix found by the soak** that touches only the SD writing is proven by an **SD stress
+test**, not a full re-run, provided nothing else changed: a test build writes large readings
+batches back-to-back — first without the fix, to reproduce the fault and get a baseline rate, then
+with it, for at least as many writes — plus a card pulled for a few minutes, with every buffered
+row and event reaching the card in order.
 
 ## BP2 — Next board bring-up
 
@@ -1763,7 +1792,7 @@ dip:
 | 5 | RH stripping thresholds | A settled baseline from 1–4 | Trigger only on genuinely abnormal RH |
 | 6 | Disturbance detection | Normal rates from 1–5 | Catch every door opening, never a normal cycle |
 | 7 | Heater — deadband, PWM cap, harvest | Cold weather | Recover without overshooting into a cooling call |
-| 8 | Humidifier — band, persistence, ineffective window | A settled baseline from 1–5. If RH overshoots the band with the shortest useful run time, try the fan at part speed through Q4 (25kHz PWM, kickstart at 100%; find the stall floor on the bench first, with margin, since there is no tach). If adopted, 2.6a, 4.7b and the dashboard change | Measure the RH rise rate with the humidifier on; hold RH within the band with the fewest runs; stripping never triggered by humidifier overshoot |
+| 8 | Humidifier — band, persistence, ineffective window | A settled baseline from 1–5. | Measure the RH rise rate with the humidifier on; hold RH within the band with the fewest runs; stripping never triggered by humidifier overshoot |
 | 9 | Humidify during cooling runs — experiment | 8 | Cabinet mean dip with the setting off and on, several cycles each. Adopt only if the dip shrinks measurably; **if adopted, repeat step 2** — the dose–dip relationship changes |
 
 If a later step disturbs an earlier one, go back to the earliest affected and work forward.
@@ -1817,8 +1846,7 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 
 | Item | Status |
 |---|---|
-| Mean Well IRM-60-12ST PSU, BS 1363 socket (Pro Elec 9143), M16 gland (Multicomp PP001702), 13A plug and flex | Enclosure build (4.10) |
-| Enclosure | Layout is final (Rev P, 108.7 × 96mm, 20mm standoffs, K1 15mm tall, J10 14mm) |
+| Enclosure | Final dimensions after the next board's layout (outline, mounting holes and connector positions may change) |
 | Trays | After final chamber depth is confirmed |
 
 ## 6.4 What the logging must answer
@@ -1827,36 +1855,3 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 - Compressor duty cycle at real room temperature
 - Humidifier duty cycle, and how often RH stripping triggers — the water loop's balance
 - How often the cabinet drops below setpoint in winter, and the heater's duty cycle
-
-## 6.5 V2 notes
-
-Not part of the MVP. Nothing here changes the current design or its tests. Revisit once B7 is
-complete.
-
-**Controller**
-- ESP32-S3-DevKitC-1 **N8R2** in place of the ESP32-WROOM-32 DevKit. It has more pins, and every one
-  can be an output. N8R2 rather than N16R8: octal PSRAM (R8) uses GPIO 35–37.
-  - D7 replaced by an ideal-diode controller (e.g. LM66100) in an SMD revision — restores the ESP32's 5V headroom.
-  - Avoid for general I/O: 0, 3, 45, 46 (boot strapping; 45 must stay low at boot); 19/20 (native
-    USB; 20 is pulled up at boot); 43/44 (serial); 38/48 (RGB LED, depending on board version).
-  - Diode check on **both** USB ports before fitting (3.3).
-  - Retest: BP 6–11 on the new board.
-- Header pins on every spare GPIO, with 3.3V, 5V and GND alongside, so the board doubles as an
-  expandable test board. Strapping pins labelled and kept off the main header. A spare mux channel
-  on its own XH socket. The SPI bus plus a spare chip-select on a header. ADC1 pins (GPIO 1–10)
-  grouped and labelled.
-
-**Board**
-- Switching for new loads: more IRLZ44N channels like Q2–Q5, PWM-capable. Relays only for mains or AC loads and for the heat/cool
-  interlock. UVC door switch in series with the lamp supply.
-
-**Additions**
-- VOC sensors on I²C, using the mux's spare channels (SC0, SC1).
-- UVC lamp: one output, plus a door-switch input so it runs only with the door shut, interlocked
-  in hardware.
-- Plasma ion generator: one output.
-- Tank-level sensing for the humidifier: a float switch on a spare input.
-- Choose UVC and ioniser parts first: 12V DC or mains decides the switching.
-- Before buying either: choose ozone-free parts (185nm UVC lamps and most ionisers produce ozone),
-  and keep UVC off labels and wrappers.
-- Check UVC and ioniser power against the PSU, fuse and switching.
