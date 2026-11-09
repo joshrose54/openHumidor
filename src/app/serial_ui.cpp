@@ -5,6 +5,7 @@
 #include "wineador/status.h"
 #include "app/eventlog.h"
 #include "drivers/sd_log.h"
+#include "board.h"
 
 namespace serialui {
 
@@ -115,21 +116,26 @@ void printLog() {
                 s.failed ? s.lastError : "");
   Serial.printf("    writing       %s; readings to %s\n", sdlog::started() ? "started" : "waiting for the clock",
                 s.readingsPath[0] ? s.readingsPath : "(none yet)");
-  Serial.printf("    readings      %lu rows in RAM (written every 16), %lu written in %lu batches, %lu dropped\n",
+  Serial.printf("    card clock    SPI %lu kHz; outage buffers: %u events, %u readings rows, %u hourly rows (board.h)\n",
+                (unsigned long)s.spiKhz, (unsigned)board::kSdEventsKept, (unsigned)board::kSdRowsKept, (unsigned)board::kSdHourlyKept);
+  Serial.printf("    readings      %lu rows in RAM (written every 16), %lu written in %lu batches, %lu dropped (most kept: %lu)\n",
                 (unsigned long)s.rowsBuffered, (unsigned long)s.rowsWritten, (unsigned long)s.flushes,
-                (unsigned long)s.rowsDropped);
+                (unsigned long)s.rowsDropped, (unsigned long)s.rowsBufferedMax);
   if (s.flushes)
     Serial.printf("    last batch    %lu rows, at uptime %s\n", (unsigned long)s.lastFlushRows,
                   formatDuration(a, sizeof(a), s.lastFlushUptimeMs));
-  Serial.printf("    events        %lu written, %lu kept in RAM (card out), %lu dropped\n", (unsigned long)s.eventsWritten,
-                (unsigned long)s.eventsPending, (unsigned long)s.eventsDropped);
-  Serial.printf("    hourly        %lu rows written\n", (unsigned long)s.hourlyWritten);
+  Serial.printf("    events        %lu written, %lu kept in RAM, %lu dropped (most kept: %lu)\n", (unsigned long)s.eventsWritten,
+                (unsigned long)s.eventsPending, (unsigned long)s.eventsDropped, (unsigned long)s.eventsPendingMax);
+  Serial.printf("    hourly        %lu rows written, %lu kept in RAM, %lu dropped (most kept: %lu)\n", (unsigned long)s.hourlyWritten,
+                (unsigned long)s.hourlyPending, (unsigned long)s.hourlyDropped, (unsigned long)s.hourlyPendingMax);
   Serial.printf("    write time    last %lu ms, worst %lu ms since boot\n", (unsigned long)s.lastWriteMs,
                 (unsigned long)s.worstWriteMs);
   if (s.totalBytes)
     Serial.printf("    space         %.1f GB free of %.1f GB (%.1f%%)\n", s.freeBytes / 1073741824.0, s.totalBytes / 1073741824.0,
                   100.0 * s.freeBytes / s.totalBytes);
   if (s.retentionDeleted >= 0) Serial.printf("    retention     boot check done: %d old month(s) deleted\n", s.retentionDeleted);
+  Serial.printf("    retries       %lu writes recovered by a retry%s%s\n", (unsigned long)s.retries, s.retries ? "; last: " : "",
+                s.retries ? s.lastRetry : "");
   Serial.printf("    failures      %lu since boot\n\n", (unsigned long)s.failures);
 }
 

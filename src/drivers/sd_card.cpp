@@ -16,7 +16,7 @@ bool begin() {
   if (ran) return gMounted;
   ran = true;
   gSpi.begin(pins::kSdSck, pins::kSdMiso, pins::kSdMosi, pins::kSdCs);
-  gMounted = SD.begin(pins::kSdCs, gSpi, 4000000);
+  gMounted = SD.begin(pins::kSdCs, gSpi, kSpiHz);
   gMB = gMounted ? SD.cardSize() / (1024ULL * 1024ULL) : 0;
   return gMounted;
 }

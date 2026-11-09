@@ -1,5 +1,5 @@
 #pragma once
-// SD card on VSPI, CS on P17, 4 MHz — from soak_test.cpp.
+// SD card on VSPI, CS on P17 — from soak_test.cpp (which ran at 4 MHz; now kSpiHz).
 // Mount at boot and report. From stage 6 the SD logging task (sd_log) owns the card
 // after boot: nothing else may call the SD library.
 //
@@ -12,6 +12,12 @@
 #include <SPI.h>
 
 namespace sdcard {
+
+// SPI clock for the card, for the boot mount and every remount. 1 MHz: two large
+// (~7 KB) batch writes failed at 4 MHz during B4 night 1 while every small write
+// worked; logging needs well under 1 KB a minute, so the lower clock costs nothing.
+// (The card itself always starts up at 400 kHz.)
+constexpr uint32_t kSpiHz = 1000000;
 
 bool begin();          // BOOT ONLY, slow. Mount; false if no card or it will not mount
 bool mounted();

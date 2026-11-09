@@ -184,25 +184,10 @@ log file would pass 3.9 GB (Mac-tested; never near it in practice).
 
 ## Next
 
-The B4 soak (`run soak`, real_test build, 24 h): card reformatted, bench wired; scenario lines now logged as
-`scenario` events (the card holds the verdict); checker also confirms the 24 h NTP resync inside the soak.
-
-## Talking to the board
-
-- `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
-- With the DevKit pull-ups, plugging USB in or out doesn't restart the board; nor does the monitor.
-- 12 V bulb only with USB in; with USB out use the heater pad.
-- My own serial script (`$CLAUDE_JOB_DIR/tmp/noreset.py`) clears RTS before DTR.
-
-## Builds
-
-| Build | Profile | Readings | Use |
-|---|---|---|---|
-| `esp32dev` | real | real | **The only build for the cabinet** |
-| `bench` | bench | real | B3 physical tests |
-| `bench_test` | bench | scripted | B3 scenario tests |
-| `bench_test_boot` | bench | scripted | B3 tests 11, 12: heat + humidify from boot |
-| `real_test` | real | scripted | B4 soak |
-| `native` | — | — | Mac tests: `pio test -e native` |
-
-Build output goes to `.pio.nosync/` so iCloud Drive doesn't copy it.
+B4 soak running (run soak, real_test, started 2026-11-08 20:43; verdict ~17:43 on the 9th). Night 1: two SD
+write failures (readings batches, recovered at once). After the verdict: RTC cell hold check, card to
+the Mac (check_logs --soak), then the SD stress test (spec 5.4 / B4 note) on bench_test:
+`sdstress 4000 noretry 2000` (baseline), `sdstress 1000 retry 2000`, then a card pull across an hour
+boundary (check_logs --outage). Built, not flashed or committed: retry with the failing step, 1 MHz
+clock (sdcard::kSpiHz), outage buffers 100 events / 60 rows / 24 hourly (include/board.h, from the
+heap), sdstress command, checker --outage. Native tests 238/238.

@@ -6,6 +6,7 @@
 #include "wineador/sensor_table.h"
 #include "wineador/sensor_health.h"
 #include "drivers/i2c_bus.h"
+#include "drivers/sd_card.h"
 
 using namespace wineador;
 
@@ -89,8 +90,8 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
   Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
-  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
-                            (unsigned long long)b.sdMB, (unsigned long)b.sdMountMs);
+  if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, SPI %lu kHz, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
+                            (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",
                             (unsigned long)b.sdMountMs);
   Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, manual excludes 0x%02X\n",

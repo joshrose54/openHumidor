@@ -348,6 +348,14 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     }
 #if defined(WINEADOR_TEST_BUILD)
+    case Command::SdStress:
+      if (arg == -1) { sdlog::stressStop(); Serial.println("  SD stress test: stopping after the current write."); break; }
+      if (arg < 0) { Serial.println("  sdstress <kHz 400-9999> retry|noretry <writes>, or sdstress stop. Nothing started."); break; }
+      if (sdlog::stressStart((uint32_t)arg, a.arg2 == 1, (uint32_t)a.arg3))
+        Serial.printf("  SD STRESS TEST: %d batches of 16 rows (~7.4 KB each), back to back, at %d kHz, retry %s, into "
+                      "/stress/. Progress every 100 writes.\n", a.arg3, arg, a.arg2 == 1 ? "ON" : "OFF");
+      else Serial.println("  An SD stress test is already running. Nothing started.");
+      break;
     case Command::InjectCrc:
     case Command::InjectTimeout:
       if (arg < 2 || arg > 7) { Serial.println("  crc chN / timeout chN (N = 2-7). Nothing done."); break; }
@@ -416,6 +424,7 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::HumidCool:
     case Command::InjectCrc:
     case Command::InjectTimeout:
+    case Command::SdStress:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -835,11 +844,28 @@ static void logLoadChanges(const LoadOutputs& was, const LoadOutputs& now) {
                   gCtl.exercise().cycling() ? " (relay exercise)" : "");
 }
 
-// The SD card failing or coming back (the logging task writes the details).
+// The SD card failing or coming back (the logging task writes the details), and the
+// test-build stress test's progress.
 static void watchSd(uint32_t now) {
   if (elapsedMs(now, gLastSdCheckMs) < 250) return;
   gLastSdCheckMs = now;
   const sdlog::Stats st = sdlog::stats();
+  {
+    static uint32_t shown = 0;
+    static bool wasActive = false;
+    const sdlog::StressStats& x = st.stress;
+    auto line = [&](const char* what) {
+      eventlog::log("sd", "SD STRESS %s: %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt "
+                          "failed at: folder %lu, open %lu, header %lu, data %lu); worst write %lu ms",
+                    what, (unsigned long)x.khz, x.retry ? "on" : "off", (unsigned long)x.writes, (unsigned long)x.target,
+                    (unsigned long)x.failures, (unsigned long)x.retries, (unsigned long)x.atFolder, (unsigned long)x.atOpen,
+                    (unsigned long)x.atHeader, (unsigned long)x.atData, (unsigned long)x.worstMs);
+    };
+    if (x.active && x.writes >= shown + 100) { shown = x.writes - x.writes % 100; line("progress"); }
+    if (wasActive && !x.active) { line("DONE"); shown = 0; }
+    if (!wasActive && x.active) shown = 0;
+    wasActive = x.active;
+  }
   if (st.failed && !gSdFailedShown && gLogStarted) {
     gSdFailedShown = true;
     eventlog::log("sd", "SD FLUSH FAILURE: %s. Logging paused (events kept in RAM, readings rows dropped); control "

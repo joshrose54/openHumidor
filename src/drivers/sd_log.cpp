@@ -6,19 +6,21 @@
 #include <time.h>
 #include "esp_timer.h"
 #include "pins.h"
+#include "board.h"
 #include "sd_card.h"
 #include "wineador/logbook.h"
+#include "wineador/line_ring.h"
 
 namespace sdlog {
 
 using wineador::LogKind;
+using wineador::LineRing;
 
 namespace {
 
 enum class Kind : uint8_t { Reading, Event, Hourly };
 constexpr size_t kLine = 600;          // longest line (a test-build readings row is up to ~460)
-constexpr int kQueueLen = 24;
-constexpr int kPending = 24;           // events kept while the card is out
+constexpr int kQueueLen = 16;
 constexpr uint32_t kRemountMs = 30000;
 constexpr uint32_t kSpaceRefreshMs = 3600000UL;
 
@@ -34,21 +36,35 @@ volatile bool gStarted = false;
 volatile bool gBusy = false;
 volatile uint32_t gBusySince = 0;
 volatile uint32_t gWorstSinceTake = 0;
+bool gRetryNote = false;               // a write was recovered by a retry: log it (from the task loop)
 int gYear = 0, gMonth = 0;
+
+// The card's settings, read at every mount: normally 1 MHz with the retry on. Only
+// the test-build stress test changes them, and puts them back when it ends.
+volatile uint32_t gSpiHz = sdcard::kSpiHz;
+volatile bool gRetry = true;
 
 char* gHeadR = nullptr;
 char* gHeadE = nullptr;
 char* gHeadH = nullptr;
 
-// Owned by the task only:
-char gBatch[wineador::kReadingsBatch * kLine];
-size_t gBatchLen = 0;
-int gBatchRows = 0;
-char gBatchPath[40] = {};
-char gPending[kPending][kLine];
-int gPendHead = 0, gPendCount = 0;
+// The outage buffers (5.4), sized per board (board.h), taken from the heap once at
+// begin() (the ESP32's static memory region is too small for them). Task-owned.
+LineRing* gEvP = nullptr;
+LineRing* gRowP = nullptr;
+LineRing* gHrP = nullptr;
+#define gEvents (*gEvP)
+#define gRows (*gRowP)
+#define gHourly (*gHrP)
+uint32_t gQueueDropsRows = 0, gQueueDropsEvents = 0;   // lines the queue had no room for
+char gScratch[kLine];                  // one line at a time, out of a buffer and onto the card
 uint32_t gLastRemount = 0, gLastSpace = 0;
 bool gRetentionDone = false;
+
+// Stress test (test builds): set by the loop, run by the task.
+volatile bool gStressRequest = false, gStressStop = false;
+uint32_t gStressKhz = 0, gStressTarget = 0;
+bool gStressRetry = true;
 
 char* dupe(const char* s) {
   const size_t n = strlen(s) + 1;
@@ -72,6 +88,20 @@ void setError(const char* what, const char* path) {
   });
 }
 
+void publishBuffers() {
+  withStats([](Stats& s) {
+    s.rowsBuffered = gRows.count();
+    s.rowsDropped = gRows.dropped() + gQueueDropsRows;
+    s.eventsPending = gEvents.count();
+    s.eventsDropped = gEvents.dropped() + gQueueDropsEvents;
+    s.hourlyPending = gHourly.count();
+    s.hourlyDropped = gHourly.dropped();
+    if (gRows.count() > s.rowsBufferedMax) s.rowsBufferedMax = gRows.count();
+    if (gEvents.count() > s.eventsPendingMax) s.eventsPendingMax = gEvents.count();
+    if (gHourly.count() > s.hourlyPendingMax) s.hourlyPendingMax = gHourly.count();
+  });
+}
+
 // "2026-11-08T..." -> year, month. Anything else: the clock's month.
 void monthOf(const char* line, int* y, int* m) {
   if (strlen(line) >= 7 && line[4] == '-' && isdigit((unsigned char)line[0]) && isdigit((unsigned char)line[5])) {
@@ -83,59 +113,132 @@ void monthOf(const char* line, int* y, int* m) {
   *m = gMonth;
 }
 
-// The part number in use for each file (part 1 = the file itself), for the three
-// files written at any one time; a new month's file starts at part 1 again.
+// The part number in use for each file (part 1 = the file itself), for the files
+// written at any one time; a new month's file starts at part 1 again.
 int* partFor(const char* path) {
   struct Slot { char path[40]; int part; };
-  static Slot slots[4] = {};
+  static Slot slots[5] = {};
   static int next = 0;
   for (Slot& sl : slots)
     if (strcmp(sl.path, path) == 0) return &sl.part;
   Slot& sl = slots[next];
-  next = (next + 1) % 4;
+  next = (next + 1) % 5;
   strncpy(sl.path, path, sizeof(sl.path) - 1);
   sl.path[sizeof(sl.path) - 1] = 0;
   sl.part = 1;
   return &sl.part;
 }
 
-// The one place the card is written. Makes the folders, writes the header into a
-// new (empty) file, then the data. Timed. False on any failure.
-bool appendFile(const char* path, const char* header, const char* data, size_t len) {
+bool mountCard() {
+  SD.end();
+  return SD.begin(pins::kSdCs, sdcard::spi(), gSpiHz);
+}
+
+// Makes every folder on the way to `path` ("/logs", "/logs/2026", "/stress").
+bool makeFolders(const char* path) {
+  char dir[40];
+  for (const char* p = strchr(path + 1, '/'); p; p = strchr(p + 1, '/')) {
+    const size_t dl = (size_t)(p - path);
+    if (dl >= sizeof(dir)) return false;
+    memcpy(dir, path, dl);
+    dir[dl] = 0;
+    if (!SD.exists(dir) && !SD.mkdir(dir)) return false;
+  }
+  return true;
+}
+
+// The data of one write: lines [0, n) of a buffer, or a single block of text.
+struct Payload {
+  const LineRing* ring = nullptr;
+  uint16_t n = 0;
+  const char* text = nullptr;
+  size_t len = 0;
+  size_t bytes() const {
+    if (!ring) return len;
+    size_t b = 0;
+    for (uint16_t i = 0; i < n; i++) b += ring->peek(i, gScratch, sizeof(gScratch));
+    return b;
+  }
+  bool writeTo(File& f) const {
+    if (!ring) return f.write((const uint8_t*)text, len) == len;
+    for (uint16_t i = 0; i < n; i++) {
+      const size_t l = ring->peek(i, gScratch, sizeof(gScratch));
+      if (f.write((const uint8_t*)gScratch, l) != l) return false;
+    }
+    return true;
+  }
+};
+
+// One attempt at a write: folders, the right part file, the header into a new file,
+// then the data. `stage` gets the step that failed; `grew` whether the file got
+// longer (a partial write) before it failed.
+bool appendOnce(const char* path, const char* header, const Payload& data, bool newlineFirst, const char** stage,
+                bool* grew) {
+  *grew = false;
+  *stage = "folder";
+  if (!makeFolders(path)) return false;
+  // FAT32 holds no file of 4 GiB or more: if this write would pass the limit, move
+  // on to the next part (-p2, -p3 ...). The part in use is remembered per file.
+  *stage = "open";
+  File f;
+  char partPath[48];
+  int* part = partFor(path);
+  const size_t len = data.bytes();
+  for (;;) {
+    wineador::logPartPath(partPath, sizeof(partPath), path, *part);
+    f = SD.open(partPath, FILE_APPEND);
+    if (!f) return false;
+    const uint64_t add = len + 1 + (f.size() == 0 && header ? strlen(header) : 0);
+    if (!wineador::logFileFull(f.size(), add)) break;
+    f.close();
+    if (++*part > 99) return false;
+  }
+  const size_t before = f.size();
+  bool ok = true;
+  if (f.size() == 0 && header) {
+    *stage = "header";
+    ok = f.write((const uint8_t*)header, strlen(header)) == strlen(header);
+  } else if (newlineFirst) {
+    // A retry after a partial write: start a fresh line, so the fragment stays one
+    // visibly broken row instead of running into the next.
+    *stage = "data";
+    ok = f.write((const uint8_t*)"\n", 1) == 1;
+  }
+  if (ok) {
+    *stage = "data";
+    ok = data.writeTo(f);
+  }
+  *grew = f.size() > before;
+  f.close();
+  return ok;
+}
+
+// The one place the card is written. A failed write is retried ONCE after a remount
+// (a single transfer error, B4 night 1, should lose nothing); only a second failure
+// marks the card failed. A recovered retry is counted and logged.
+bool appendFile(const char* path, const char* header, const Payload& data) {
   gBusySince = millis();
   gBusy = true;
   const uint32_t t0 = millis();
-  bool ok = true;
-  if (!SD.exists("/logs") && !SD.mkdir("/logs")) ok = false;
-  if (ok) {
-    char dir[24];
-    const char* slash = strrchr(path, '/');
-    const size_t dl = slash ? (size_t)(slash - path) : 0;
-    if (dl > 0 && dl < sizeof(dir)) {
-      memcpy(dir, path, dl);
-      dir[dl] = 0;
-      if (strcmp(dir, "/logs") != 0 && !SD.exists(dir) && !SD.mkdir(dir)) ok = false;
+  const char* stage = "";
+  bool grew = false;
+  bool ok = appendOnce(path, header, data, false, &stage, &grew);
+  if (!ok) {
+    const char* firstStage = stage;
+    const bool firstGrew = grew;
+    if (gRetry && mountCard()) ok = appendOnce(path, header, data, firstGrew, &stage, &grew);
+    if (ok) {
+      withStats([&](Stats& s) {
+        s.retries++;
+        snprintf(s.lastRetry, sizeof(s.lastRetry), "%s at %s%s", path, firstStage, firstGrew ? " (partial)" : "");
+      });
+      gRetryNote = true;
+    } else {
+      char what[48];
+      snprintf(what, sizeof(what), "write failed (%s%s):", gRetry ? stage : firstStage, gRetry ? ", retried" : "");
+      setError(what, path);
     }
   }
-  // FAT32 holds no file of 4 GiB or more: if this write would pass the limit, move
-  // on to the next part (-p2, -p3 ...). The part in use is remembered per file.
-  File f;
-  char partPath[48];
-  if (ok) {
-    int* part = partFor(path);
-    for (;;) {
-      wineador::logPartPath(partPath, sizeof(partPath), path, *part);
-      f = SD.open(partPath, FILE_APPEND);
-      if (!f) { ok = false; break; }
-      const uint64_t add = len + (f.size() == 0 && header ? strlen(header) : 0);
-      if (!wineador::logFileFull(f.size(), add)) break;
-      f.close();
-      if (++*part > 99) { ok = false; break; }
-    }
-  }
-  if (ok && f.size() == 0 && header) ok = f.write((const uint8_t*)header, strlen(header)) == strlen(header);
-  if (ok) ok = f.write((const uint8_t*)data, len) == len;
-  if (f) f.close();
   const uint32_t ms = millis() - t0;
   gBusy = false;
   if (ms > gWorstSinceTake) gWorstSinceTake = ms;
@@ -143,7 +246,6 @@ bool appendFile(const char* path, const char* header, const char* data, size_t l
     s.lastWriteMs = ms;
     if (ms > s.worstWriteMs) s.worstWriteMs = ms;
   });
-  if (!ok) setError("write failed:", path);
   return ok;
 }
 
@@ -155,64 +257,71 @@ bool cardOk() {
   return ok;
 }
 
-void keepEvent(const char* line) {
-  if (gPendCount == kPending) {
-    gPendHead = (gPendHead + 1) % kPending;
-    gPendCount--;
-    withStats([](Stats& s) { s.eventsDropped++; });
-  }
-  strncpy(gPending[(gPendHead + gPendCount) % kPending], line, kLine - 1);
-  gPending[(gPendHead + gPendCount) % kPending][kLine - 1] = 0;
-  gPendCount++;
-  withStats([](Stats& s) { s.eventsPending = gPendCount; });
-}
-
-bool writeEvent(const char* line) {
+// How many of the oldest lines (from 0) go to the same file as line 0.
+uint16_t runLength(const LineRing& ring, LogKind kind, char* path, size_t pathLen) {
   int y, m;
-  monthOf(line, &y, &m);
-  char path[40];
-  wineador::logPath(path, sizeof(path), LogKind::Events, y, m);
-  if (!appendFile(path, gHeadE, line, strlen(line))) return false;
-  withStats([](Stats& s) { s.eventsWritten++; });
-  return true;
+  ring.peek(0, gScratch, sizeof(gScratch));
+  monthOf(gScratch, &y, &m);
+  wineador::logPath(path, pathLen, kind, y, m);
+  uint16_t k = 1;
+  for (; k < ring.count(); k++) {
+    int y2, m2;
+    ring.peek(k, gScratch, sizeof(gScratch));
+    monthOf(gScratch, &y2, &m2);
+    if (y2 != y || m2 != m) break;
+  }
+  return k;
 }
 
-void flushBatch() {
-  if (gBatchRows == 0) return;
-  if (!cardOk() || !appendFile(gBatchPath, gHeadR, gBatch, gBatchLen)) {
-    withStats([&](Stats& s) { s.rowsDropped += gBatchRows; s.rowsBuffered = 0; });
-  } else {
-    const int rows = gBatchRows;
+// Events: every one, oldest first, as soon as the card can take them.
+void flushEvents() {
+  while (!gEvents.empty() && cardOk()) {
+    char path[40];
+    Payload p;
+    p.ring = &gEvents;
+    p.n = runLength(gEvents, LogKind::Events, path, sizeof(path));
+    if (!appendFile(path, gHeadE, p)) break;
+    const uint16_t n = p.n;
+    gEvents.pop(n);
+    withStats([&](Stats& s) { s.eventsWritten += n; });
+  }
+}
+
+// Hourly rows: one file, as soon as the card can take them.
+void flushHourly() {
+  while (!gHourly.empty() && cardOk()) {
+    char path[40];
+    wineador::logPath(path, sizeof(path), LogKind::Hourly, 0, 0);
+    Payload p;
+    p.ring = &gHourly;
+    p.n = gHourly.count();
+    if (!appendFile(path, gHeadH, p)) break;
+    const uint16_t n = p.n;
+    gHourly.pop(n);
+    withStats([&](Stats& s) { s.hourlyWritten += n; });
+  }
+}
+
+// Readings: in batches of 16 (wear, 5.4); after an outage (`all`), everything kept.
+void flushReadings(bool all) {
+  while (!gRows.empty() && cardOk()) {
+    char path[40];
+    const uint16_t run = runLength(gRows, LogKind::Readings, path, sizeof(path));
+    // Wait for a full batch, unless told to write everything or the month changed.
+    if (!all && run == gRows.count() && run < wineador::kReadingsBatch) break;
+    Payload p;
+    p.ring = &gRows;
+    p.n = run;
+    withStats([&](Stats& s) { strncpy(s.readingsPath, path, sizeof(s.readingsPath) - 1); });
+    if (!appendFile(path, gHeadR, p)) break;
+    gRows.pop(run);
     withStats([&](Stats& s) {
-      s.rowsWritten += rows;
+      s.rowsWritten += run;
       s.flushes++;
-      s.lastFlushRows = rows;
+      s.lastFlushRows = run;
       s.lastFlushUptimeMs = (uint64_t)(esp_timer_get_time() / 1000);
-      s.rowsBuffered = 0;
     });
   }
-  gBatchLen = 0;
-  gBatchRows = 0;
-}
-
-void addReading(const char* line) {
-  int y, m;
-  monthOf(line, &y, &m);
-  char path[40];
-  wineador::logPath(path, sizeof(path), LogKind::Readings, y, m);
-  if (strcmp(path, gBatchPath) != 0) {            // a new month: finish the old file first
-    flushBatch();
-    strncpy(gBatchPath, path, sizeof(gBatchPath) - 1);
-    withStats([&](Stats& s) { strncpy(s.readingsPath, path, sizeof(s.readingsPath) - 1); });
-  }
-  if (!cardOk()) { withStats([](Stats& s) { s.rowsDropped++; }); return; }
-  const size_t n = strlen(line);
-  if (gBatchLen + n >= sizeof(gBatch)) flushBatch();
-  memcpy(gBatch + gBatchLen, line, n);
-  gBatchLen += n;
-  gBatchRows++;
-  withStats([&](Stats& s) { s.rowsBuffered = gBatchRows; });
-  if (gBatchRows >= wineador::kReadingsBatch) flushBatch();
 }
 
 void refreshSpace() {
@@ -224,15 +333,17 @@ void refreshSpace() {
   gLastSpace = millis();
 }
 
-// An event the task writes itself (retention, recovery): same format as the loop's.
+// An event the task writes itself (retention, recovery, retries): same format as
+// the loop's, into the same buffer, so it lands in order.
 void selfEvent(const char* type, const char* detail) {
-  char ts[24], line[kLine];
+  char ts[24];
   const time_t t = time(nullptr);
   struct tm tmv;
   gmtime_r(&t, &tmv);
   strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &tmv);
-  wineador::formatEventRow(line, sizeof(line), ts, true, (uint64_t)(esp_timer_get_time() / 1000), type, detail);
-  if (!cardOk() || !writeEvent(line)) keepEvent(line);
+  wineador::formatEventRow(gScratch, sizeof(gScratch), ts, true, (uint64_t)(esp_timer_get_time() / 1000), type, detail);
+  gEvents.push(gScratch, strlen(gScratch));
+  flushEvents();
 }
 
 void retention() {
@@ -262,7 +373,6 @@ void retention() {
     }
   }
   if (logs) logs.close();
-  // retentionPlan sorts files; keep the paths alongside by sorting an index copy
   static wineador::LogFileInfo sorted[48];
   for (int i = 0; i < n; i++) sorted[i] = files[i];
   const int del = wineador::retentionPlan(sorted, n, s.totalBytes, s.freeBytes, gYear, gMonth);
@@ -292,28 +402,130 @@ void tryRemount() {
   gLastRemount = millis();
   gBusySince = millis();
   gBusy = true;
-  SD.end();
-  const bool ok = SD.begin(pins::kSdCs, sdcard::spi(), 4000000);
+  const bool ok = mountCard();
   gBusy = false;
   if (!ok) return;
-  Stats before = stats();
   withStats([](Stats& s) { s.mounted = true; s.failed = false; });
   refreshSpace();
-  char d[160];
-  snprintf(d, sizeof(d), "SD card back: remounted; %d kept events written now, %lu events and %lu readings rows lost while out",
-           gPendCount, (unsigned long)before.eventsDropped, (unsigned long)before.rowsDropped);
-  // kept events first, in order
-  while (gPendCount > 0 && cardOk()) {
-    if (!writeEvent(gPending[gPendHead])) break;
-    gPendHead = (gPendHead + 1) % kPending;
-    gPendCount--;
-  }
-  withStats([](Stats& s) { s.eventsPending = gPendCount; });
+  publishBuffers();
+  Stats st = stats();
+  char d[200];
+  snprintf(d, sizeof(d), "SD card back: remounted; writing what was kept: %u events, %u readings rows, %u hourly rows "
+                         "(dropped while out, since boot: %lu events, %lu rows, %lu hourly)",
+           (unsigned)gEvents.count(), (unsigned)gRows.count(), (unsigned)gHourly.count(), (unsigned long)st.eventsDropped,
+           (unsigned long)st.rowsDropped, (unsigned long)st.hourlyDropped);
+  // Kept events first, then this note (so it follows them in time), then the rest.
+  flushEvents();
   selfEvent("sd", d);
+  flushHourly();
+  flushReadings(true);
+}
+
+// ---------------------------------------------------------------- stress test
+bool retriedNow(uint32_t retried, uint32_t prev) { return retried != prev; }
+
+// Test builds: 16-row batches of a realistic test-build readings row, back to back,
+// into /stress/. Counts writes, failures, retries and the step that failed.
+void stressRun() {
+  gStressRequest = false;
+  gStressStop = false;
+  const uint32_t normalHz = gSpiHz;
+  const bool normalRetry = gRetry;
+  gSpiHz = gStressKhz * 1000UL;
+  gRetry = gStressRetry;
+  withStats([&](Stats& s) {
+    s.stress = StressStats{};
+    s.stress.active = true;
+    s.stress.khz = gStressKhz;
+    s.stress.retry = gStressRetry;
+    s.stress.target = gStressTarget;
+  });
+  char path[40];
+  snprintf(path, sizeof(path), "/stress/stress-%luk-%s.csv", (unsigned long)gStressKhz, gStressRetry ? "retry" : "noretry");
+  // One realistic test-build row (~460 characters), 16 times = one batch (~7.4 KB),
+  // from the heap only while the test runs.
+  constexpr size_t kBatch = 16 * 470;
+  char* batch = (char*)malloc(kBatch);
+  if (!batch) {
+    gSpiHz = normalHz;
+    gRetry = normalRetry;
+    withStats([](Stats& s) { s.stress.active = false; s.stress.done = true; });
+    return;
+  }
+  size_t len = 0;
+  for (int r = 0; r < 16; r++) {
+    int k = snprintf(batch + len, kBatch - len, "2026-11-09T12:00:%02dZ,1", r);
+    len += k;
+    for (int c = 0; c < 12; c++) { k = snprintf(batch + len, kBatch - len, ",20.%02d,62.%02d,64.50,ok", c, r); len += k; }
+    k = snprintf(batch + len, kBatch - len, ",20.12,19.98,20.30,62.10,20.12,40,912,1,0,0,cool,3.5,97800,64\n");
+    len += k;
+  }
+  const bool mounted = mountCard();
+  uint32_t ok = 0, fail = 0, retried = 0, worst = 0, prevRetried = 0;
+  while (mounted && ok + fail < gStressTarget && !gStressStop) {
+    Payload p;
+    p.text = batch;
+    p.len = len;
+    const uint32_t t0 = millis();
+    gBusySince = t0;
+    gBusy = true;
+    const char* stage = "";
+    bool grew = false;
+    bool good = appendOnce(path, "# wineador SD stress test\n", p, false, &stage, &grew);
+    const char* firstStage = stage;
+    if (!good) {
+      // with the retry: remount and try once more; without: count it, remount, carry on
+      const bool remounted = mountCard();
+      if (gRetry && remounted) {
+        good = appendOnce(path, "# wineador SD stress test\n", p, grew, &stage, &grew);
+        if (good) retried++;
+      }
+    }
+    gBusy = false;
+    const uint32_t ms = millis() - t0;
+    if (ms > worst) worst = ms;
+    if (good) ok++;
+    else fail++;
+    // The step the FIRST attempt failed at, whenever it failed (recovered by the retry or not).
+    const bool firstFailed = !good || retriedNow(retried, prevRetried);
+    prevRetried = retried;
+    withStats([&](Stats& s) {
+      StressStats& x = s.stress;
+      x.writes = ok + fail;
+      x.failures = fail;
+      x.retries = retried;
+      x.worstMs = worst;
+      if (firstFailed) {
+        if (strcmp(firstStage, "folder") == 0) x.atFolder++;
+        else if (strcmp(firstStage, "open") == 0) x.atOpen++;
+        else if (strcmp(firstStage, "header") == 0) x.atHeader++;
+        else x.atData++;
+      }
+    });
+    vTaskDelay(1);                       // let the idle task run
+    // pass a queued line through now and then, so logging carries on
+    Msg m;
+    if (xQueueReceive(gQ, &m, 0) == pdTRUE) {
+      if (m.kind == Kind::Reading) gRows.push(m.text, strlen(m.text));
+      else if (m.kind == Kind::Event) gEvents.push(m.text, strlen(m.text));
+      else gHourly.push(m.text, strlen(m.text));
+    }
+  }
+  free(batch);
+  gSpiHz = normalHz;
+  gRetry = normalRetry;
+  const bool back = mountCard();
+  withStats([&](Stats& s) {
+    s.stress.active = false;
+    s.stress.done = true;
+    s.mounted = back;
+    s.failed = !back;
+  });
 }
 
 void task(void*) {
   for (;;) {
+    if (gStressRequest) { stressRun(); publishBuffers(); }
     Msg m;
     const bool got = xQueueReceive(gQ, &m, pdMS_TO_TICKS(500)) == pdTRUE;
     if (!gStarted) {
@@ -321,22 +533,27 @@ void task(void*) {
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
+    if (got) {
+      // Into its buffer first: written in order, or kept while the card is out
+      // (the oldest dropped and counted when a buffer is full).
+      LineRing& r = m.kind == Kind::Reading ? gRows : m.kind == Kind::Event ? gEvents : gHourly;
+      r.push(m.text, strlen(m.text));
+    }
     if (!cardOk() && millis() - gLastRemount >= kRemountMs) tryRemount();
     if (cardOk() && !gRetentionDone) retention();
     if (cardOk() && millis() - gLastSpace >= kSpaceRefreshMs) refreshSpace();
-    if (!got) continue;
-    switch (m.kind) {
-      case Kind::Reading: addReading(m.text); break;
-      case Kind::Event:
-        if (!cardOk() || !writeEvent(m.text)) keepEvent(m.text);
-        break;
-      case Kind::Hourly: {
-        char path[40];
-        wineador::logPath(path, sizeof(path), LogKind::Hourly, 0, 0);
-        if (cardOk() && appendFile(path, gHeadH, m.text, strlen(m.text))) withStats([](Stats& s) { s.hourlyWritten++; });
-        break;
-      }
+    if (gRetryNote) {
+      gRetryNote = false;
+      Stats st = stats();
+      char d[160];
+      snprintf(d, sizeof(d), "SD write error, retried after a remount: OK (%s; %lu retries since boot)", st.lastRetry,
+               (unsigned long)st.retries);
+      selfEvent("sd", d);
     }
+    flushEvents();
+    flushHourly();
+    flushReadings(false);
+    publishBuffers();
   }
 }
 
@@ -347,7 +564,8 @@ void send(Kind k, const char* line) {
   strncpy(m.text, line, kLine - 1);
   m.text[kLine - 1] = 0;
   if (xQueueSend(gQ, &m, 0) != pdTRUE) {
-    withStats([&](Stats& s) { if (k == Kind::Reading) s.rowsDropped++; else s.eventsDropped++; });
+    if (k == Kind::Reading) gQueueDropsRows++;
+    else gQueueDropsEvents++;
   }
 }
 
@@ -358,8 +576,22 @@ void begin(const char* readingsHeader, const char* eventsHeader, const char* hou
   gHeadR = dupe(readingsHeader);
   gHeadE = dupe(eventsHeader);
   gHeadH = dupe(hourlyHeader);
+  // The outage buffers, once, from the heap (sizes per board).
+  // If the heap ever could not supply one, that buffer holds nothing (lines are dropped and counted).
+  auto ring = [](size_t bytes, uint16_t lines) {
+    char* b = (char*)malloc(bytes);
+    return new LineRing(b, b ? bytes : 0, b ? lines : 0);
+  };
+  gEvP = ring(board::kSdEventsBytes, board::kSdEventsKept);
+  gRowP = ring(board::kSdRowsBytes, board::kSdRowsKept);
+  gHrP = ring(board::kSdHourlyBytes, board::kSdHourlyKept);
   const bool mounted = sdcard::mounted();     // mounted at boot by sdcard::begin
-  withStats([&](Stats& s) { s.mounted = mounted; s.failed = !mounted; if (!mounted) snprintf(s.lastError, sizeof(s.lastError), "no card at boot"); });
+  withStats([&](Stats& s) {
+    s.mounted = mounted;
+    s.failed = !mounted;
+    if (!mounted) snprintf(s.lastError, sizeof(s.lastError), "no card at boot");
+    s.spiKhz = sdcard::kSpiHz / 1000;
+  });
   gLastRemount = millis();
   gQ = xQueueCreate(kQueueLen, sizeof(Msg));
   // Core 0, priority 0 — the same as core 0's idle task, so the two share the core
@@ -398,5 +630,16 @@ uint32_t takeWorstMs() {
 bool writing() { return gBusy; }
 
 uint32_t stalledMs(uint32_t nowMs) { return gBusy ? nowMs - gBusySince : 0; }
+
+bool stressStart(uint32_t khz, bool retry, uint32_t writes) {
+  if (gStressRequest || stats().stress.active) return false;
+  gStressKhz = khz;
+  gStressRetry = retry;
+  gStressTarget = writes;
+  gStressRequest = true;
+  return true;
+}
+
+void stressStop() { gStressStop = true; }
 
 }  // namespace sdlog

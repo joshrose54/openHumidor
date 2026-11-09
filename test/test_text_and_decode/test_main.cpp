@@ -283,6 +283,20 @@ void test_stage6_serial_interface_commands() {
   TEST_ASSERT_TRUE(parseCommand("run soak", true, a) == Command::Run);
   TEST_ASSERT_EQUAL_INT(kSoakScenario, a.arg);
   TEST_ASSERT_TRUE(parseCommand("status now", false, a) == Command::Unknown);
+  // the SD stress test
+  TEST_ASSERT_TRUE(parseCommand("sdstress 4000 noretry 2000", true, a) == Command::SdStress);
+  TEST_ASSERT_EQUAL_INT(4000, a.arg);
+  TEST_ASSERT_EQUAL_INT(0, a.arg2);
+  TEST_ASSERT_EQUAL_INT(2000, a.arg3);
+  TEST_ASSERT_TRUE(parseCommand("sdstress 1000 retry 2500", true, a) == Command::SdStress);
+  TEST_ASSERT_EQUAL_INT(1, a.arg2);
+  TEST_ASSERT_TRUE(parseCommand("sdstress stop", true, a) == Command::SdStress);
+  TEST_ASSERT_EQUAL_INT(-1, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("sdstress 100 retry 10", true, a) == Command::SdStress);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);                       // below 400 kHz
+  TEST_ASSERT_TRUE(parseCommand("sdstress 1000 maybe 10", true, a) == Command::SdStress);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("sdstress 1000 retry 10", false, a) == Command::TestOnly);
 }
 
 void test_status_line_control_text() {

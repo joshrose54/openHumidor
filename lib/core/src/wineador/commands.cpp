@@ -120,6 +120,20 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
     a.arg = (n == 2) ? channelWord(w[1]) : -2;
     return c[0] == 'c' ? Command::InjectCrc : Command::InjectTimeout;
   }
+  if (strcmp(c, "sdstress") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    if (n == 2 && strcmp(w[1], "stop") == 0) { a.arg = -1; return Command::SdStress; }
+    int khz, writes;
+    const int retry = (n == 4) ? (strcmp(w[2], "retry") == 0 ? 1 : strcmp(w[2], "noretry") == 0 ? 0 : -1) : -1;
+    if (n == 4 && toInt(w[1], &khz) && khz >= 400 && khz <= 9999 && retry >= 0 && toInt(w[3], &writes) && writes > 0) {
+      a.arg = khz;
+      a.arg2 = retry;
+      a.arg3 = writes;
+    } else {
+      a.arg = -2;
+    }
+    return Command::SdStress;
+  }
   if (strcmp(c, "stop") == 0 && n == 1) return testBuild ? Command::Stop : Command::TestOnly;
   if (strcmp(c, "stall") == 0 && n == 1) return testBuild ? Command::Stall : Command::StallNotAllowed;
 

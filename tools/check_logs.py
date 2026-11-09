@@ -84,8 +84,17 @@ def check_header(path, comments, kind, profile, table):
             return
     prof = [c for c in comments if c.startswith("# profile ")]
     if not prof or not prof[0].startswith(f"# profile {profile}"):
-        report(False, f"{os.path.basename(path)} header profile", f"{prof[0] if prof else 'none'}; expected {profile}")
-        return
+        # A month's file is made by the first build that logs that month; a later build
+        # appends to it. Only fail when no boot in the file is from the expected profile.
+        boots = []
+        if kind == "events":
+            boots = [e for e in load_events([path]) if e["type"] == "boot" and f"profile {profile.upper()}" in e["detail"]]
+        if boots:
+            report(None, f"{os.path.basename(path)}: made by an earlier build ({prof[0][2:] if prof else 'none'}); "
+                         f"{len(boots)} later boot(s) as {profile}")
+        else:
+            report(False, f"{os.path.basename(path)} header profile", f"{prof[0] if prof else 'none'}; expected {profile}")
+            return
     if not any(c.startswith("# firmware ") for c in comments):
         report(False, f"{os.path.basename(path)} header", "no firmware line")
         return
@@ -209,6 +218,8 @@ def main():
     ap.add_argument("--profile", choices=["bench", "real"], required=True)
     ap.add_argument("--test24", action="store_true")
     ap.add_argument("--soak", action="store_true")
+    ap.add_argument("--outage", action="store_true",
+                    help="the SD stress test's card pull: everything kept in RAM reached the card, in order")
     a = ap.parse_args()
 
     logs = os.path.join(a.card, "logs")
@@ -282,6 +293,35 @@ def main():
         report(any(e["type"] == "sd" and "FAILURE" in e["detail"] for e in events), "SD flush failure logged")
         report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
 
+    if a.outage:
+        # Events in order: uptime never goes back within a boot.
+        back, prev = 0, None
+        for e in events:
+            if e["type"] == "boot":
+                prev = None
+                continue
+            if prev is not None and e["up"] < prev:
+                back += 1
+            prev = e["up"]
+        report(back == 0, "events in order (uptime never goes back within a boot)", f"{back} out of order" if back else "")
+        notes = [e for e in events if e["type"] == "sd" and "writing what was kept" in e["detail"]]
+        for e in notes:
+            report(None, f"{e['ts']} {e['detail']}")
+        report(bool(notes), "the card came back and wrote what was kept")
+        # Readings in order and without gaps: consecutive rows no more than 2.5 x the slow log interval apart.
+        if all_rows and header:
+            ts = [dt.datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%SZ") for r in all_rows if len(r) == len(header)]
+            order = sum(1 for x, y in zip(ts, ts[1:]) if y < x)
+            gaps = [(x, y) for x, y in zip(ts, ts[1:]) if (y - x).total_seconds() > 150]
+            report(order == 0, "readings rows in order", f"{order} out of order" if order else "")
+            report(not gaps, "no gap in the readings (every row kept while the card was out reached it)",
+                   "; ".join(f"{x:%H:%M:%S} -> {y:%H:%M:%S}" for x, y in gaps[:5]))
+        if os.path.isfile(hourly):
+            comments, h, rows = read_csv(hourly)
+            hours = [dt.datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%SZ") for r in rows if r and r[0][:2] == "20" and int(r[1] or 0) == 1]
+            missing = [x for x, y in zip(hours, hours[1:]) if (y - x).total_seconds() != 3600]
+            report(not missing, "hourly rows consecutive (trusted hours)", f"jump after {missing[0]:%H:%M}" if missing else f"{len(hours)} hours")
+
     if a.soak:
         verdicts = [e for e in events if e["type"] == "scenario" and "========" in e["detail"]]
         if verdicts:
@@ -289,8 +329,30 @@ def main():
             report("PASS:" in last, "the soak scenario's own verdict (from the events file)", last.split("========")[-1].strip())
         else:
             report(False, "the soak scenario's own verdict", "no scenario PASS/FAIL line in the events file")
-        boots = [e for e in events if e["type"] == "boot"]
-        report(len(boots) == 1, "no resets: one boot in the events file", f"{len(boots)} boots")
+        # No reset during the soak: no boot event between the soak's start and its verdict.
+        # Boots before it (earlier tests on the same card) or after it are only noted.
+        start = next((i for i, e in enumerate(events) if e["type"] == "scenario" and "[run 100" in e["detail"]), None)
+        end = next((i for i, e in enumerate(events) if e["type"] == "scenario" and "======== run 100" in e["detail"]), None)
+        if start is None or end is None:
+            report(False, "no resets during the soak", "the soak's start or verdict is not in the events file")
+        else:
+            # Uptime only grows within one boot, so a reset shows as uptime dropping below the
+            # soak's start, even if that boot lost the time and wrote to another month's file.
+            # (Events kept through an SD outage are written late, so small steps back are normal.)
+            win = events[start:end + 1]
+            inside = [e for e in win if e["type"] == "boot"]
+            back = sum(1 for e in win if e["up"] < win[0]["up"])
+            hours = (win[-1]["up"] - win[0]["up"]) / 3.6e6
+            total = sum(1 for e in events if e["type"] == "boot")
+            report(not inside and back == 0, "no resets during the soak (uptime grows from its start to its verdict)",
+                   "; ".join(f"{e['ts']} {e['detail'][:60]}" for e in inside[:3]) or
+                   (f"{back} event(s) with uptime below the soak's start" if back else
+                    f"{hours:.1f} h of uptime between start and verdict; {total} boot(s) on the card, none during the soak"))
+        events = events[start:end + 1] if start is not None and end is not None else events
+        fails = [e for e in events if e["type"] == "sd" and "FAILURE" in e["detail"]]
+        retried = [e for e in events if e["type"] == "sd" and "retried after a remount: OK" in e["detail"]]
+        report(not fails, "no SD failures", "; ".join(f"{e['ts']} {e['detail'][:90]}" for e in fails[:3]))
+        report(None, f"SD writes recovered by a retry: {len(retried)}")
         breaches, starts, maxstops = audit(events, TIMERS[a.profile])
         report(not breaches, "no guard ever breached (min off, min on, max run, crossover, interlock side)",
                "; ".join(breaches[:5]) + (f" (+{len(breaches) - 5} more)" if len(breaches) > 5 else ""))

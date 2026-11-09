@@ -9,7 +9,7 @@
 //   exclude chN on|off              (user settings and manual excludes, saved to NVS)
 // Test builds only:
 //   stall · run <n> (or "run soak") · stop · resets [clear] · fan <pct>|auto ·
-//   humidcool on|off · crc chN · timeout chN
+//   humidcool on|off · crc chN · timeout chN · sdstress <kHz> retry|noretry <writes> | stop
 
 #include "wineador/types.h"
 
@@ -44,6 +44,8 @@ enum class Command : uint8_t {
   Exclude,           // "exclude ch3 on|off": arg = channel 2..7 (-2 = bad), arg2 = 1 on / 0 off
   InjectCrc,         // TEST BUILDS ONLY: "crc ch3" — the next read of ch3 fails its CRC (B3 test 24)
   InjectTimeout,     // TEST BUILDS ONLY: "timeout ch3" — the next read of ch3 times out
+  SdStress,          // TEST BUILDS ONLY: "sdstress <kHz> retry|noretry <writes>"; "sdstress stop" (arg -1).
+                     //   arg = kHz (400-9999; -2 = bad), arg2 = 1 retry / 0 noretry, arg3 = writes
   TestOnly,          // a test-build command typed in a cabinet build
   Unknown,
 };
@@ -53,6 +55,7 @@ constexpr int kSoakScenario = 100;   // "run soak" (B4 step 1)
 struct CommandArgs {
   int arg = -1;
   int arg2 = -1;
+  int arg3 = -1;
   float f = 0;
 };
 
