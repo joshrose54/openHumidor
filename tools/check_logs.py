@@ -342,8 +342,15 @@ def main():
         report(any("WiFi on" in e["detail"] for e in wifi) and any("WiFi off" in e["detail"] for e in wifi),
                "the radio cycled through an NTP window (WiFi on, then off)",
                "; ".join(f"{e['ts']} {e['detail'][:40]}" for e in wifi[-4:]))
-        below = [e for e in events if e["type"] == "heap"]
-        report(not below, "no heap-floor event", below[0]["detail"][:90] if below else "")
+        # Only this run's boot counts: the last boot before the stress run's result.
+        if done:
+            di = events.index(done[-1])
+            boot_i = max((i for i, e in enumerate(events[:di]) if e["type"] == "boot"), default=0)
+            below = [e for e in events[boot_i:] if e["type"] == "heap"]
+            earlier = [e for e in events[:boot_i] if e["type"] == "heap"]
+            report(not below, "no heap-floor event in the stress run's boot", below[0]["detail"][:90] if below else "")
+            if earlier:
+                report(None, f"heap-floor event in an earlier boot: {earlier[0]['ts']} {earlier[0]['detail'][:70]}")
 
     if a.outage:
         # Events in order: uptime never goes back within a boot.

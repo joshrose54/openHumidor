@@ -915,7 +915,7 @@ static void watchSd(uint32_t now) {
   }
   if (st.failed && !gSdFailedShown && gLogStarted) {
     gSdFailedShown = true;
-    eventlog::log("sd", "SD FLUSH FAILURE: %s. Logging paused (events kept in RAM, readings rows dropped); control "
+    eventlog::log("sd", "SD FLUSH FAILURE: %s. Logging paused (events, readings and hourly rows kept in RAM); control "
                         "unaffected; remount tried every 30 s", st.lastError[0] ? st.lastError : "card not mounted");
   } else if (!st.failed && gSdFailedShown) {
     gSdFailedShown = false;
@@ -1045,7 +1045,9 @@ void loop() {
     }
     if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
   }
-  timesync::update(now);                  // Rev N: the radio on only for the NTP sync
+  // Rev N: the radio on only for the NTP sync. The first window waits for the clock
+  // (from the RTC, or 10 s without one), so its event isn't dated 1970.
+  if (gClockSet || now >= 10000) timesync::update(now);
   sdlog::setPaused(board::kSdPauseWhileWifi && timesync::radioOn());   // Rev N: no card writes meanwhile
   {
     char note[120];
