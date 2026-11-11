@@ -1,6 +1,7 @@
 # Wineador controller: the next board
 
-Draft, to send after B4. Compared with **Rev P** (described in `wineador-spec.md`).
+The brief for the next controller board. Compared with **Rev P**, the current design (described
+in `wineador-spec.md`); the bench board we tested on is Rev N, which is Rev P without D7, R17–R20 and TP7.
 
 ## How we'd like to work
 
@@ -181,7 +182,8 @@ consider — your judgement on all of them:
 
 - **Grounding:** a solid ground plane under the logic; the high-current returns (heater, relay,
   fans, blowers) kept off the path the logic, sensors and SD use. Is **4 layers** worth it over 2?
-- **Power:** decoupling at every IC; bulk capacitance where loads switch and at the module and SD
+- **Power:** keep the S3's WiFi current bursts off the SD card's supply (see question 2 on
+  separate regulators); decoupling at every IC; bulk capacitance where loads switch and at the module and SD
   card; the 12V input filtered so load surges don't reach the 3.3V side.
 - **Switching parts:** any regulators (including the blower circuit) and the load MOSFETs kept away
   from the antenna, the sensor lines and the SD and LCD lines; flyback or snubbing on every
@@ -200,7 +202,11 @@ consider — your judgement on all of them:
 
 1. **Module variant** — N8R2, or something else? Which pins does its PSRAM use?
 2. **Power tree** — where 3.3V comes from (from 5V, or straight from 12V), the regulator, and the
-   USB power path (ideal diode, power-path IC, or a diode).
+   USB power path (ideal diode, power-path IC, or a diode). **Separate regulators?** On the current
+   board the ESP32's WiFi bursts share one 3.3V regulator with the SD card, mux, RTC and sensors,
+   and they reset the SD card. Would you give the S3 its own regulator sized for WiFi bursts, and a
+   separate quiet one for the SD card (and perhaps the sensors, mux and RTC)? Or another way — your
+   judgement.
 3. **Supervisor** — the part and threshold, and how it works with the EN capacitor and USB
    flashing.
 4. **I²C buses** — we'd like the **RTC on its own bus**, so a faulty sensor holding the bus low
@@ -235,10 +241,10 @@ run these first, so please design so they can pass:
 - USB and 12V in any order: safe.
 - A supply dip: a clean reset.
 - Every load quiet through boot; blowers at full speed from power-up; ion generator off.
+- **A deep SD test with WiFi on all the time:** tens of thousands of large writes back to back,
+  with **zero first-try failures**, plus a card pull. The current board failed about 1 in 316.
+- **Free heap above 30 KB at all times,** including while WiFi connects (firmware, using the
+  module's PSRAM).
 
 **Tests you'd add.** Please suggest any bring-up checks your design needs — only ones that would
 catch a real fault, each with what to measure and the expected value. Not tests for their own sake.
-
-## Still to add
-
-- Anything B4 turns up.

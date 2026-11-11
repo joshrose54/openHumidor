@@ -56,12 +56,13 @@ the serial, on each probe.
 |---|---|---|
 | 2026-10-08 10:44 | −0.0s | Baseline |
 | 2026-10-08 10:54 | −0.3s | 11 min, after a 10-minute unplug |
+| 2026-11-11 | Time lost | At a power-up (OSF set), corrected by NTP. The LIR2032 is flat and the HW-084 can't charge it from 3.3V; no action on Rev N |
 | 2026-11-08 | Set from NTP | B3 test 16; cell refitted with power on, within 2 s of NTP after a restart |
 | 2026-11-07 | Time lost | Read 2000-01-01 after the J9 lead was reseated; then kept counting through a 12V cut. Not reset — the DS3231 is replaced on the next board |
 
 ### SD card
 
-64GB high-endurance, FAT32, MBR, volume WINEADOR. SPI 4MHz. Format on macOS with
+64GB high-endurance, FAT32, MBR, volume WINEADOR. SPI 1MHz from B4 (4MHz before). Format on macOS with
 `sudo diskutil eraseDisk FAT32 WINEADOR MBRFormat /dev/diskN` — Disk Utility may refuse FAT32
 above 32GB, and the ESP32 library needs MBR not GPT.
 
@@ -89,7 +90,10 @@ NO2 output.
 | Build size, each ESP32 build | ~8% RAM, ~31% flash at stage 1; ~78% from stage 3 (WiFi + SNTP); stage 4: cabinet 77.6%, test builds 81.1%; stage 5: 77.8% / 82.1%. **Stage 6, min_spiffs (1.9 MB slots): cabinet 53.6%, test builds 56.7%** |
 | Free heap | ~268 KB without WiFi, ~170 KB with it, ~98 KB with the stage 6 logging buffers |
 | Longest loop pass, stuck-bus recovery | ~39 ms (the SDA short) |
-| Boot to first NTP sync | 2–16 s |
+| Boot to first NTP sync | 2–16 s (WiFi always on); 15–76 s with WiFi switched on for the sync (B4) |
+| Free heap, B4 build (Rev N buffers 60/30/24) | Idle, WiFi off: 85–137 KB; lowest after a card write: 41.7 KB; **during an NTP window: 29.3–39.7 KB** (WiFi's connect buffers) |
+| Radio on/off (`WiFi.mode`) | 30–110 ms per switch — done in its own task |
+| Loop pass through an NTP window | 4.0–4.7 ms (one interval 9.4 ms) |
 | Sensor recovery on the bench after a replug | ~3 min (10 reads × 15 s, plus the serial re-read), then the 30 s hold |
 
 **Cabinet model rates** (test builds only, B3):
@@ -771,6 +775,53 @@ untrusted. The firmware now reads OSF before anything is logged (spec 5.6); repe
 correctly.
 ---
 
+## B4 — Bench soak, Rev N
+
+### B4.1 Bench soak — ✅ after a firmware fix
+
+`real_test` (real profile timers, scripted readings, real sensor bus), heater pad on J10 3–4, SSR
+control input on J10 1–2 with no mains, blowers and humidifier fan connected. **21 h**, one boot.
+
+- **Scenario verdict:** PASS — starts 15/12/15 compressor/heater/humidifier (minima 10/6/4), max-run
+  stops 4/4/4, 2 strips, 8 crossovers, 7 humidifier calls; no guard breached. Guard audit clean at
+  all 84 progress reports and on re-audit of the events file.
+- **Resets:** none. **CRC failures:** none on any real sensor.
+- **Trends, first 2 h against last 2 h:** free heap 97,880 → 97,584 bytes; SD write time 12.7 →
+  10.9 ms; loop max 5.8 → 5.8 ms (worst single pass 14.6 ms).
+- **Card:** 2,912 readings rows, 22 hourly rows, 365 events.
+- **By hand:** blowers ran, pad warm, chips cool, humidifier fan ran.
+- **Clock test after the soak:** off for 2+ minutes, booted with no lost time, NTP found the
+  DS3231 within 1 s.
+
+**Problem and fix — SD writes.** The soak had 2 readings-batch write failures (16 and 32 rows lost).
+Investigated with stress runs of large batches written back to back:
+- **Every failure the same:** all data blocks accepted, then SEND_STATUS returned R1 **0x03** ("in
+  idle state") — the card had reset just after taking the data.
+- **1 in 316** writes failed with WiFi on, **1 in 6,000** with it off. Not the card (a new one did
+  the same), not the SPI clock (1 MHz no better than 4 MHz), not timing, FAT allocation, another task
+  or memory. **Cause: WiFi's current bursts on the DevKit's AMS1117 3.3V rail**, which the SD module
+  shares.
+- **Also found:** 5 in 6,000 writes **lost silently** at file close, with no error reported.
+
+**Fixes (spec 5.2, 5.4):** every write verified (flushed, size checked before close) and retried
+once after a remount; on Rev N, WiFi only for the NTP sync, card writes paused while it's on, the
+radio switched by its own task; outage buffers 60 events / 30 readings rows / 24 hourly rows; SD
+clock 1 MHz.
+
+**Re-run on the fixed firmware:**
+- **Stress, 6,000 writes,** NTP window mid-run: 6,000 written, **0 failures, 0 retries, 0 size
+  mismatches**. Writes paused 42 s for the window, then carried on.
+- **Card pull** across the top of an hour (5 min), with an NTP window while it was out: 12 events,
+  9 readings rows and the hourly row held and written in order on remount, none dropped. Checker:
+  30 passed; the one fail was a leftover 2000-01 file from an earlier build's lost-time boot.
+- **Final check, 2,000 writes,** NTP window mid-run, after the radio task and buffer changes: 0
+  failures, 0 retries, 0 size mismatches; loop 4.0–4.7 ms through the window.
+- **Heap:** the 30 KB floor held outside NTP windows (lowest after a card write 41.7 KB). During
+  windows WiFi's own buffers took it to **29.3 KB** at lowest — logged, and accepted on Rev N (spec
+  5.2); the next board must meet it at all times.
+
+---
+
 ## 3. Track A — cabinet findings and data
 
 Inkbird-controlled, before the controller. Moisture as vapour pressure (kPa) where stated, which
@@ -885,6 +936,13 @@ hold a day, and compare that level's dip against its A2 average.
 
 ## 4. Open issues
 
+**The SD cure in hardware is unproven.** On Rev N the SD errors were avoided (WiFi only for NTP,
+writes paused while it's on), not cured. The next board's SD slot and power design (next-board
+list 4.4, 4.7) are proven by BP2's deep SD test, with WiFi on all the time.
+
+**Heap floor during WiFi connects** — 29.3 KB at lowest on Rev N (B4.1), accepted there. The next
+board, with PSRAM, must meet 30 KB at all times (BP2).
+
 **For B6's procedures (agreed ideas, not yet in the spec):**
 - The tuning dashboard offers a **log download and settings changes over WiFi** (LAN only), so
   Claude Code can fetch the data and apply an approved change without USB or pulling the card.
@@ -896,7 +954,7 @@ hold a day, and compare that level's dip against its A2 average.
 once crashed the ESP32 (`INT_WATCHDOG`, recovered by itself) and once froze it: silent, not in
 flashing mode, no brownout or watchdog reset — only an EN reset recovered it. Not seen with the
 cabinet's loads (heater pad and humidifier fan). Likely a ground or supply jolt from the cold
-filament's surge through Q3. Watch for it in B4.
+filament's surge through Q3. Not seen in B4. Watch for it on the next board.
 
 **RTC lost ~2h27m before 2026-10-07.** Found at a calibration pre-flight. The cell held the clock
 through a deliberate 10-minute unplug, so the cause is unknown — possibly intermittent cell contact
@@ -911,6 +969,13 @@ control register changes, the 32kHz output. Timekeeping is unaffected. Firmware 
 
 ## 5. Gotchas
 
+- **The SD card resets on WiFi current bursts** when it shares the DevKit's AMS1117 3.3V rail: the data is accepted, then SEND_STATUS returns R1 0x03.
+- **The Arduino SD/VFS stack doesn't report a write error at file close.** Flush, then check the file size, before closing.
+- **`WiFi.mode()` takes 30–110 ms** to switch the radio on or off — never call it from the control loop.
+- **SNTP started before WiFi has connected can miss its window.** Start it once WiFi is up, and repeat every 10 s until it syncs.
+- **WiFi's memory use while connecting varies by ~10 KB** between connects; freeing other buffers doesn't raise its low point.
+- **Arduino `File`:** test it before closing — a closed `File` reads as false.
+- **The SD driver's own messages are compiled out** at `CORE_DEBUG_LEVEL=0`; failures are only visible through the firmware's own checks.
 - **Floating outputs read stray volts.** With nothing on J10, pin 3 (K1's open NO side) reads ~0.9V on a 10MΩ meter. Load it with 10kΩ and it reads 0V. Probably flux trapped under K1.
 - **Mux board (HW-617) pull-ups, measured:** SDA–VIN and SCL–VIN 10kΩ; SD2–VIN and SC2–VIN open. The main bus has 10kΩ on the mux plus 4.7kΩ on the DS3231; the channels have only the probes' own.
 - **Female sockets:** probe their solder joints underneath; meter tips don't reach the contacts from above.

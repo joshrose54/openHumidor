@@ -1169,7 +1169,9 @@ unsatisfied. Turning a load off must never depend
 on a sensor read, a log write or the network.
 
 **Free heap never below 30 KB**, including during WiFi bursts and SD writes; the lowest seen is
-logged in the readings.
+logged in the readings. On **Rev N** the floor applies outside NTP windows: while WiFi connects its
+own buffers dip it to ~29 KB, which is logged (card writes are paused). **The next board must meet
+it at all times.**
 
 **OTA updates** (from B6/B7): authenticated (5.5); a new image that fails to start properly rolls
 back to the previous one (min_spiffs keeps two app slots); after any update the normal boot hold
@@ -1236,12 +1238,13 @@ Local to SD, CSV throughout. Nothing pushed off the device.
 |---|---|---|
 | Readings | Every sample at full resolution | Indefinitely |
 | Events | Starts, stops, faults, setting changes, boots | Forever |
-| Hourly | Min, max and mean per hour, each channel and derived value | Forever — what the dashboard graphs from |
+| Hourly | Min, max and mean per hour, each channel and derived value; each load's on-time; lowest-ever free heap | Forever — what the dashboard graphs from |
 
 **Readings row:** timestamp · per-channel temperature, RH and raw RH (before calibration) · ambient temperature and RH · cabinet
 mean, min and max temperature · cabinet mean RH · active control value · fan
 PWM · fan RPM · compressor state · heater duty · humidifier state · interlock position ·
-per-channel error flags · time trusted (0/1) · longest loop pass in the interval · free heap · worst
+per-channel error flags · time trusted (0/1) · longest loop pass in the interval · free heap · lowest-ever
+free heap · worst
 SD write time. Cabinet aggregates cover channels 2–5 only. In test builds, the real sensor readings
 are logged alongside the scripted ones.
 
@@ -1251,7 +1254,8 @@ sensor excluded or recovered · fan tach stall · settings changed with old and 
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
-on/off with reason · heater, cooling or humidifier ineffective. **Guard blocks:** one event when
+on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
+time). **Guard blocks:** one event when
 an asked-for load becomes blocked, another when the reason changes or clears — not every pass.
 **CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
 
@@ -1261,10 +1265,10 @@ a log file that would pass 3.9 GB continues in a `-p2` part file. **Every write 
 mismatch is treated as a failed write. No write may be lost without being logged. **A failed write is retried once
 after a remount** — a permanent requirement, not a workaround; a recovered retry is logged and counted, not a failure. Only a second failure
 sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and remount —
-logging needs very little bandwidth. **During a card outage,** events (up to 100), readings rows (up
-to 60) and pending hourly rows are kept in RAM and written in order when the card returns; beyond
-that the oldest are dropped and counted. Buffer sizes are set per board (larger on the next board's
-PSRAM).
+logging needs very little bandwidth. **During a card outage,** events, readings rows and pending hourly
+rows are kept in RAM and written in order when the card returns; beyond that the oldest are dropped
+and counted. Buffer sizes are set per board — **Rev N: 60 events, 30 readings rows, 24 hourly rows**
+(heap); larger on the next board's PSRAM.
 
 **Self-describing headers** — comment lines then a column header. A file keeps the header of the build
 that created it; each boot event names its build, so later rows are still traceable.
@@ -1293,9 +1297,11 @@ never deleted. The Mac is the real archive — pull the card or download every f
 month. **At boot, set the ESP32 system clock from the DS3231 with `settimeofday`, TZ UTC** — the SD
 library dates files from the system clock, and left unset every file is dated 1 January 1980.
 **NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background; control never
-waits for it. **WiFi, per board:** on Rev N it connects only for the NTP sync and turns off once the
+waits for it; after a missed sync, the next try is 1 h later. **WiFi, per board:** on Rev N it connects only for the NTP sync and turns off once the
 sync has worked or after 2 minutes (it caused the SD errors and most of the heap use); on the next
-board it stays connected and reconnects by itself, for the dashboard and OTA. Each sync sets the system clock and
+board it stays connected and reconnects by itself, for the dashboard and OTA. **On Rev N, card writes
+pause while WiFi is on**; rows and events wait in the outage buffers and are written once it is
+off, so WiFi and card writes never overlap. Each sync sets the system clock and
 writes the DS3231 if it is more than 2 s out; the correction is logged. Until NTP has corrected a
 clock that lost time (OSF, 5.6), timestamps are marked untrusted. Local time only on the dashboard.
 
@@ -1456,7 +1462,7 @@ the PCB**. A failure in B3 is then a firmware fault.
 | B2 | Bench, perfboard | Mains and load hardware | ✅ |
 | BP | Bench, PCB | Bring-up — new on-board parts tested, the perfboard retired | ✅ Rev N — D7 checks, BP15 and BP16 repeat on Rev P |
 | B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | ✅ |
-| B4 | Bench | Soak, real profile, at least 20 hours | Pending |
+| B4 | Bench | Soak, real profile, at least 20 hours | ✅ |
 | BP2 | Bench, next board | Bring-up of the next board (SMD) and repeat of the B3 tests it affects — defined once the board is in the spec | Pending |
 | B5 | Cabinet | Install, on the next board. Fixed settings, serial interface | Pending |
 | B6 | Cabinet | Tuning. Settings to NVS, rough web dashboard | Pending |
@@ -1748,7 +1754,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 1 | Bench soak | **Test build, real profile timers**, at least 20 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures — retried writes logged and counted, and more than an occasional retry investigated, not accepted; SD latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
+| 1 | Bench soak | **Test build, real profile timers**, at least 20 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures — retried writes logged and counted, and more than an occasional retry investigated, not accepted; SD latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | ✅ |
 
 **A firmware fix found by the soak** that touches only the SD writing is proven by an **SD stress
 test**, not a full re-run, provided nothing else changed: a test build writes large readings
@@ -1760,7 +1766,13 @@ row and event reaching the card in order.
 
 The next board (SMD; `next-board-changes.md`) sits between B4 and B5. Its tests are written when
 the board is added to the spec: a bring-up like BP for its new parts, then every B3 test its changes
-affect, and a short soak. B5 runs on it.
+affect, and a short soak. B5 runs on it. **It must include:**
+- **A deep SD test,** running as in the cabinet with **WiFi on all the time**: at least 20,000
+  large writes back to back, a card pull with every buffered row and event written in order, and
+  **zero first-try failures** — the proof the new SD design cures what Rev N showed (build log).
+- **The 30 KB heap floor at all times**, including while WiFi connects and reconnects.
+- Running with no USB; USB plugged in and out and the monitor opened and closed with no restart;
+  a supply dip ending in a clean reset.
 
 ## B5 — Install in the cabinet
 
