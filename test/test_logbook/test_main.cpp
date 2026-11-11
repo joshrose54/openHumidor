@@ -85,7 +85,7 @@ void test_readings_header_has_profile_serials_and_columns() {
   TEST_ASSERT_NOT_NULL(strstr(h, "# ch7 serial 0x0E42EFBA ambient rh_gain 1.0151 rh_offset -3.475"));
   const char* cols = lastLine(h);
   TEST_ASSERT_EQUAL_INT(0, strncmp(cols, "timestamp,time_trusted,ch2_t,ch2_rh,ch2_rh_raw,ch2_flag", 54));
-  TEST_ASSERT_NOT_NULL(strstr(cols, ",loop_max_ms,heap_free,sd_worst_ms,"));
+  TEST_ASSERT_NOT_NULL(strstr(cols, ",loop_max_ms,heap_free,heap_min,sd_worst_ms,"));
   TEST_ASSERT_NOT_NULL(strstr(cols, ",ch7_bus_real\n"));
   // the cabinet build has no *_real columns
   info.testBuild = false;
@@ -225,13 +225,14 @@ void test_hourly_row() {
   h.addSweep(ok, t, rh, c, 40, 900);
   LoadOutputs on; on.cool = true;
   for (int i = 0; i < 90; i++) h.addOnTime(1000, on);
+  h.noteHeapMin(54321);
   char r[1500], hdr[3000];
   h.formatRow(r, sizeof(r));
   formatHourlyHeader(hdr, sizeof(hdr), LogHeaderInfo{});
   TEST_ASSERT_EQUAL_INT(countChar(lastLine(hdr), ','), countChar(r, ','));
   TEST_ASSERT_NOT_NULL(strstr(r, "2026-11-08T16:00:00Z,1,2,20.00,22.00,21.00,62.00,62.00,62.00,"));
   TEST_ASSERT_NOT_NULL(strstr(r, ",,,,,,,"));            // ch7 not healthy: blank
-  TEST_ASSERT_NOT_NULL(strstr(r, ",30.0,650,90,0,0\n"));  // fan mean, rpm mean, compressor 90 s
+  TEST_ASSERT_NOT_NULL(strstr(r, ",30.0,650,90,0,0,54321\n"));  // fan mean, rpm mean, compressor 90 s, heap_min
 }
 
 void test_worst_case_rows_fit_the_sd_queue_line() {

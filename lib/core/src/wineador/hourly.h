@@ -36,6 +36,9 @@ class HourlyStats {
   uint32_t hourKey() const { return key_; }
   uint32_t samples() const { return samples_; }
 
+  // The lowest free heap since boot, for the row (5.2).
+  void noteHeapMin(uint32_t bytes) { heapMin_ = bytes; }
+
   // The row for the hour so far (one line, newline included).
   int formatRow(char* out, size_t n) const;
 
@@ -47,6 +50,7 @@ class HourlyStats {
   Acc t_[kNumSensors], rh_[kNumSensors];
   Acc cabT_, cabRh_, ctl_, fan_, rpm_;
   uint64_t onMs_[3] = {};
+  uint32_t heapMin_ = 0;
 };
 
 }  // namespace wineador

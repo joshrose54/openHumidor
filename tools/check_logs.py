@@ -17,6 +17,9 @@ What it checks
               1980); loop_max_ms present (its maximum is reported).
   --test24    every 5.4 event type present (disturbance exempt until B6), the RTC
               lost-time and NTP-correction events, the retention deletion.
+  --stress    B4's SD stress run (events file): every write made, none lost, retries
+              counted, no file the wrong size, the radio cycled through an NTP window,
+              lowest free heap since boot at or above 30 KB.
   --soak      no reset (one boot); the scenario's own verdict; the guard audit again from the events file
               (min off, min on, max run, crossover, interlock side) using
               uptime_ms; the load counts; heap, SD write time and loop time not
@@ -39,6 +42,7 @@ TIMERS = {
                   u_off=20000, u_max=120000, xover=30000),
 }
 SLACK_MS = 1500
+HEAP_FLOOR = 30 * 1024          # spec 5.2: free heap never below 30 KB
 
 EVENT_TYPES = ["compressor", "heater", "humidifier", "interlock", "harvest", "guard", "crc", "timeout", "sensor",
                "fan", "settings", "boot", "sd", "i2c", "rtc", "ntp", "crossover", "strip", "exercise", "ineffective"]
@@ -141,6 +145,14 @@ def check_readings(path, table):
     report(month_bad == 0, f"{name}: every row's timestamp is in {month} (UTC month)", f"{month_bad} rows not" if month_bad else "")
     report(trust_bad == 0, f"{name}: time_trusted is 0 or 1")
     report("loop_max_ms" in idx, f"{name}: loop time logged (max per interval)", f"largest {loop_max:.1f} ms")
+    # The heap floor (5.2): the lowest free heap since boot, in every row from the build that added it.
+    if "heap_min" in idx:
+        lows = [int(r[idx["heap_min"]]) for r in rows if len(r) == len(header) and r[idx["heap_min"]].isdigit()]
+        if lows:
+            report(min(lows) >= HEAP_FLOOR, f"{name}: lowest free heap since boot at or above 30 KB",
+                   f"lowest {min(lows)} bytes")
+    else:
+        report(None, f"{name}: no heap_min column (written by a build before the 30 KB floor)")
     return header, rows
 
 
@@ -218,6 +230,8 @@ def main():
     ap.add_argument("--profile", choices=["bench", "real"], required=True)
     ap.add_argument("--test24", action="store_true")
     ap.add_argument("--soak", action="store_true")
+    ap.add_argument("--stress", action="store_true",
+                    help="B4's SD stress run: no lost writes, retries counted, verify and size checks, heap floor")
     ap.add_argument("--outage", action="store_true",
                     help="the SD stress test's card pull: everything kept in RAM reached the card, in order")
     a = ap.parse_args()
@@ -278,6 +292,12 @@ def main():
         check_header(hourly, comments, "hourly", a.profile, table)
         bad = sum(1 for r in rows if len(r) != len(h))
         report(bad == 0, f"hourly.csv: {len(rows)} rows with {len(h)} columns", f"{bad} wrong" if bad else "")
+        if "heap_min" in h:
+            k = h.index("heap_min")
+            lows = [int(r[k]) for r in rows if len(r) == len(h) and r[k].isdigit()]
+            if lows:
+                report(min(lows) >= HEAP_FLOOR, "hourly.csv: lowest free heap since boot at or above 30 KB",
+                       f"lowest {min(lows)} bytes")
 
     events = load_events(events_files)
     types = {e["type"] for e in events}
@@ -292,6 +312,38 @@ def main():
         report(any(e["type"] == "sd" and "deleted" in e["detail"] for e in events), "retention: oldest month deleted at boot")
         report(any(e["type"] == "sd" and "FAILURE" in e["detail"] for e in events), "SD flush failure logged")
         report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
+
+    if a.stress:
+        done = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD STRESS DONE:")]
+        checks = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD STRESS DONE checks:")]
+        if not done:
+            report(False, "the SD stress run's result is in the events file", "no 'SD STRESS DONE' line")
+        else:
+            d = done[-1]["detail"]
+            m = re.search(r"(\d+) of (\d+) writes, (\d+) failures, (\d+) retries", d)
+            if m:
+                w, target, fails, retries = (int(x) for x in m.groups())
+                report(w == target, "every stress write was made", f"{w} of {target}")
+                report(fails == 0, "no lost writes (every failed first try written by the retry)", f"{fails} lost")
+                report(None, f"retries counted: {retries} in {w} writes" + (f" (1 in {w // retries})" if retries else ""))
+            fails = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD FAIL #")]
+            report(None, f"failed first tries recorded: {len(fails)}")
+            if checks:
+                c = checks[-1]["detail"]
+                mm = re.search(r"size mismatches (\d+)", c)
+                if mm:
+                    report(int(mm.group(1)) == 0, "no file the wrong size (the verify step caught everything)",
+                           f"{mm.group(1)} mismatches")
+                mh = re.search(r"lowest since boot (\d+)", c)
+                if mh:
+                    report(int(mh.group(1)) >= HEAP_FLOOR, "lowest free heap since boot at or above 30 KB",
+                           f"lowest {mh.group(1)} bytes")
+        wifi = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("WiFi ")]
+        report(any("WiFi on" in e["detail"] for e in wifi) and any("WiFi off" in e["detail"] for e in wifi),
+               "the radio cycled through an NTP window (WiFi on, then off)",
+               "; ".join(f"{e['ts']} {e['detail'][:40]}" for e in wifi[-4:]))
+        below = [e for e in events if e["type"] == "heap"]
+        report(not below, "no heap-floor event", below[0]["detail"][:90] if below else "")
 
     if a.outage:
         # Events in order: uptime never goes back within a boot.

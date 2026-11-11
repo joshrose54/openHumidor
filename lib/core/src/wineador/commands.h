@@ -9,7 +9,7 @@
 //   exclude chN on|off              (user settings and manual excludes, saved to NVS)
 // Test builds only:
 //   stall · run <n> (or "run soak") · stop · resets [clear] · fan <pct>|auto ·
-//   humidcool on|off · crc chN · timeout chN · sdstress <kHz> retry|noretry <writes> | stop
+//   humidcool on|off · crc chN · timeout chN · sdstress <kHz> retry|noretry <writes> | stop · ntpsync
 
 #include "wineador/types.h"
 
@@ -46,6 +46,7 @@ enum class Command : uint8_t {
   InjectTimeout,     // TEST BUILDS ONLY: "timeout ch3" — the next read of ch3 times out
   SdStress,          // TEST BUILDS ONLY: "sdstress <kHz> retry|noretry <writes>"; "sdstress stop" (arg -1).
                      //   arg = kHz (400-9999; -2 = bad), arg2 = 1 retry / 0 noretry, arg3 = writes
+  NtpSync,           // TEST BUILDS ONLY: "ntpsync" — open the NTP-only radio window now (Rev N)
   TestOnly,          // a test-build command typed in a cabinet build
   Unknown,
 };

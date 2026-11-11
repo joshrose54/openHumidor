@@ -135,6 +135,7 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
     return Command::SdStress;
   }
   if (strcmp(c, "stop") == 0 && n == 1) return testBuild ? Command::Stop : Command::TestOnly;
+  if (strcmp(c, "ntpsync") == 0 && n == 1) return testBuild ? Command::NtpSync : Command::TestOnly;
   if (strcmp(c, "stall") == 0 && n == 1) return testBuild ? Command::Stall : Command::StallNotAllowed;
 
   // ---- every build

@@ -297,6 +297,10 @@ void test_stage6_serial_interface_commands() {
   TEST_ASSERT_TRUE(parseCommand("sdstress 1000 maybe 10", true, a) == Command::SdStress);
   TEST_ASSERT_EQUAL_INT(-2, a.arg);
   TEST_ASSERT_TRUE(parseCommand("sdstress 1000 retry 10", false, a) == Command::TestOnly);
+  // the NTP-only radio window, on demand
+  TEST_ASSERT_TRUE(parseCommand("ntpsync", true, a) == Command::NtpSync);
+  TEST_ASSERT_TRUE(parseCommand("ntpsync", false, a) == Command::TestOnly);
+  TEST_ASSERT_TRUE(parseCommand("ntpsync now", true, a) == Command::Unknown);
 }
 
 void test_status_line_control_text() {

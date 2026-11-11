@@ -56,6 +56,7 @@
 #include "drivers/time_sync.h"
 #include "drivers/sd_log.h"
 #include "drivers/user_store.h"
+#include "board.h"
 #include "app/console.h"
 #include "app/eventlog.h"
 #include "app/serial_ui.h"
@@ -183,7 +184,8 @@ static void printStatus() {
   s.timeTrusted = gClock.trusted();
   s.rtcLostTime = gClock.osfAtBoot && !gClock.corrected;
   char net[48];
-  snprintf(net, sizeof(net), "wifi %s ntp %s", timesync::wifiUp() ? "up" : "down",
+  snprintf(net, sizeof(net), "wifi %s ntp %s",
+           !timesync::radioOn() ? "off (NTP only)" : timesync::wifiUp() ? "up" : "down",
            gClock.ntpSynced ? "ok" : "waiting");
   s.netText = net;
   char sd[48];
@@ -197,6 +199,7 @@ static void printStatus() {
   s.sdText = sd;
   s.loopMaxUs = gLoopMax.take();
   s.heapFree = gHeapLast ? gHeapLast : ESP.getFreeHeap();
+  s.heapMin = esp_get_minimum_free_heap_size();
   s.rtcOk = i2cbus::rtcOk();
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
@@ -356,6 +359,12 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
                       "/stress/. Progress every 100 writes.\n", a.arg3, arg, a.arg2 == 1 ? "ON" : "OFF");
       else Serial.println("  An SD stress test is already running. Nothing started.");
       break;
+    case Command::NtpSync:
+      if (!board::kWifiOnlyForNtp) { Serial.println("  This board keeps WiFi on; NTP syncs by itself."); break; }
+      if (timesync::radioOn()) { Serial.println("  The NTP radio window is already open."); break; }
+      timesync::syncNow();
+      Serial.println("  NTP radio window opening now (off again after the sync or 2 min).");
+      break;
     case Command::InjectCrc:
     case Command::InjectTimeout:
       if (arg < 2 || arg > 7) { Serial.println("  crc chN / timeout chN (N = 2-7). Nothing done."); break; }
@@ -425,6 +434,7 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::InjectCrc:
     case Command::InjectTimeout:
     case Command::SdStress:
+    case Command::NtpSync:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -663,6 +673,19 @@ static void afterSweep(uint32_t now) {
   }
 }
 
+// The heap floor (5.2): an event the first time the lowest free heap since boot
+// (ESP-IDF's own low-water mark) goes below it.
+static void checkHeapFloor() {
+  static bool logged = false;
+  if (logged) return;
+  const uint32_t lowest = esp_get_minimum_free_heap_size();
+  if (lowest >= wineador::kHeapFloorBytes) return;
+  logged = true;
+  eventlog::log("heap", "FREE HEAP BELOW THE %lu KB FLOOR: lowest since boot %lu bytes; now %lu, largest block %lu",
+                (unsigned long)(wineador::kHeapFloorBytes / 1024), (unsigned long)lowest, (unsigned long)ESP.getFreeHeap(),
+                (unsigned long)ESP.getMaxAllocHeap());
+}
+
 // NTP (5.4): after each sync, check the DS3231 and correct it if more than 2 s out,
 // writing on a whole-second boundary. Returns true when something was printed.
 static bool afterNtp(uint32_t now) {
@@ -775,6 +798,7 @@ static void logReadingsRow(uint32_t now) {
   row.loopMaxUs = gLoopMaxLog.take();
   if (!sdlog::writing()) gHeapLast = ESP.getFreeHeap();   // never sampled during a card write (5.2)
   row.heapFree = gHeapLast;
+  row.heapMin = esp_get_minimum_free_heap_size();
   row.sdWorstMs = sdlog::takeWorstMs();
   static char line[600];   // = the SD queue line size (sd_log.cpp kLine)
   formatReadingsRow(line, sizeof(line), row, kTestBuild);
@@ -792,6 +816,7 @@ static void logHourly() {
   if (!gHourlyStarted || key != gHourly.hourKey()) {
     if (gHourlyStarted && gHourly.samples() > 0 && gLogStarted) {
       static char row[1500];
+      gHourly.noteHeapMin(esp_get_minimum_free_heap_size());
       gHourly.formatRow(row, sizeof(row));
       sdlog::hourly(row);
     }
@@ -1018,6 +1043,12 @@ void loop() {
     }
     if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
   }
+  timesync::update(now);                  // Rev N: the radio on only for the NTP sync
+  {
+    char note[120];
+    if (timesync::takeNote(note, sizeof(note))) eventlog::log("ntp", "%s", note);
+  }
+  checkHeapFloor();
   if (afterNtp(now)) printNow = true;
   startLogging();                         // the 10 s fallback if the clock never came
   watchSd(now);

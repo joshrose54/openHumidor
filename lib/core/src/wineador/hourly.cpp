@@ -69,8 +69,8 @@ int HourlyStats::formatRow(char* out, size_t n) const {
   three(o, ctl_, 2);
   if (fan_.n) o.add(",%.1f,%.0f", (float)(fan_.sum / fan_.n), (float)(rpm_.sum / rpm_.n));
   else        o.add(",,");
-  o.add(",%lu,%lu,%lu\n", (unsigned long)(onMs_[0] / 1000), (unsigned long)(onMs_[1] / 1000),
-        (unsigned long)(onMs_[2] / 1000));
+  o.add(",%lu,%lu,%lu,%lu\n", (unsigned long)(onMs_[0] / 1000), (unsigned long)(onMs_[1] / 1000),
+        (unsigned long)(onMs_[2] / 1000), (unsigned long)heapMin_);
   return (int)o.len;
 }
 

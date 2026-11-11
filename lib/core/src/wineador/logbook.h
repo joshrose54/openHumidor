@@ -21,6 +21,10 @@
 
 namespace wineador {
 
+// The heap floor (5.2): free heap must never go below this, WiFi bursts and SD writes
+// included. The lowest since boot is logged in every readings and hourly row.
+constexpr uint32_t kHeapFloorBytes = 30u * 1024u;
+
 constexpr int kLogSchema = 1;
 constexpr int kReadingsBatch = 16;         // rows per SD write (5.4 wear)
 // FAT32 holds no file of 4 GiB or more. No log file should ever get near it
@@ -82,6 +86,7 @@ struct ReadingsRow {
   bool relayHeating = false;
   uint32_t loopMaxUs = 0;            // longest loop pass in this log interval
   uint32_t heapFree = 0;
+  uint32_t heapMin = 0;              // lowest free heap since boot (5.2)
   uint32_t sdWorstMs = 0;            // worst SD write since the last row
 };
 int formatReadingsRow(char* out, size_t n, const ReadingsRow& r, bool testBuild);

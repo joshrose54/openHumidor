@@ -181,6 +181,8 @@ void printHelp(bool testBuild) {
     Serial.println("    fan <n>   TEST BUILD ONLY: idle fan duty n% (0 or 20-100; 1-19 refused); 'fan auto' = the setting");
     Serial.println("    humidcool on|off  TEST BUILD ONLY: humidify during cooling runs (the setting is off)");
     Serial.println("    crc chN | timeout chN  TEST BUILD ONLY: the next read of chN fails its CRC / times out");
+    Serial.println("    sdstress <kHz> retry|noretry <writes>  TEST BUILD ONLY: SD stress test ('sdstress stop' ends it)");
+    Serial.println("    ntpsync   TEST BUILD ONLY: open the NTP-only radio window now (Rev N)");
   }
 }
 

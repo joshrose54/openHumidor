@@ -35,6 +35,7 @@ struct StatusInfo {
   CabinetSummary cab;
   uint32_t    loopMaxUs  = 0;
   uint32_t    heapFree   = 0;
+  uint32_t    heapMin    = 0;          // lowest free heap since boot (5.2)
   bool        timeTrusted = true;       // false adds "UNTRUSTED" after the timestamp (5.4)
   bool        rtcLostTime = false;      // true adds "RTC LOST TIME" (OSF, not yet corrected by NTP)
   const char* netText    = nullptr;     // e.g. "wifi up ntp ok"; nullptr = left out

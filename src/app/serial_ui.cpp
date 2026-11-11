@@ -1,4 +1,5 @@
 #include "serial_ui.h"
+#include "wineador/logbook.h"
 #include <Arduino.h>
 #include "wineador/sensor_table.h"
 #include "wineador/psychro.h"
@@ -136,7 +137,11 @@ void printLog() {
   if (s.retentionDeleted >= 0) Serial.printf("    retention     boot check done: %d old month(s) deleted\n", s.retentionDeleted);
   Serial.printf("    retries       %lu writes recovered by a retry%s%s\n", (unsigned long)s.retries, s.retries ? "; last: " : "",
                 s.retries ? s.lastRetry : "");
-  Serial.printf("    failures      %lu since boot\n\n", (unsigned long)s.failures);
+  Serial.printf("    failures      %lu since boot\n", (unsigned long)s.failures);
+  const uint32_t lowest = esp_get_minimum_free_heap_size();
+  Serial.printf("    heap          now %lu, lowest since boot %lu, largest block %lu (floor %lu KB: %s)\n\n",
+                (unsigned long)ESP.getFreeHeap(), (unsigned long)lowest, (unsigned long)ESP.getMaxAllocHeap(),
+                (unsigned long)(wineador::kHeapFloorBytes / 1024), lowest >= wineador::kHeapFloorBytes ? "ok" : "BELOW");
 }
 
 void printSettings(const View& v) {

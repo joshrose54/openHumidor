@@ -21,4 +21,9 @@ constexpr size_t   kSdRowsBytes    = 28000;   // test-build rows are up to ~460 
 constexpr uint16_t kSdHourlyKept   = 24;      // pending hourly rows: a day
 constexpr size_t   kSdHourlyBytes  = 9000;    // ~360 characters a row
 
+// WiFi (spec 5.4, per board). Rev N: on only for the NTP sync, then off (its current
+// bursts reset the SD card and took most of the heap; B4 SD investigation). The next
+// board: always connected, for the dashboard and OTA.
+constexpr bool     kWifiOnlyForNtp = true;
+
 }  // namespace board

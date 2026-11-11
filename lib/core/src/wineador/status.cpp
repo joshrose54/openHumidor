@@ -63,7 +63,7 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
   o.add(" | sensors %d/6", s.cab.sensorsOk);
   if (s.healthText && s.healthText[0]) o.add(" %s", s.healthText);
   o.add(" | loop max %lu.%lums", (unsigned long)(s.loopMaxUs / 1000), (unsigned long)((s.loopMaxUs % 1000) / 100));
-  o.add(" | heap %lu", (unsigned long)s.heapFree);
+  o.add(" | heap %lu min %lu", (unsigned long)s.heapFree, (unsigned long)s.heapMin);
   if (!s.rtcOk) o.add(" | RTC FAIL");
   if (s.rtcLostTime) o.add(" | RTC LOST TIME");
   if (s.netText && s.netText[0]) o.add(" | %s", s.netText);
