@@ -1,6 +1,60 @@
 # Where we're up to
 
-*Updated 2026-11-08.*
+*Updated 2026-11-11.*
+
+## Phase closed: B3 and B4 passed on Rev N (2026-11-11)
+
+**B3 (all 24 tests) and B4 have passed on the Rev N bench board.** Work now waits for the next
+board: no next-board code until the board designer's proposal is back and the spec has been
+updated for it. The planning note is `NEXT-BOARD-PORT.md`.
+
+**B4:**
+- **Step 1, soak: PASS.** 21 h on `real_test` (accepted against "at least 20 h"), one boot, scenario
+  verdict PASS, guard audit clean, no CRC failures, heap/SD/loop trends flat. Clock test after the
+  soak: PASS.
+- **SD criterion: PASS** after a fix. The soak's two SD write failures were traced to WiFi current
+  bursts resetting the card on the DevKit's shared 3.3 V rail; 5 in 6,000 writes were also found to
+  be lost silently at file close. Fixed and proven: stress run 6,000 writes and a final 2,000, both
+  with an NTP window mid-run — 0 failures, 0 retries, 0 size mismatches; card pull across the top of
+  an hour — every held event, readings row and hourly row written in order, none dropped.
+- **Loop time:** 3.8–4.7 ms, including through the radio switching (one 9.4 ms interval).
+- **Heap floor (5.2, 30 KB):** met outside NTP windows (41.7 KB lowest after a card write). During a
+  window WiFi's own buffers take it to 29.3 KB at lowest — logged, and accepted on Rev N (spec chat
+  decision, option a). The next board must meet it at all times (BP2).
+- Reports: `~/wineador-logs/B4-report-final-2026-11-11.md` (with the interim SD investigation
+  report and all logs under `~/wineador-logs/`). Results are in the build log (B4.1).
+
+**Firmware state** (`main`; the only branch):
+- Stages 1–6 complete, as the spec's 5.x for Rev N. Six builds: `esp32dev` (cabinet), `bench`,
+  `bench_test`, `bench_test_boot`, `real_test`, `native`. All compile with no warnings; native tests
+  **243/243**.
+- Since stage 6: every write verified and retried once after a remount (5.4); Rev N per-board
+  settings in `include/board.h` — WiFi only for the NTP sync (radio switched by its own task), no
+  card writes while WiFi is on, outage buffers 60 events / 30 readings rows / 24 hourly rows; SD
+  clock 1 MHz; lowest-ever heap in the status line, the readings and hourly rows (`heap_min`) and
+  `log`, with a `heap` event the first time it drops below 30 KB. Back on the framework's own SD
+  library.
+- Test-build tools: `sdstress`, `ntpsync`; Mac checker `tools/check_logs.py` (`--test24`, `--soak`,
+  `--stress`, `--outage`).
+- The bench board runs the latest `main` (`real_test`), with the card in.
+
+**Open** (build log, section 4):
+- **The SD cure in hardware is unproven:** on Rev N the errors were avoided (WiFi only for NTP,
+  writes paused), not cured. The next board's SD slot and supply are proven by BP2's deep SD test
+  with WiFi on all the time.
+- **The heap floor while WiFi connects:** 29.3 KB on Rev N, accepted there; the next board, with
+  PSRAM, must meet 30 KB at all times (BP2).
+- **A freeze the ESP32's own watchdogs can't catch** (the 21 W bulb's surge with USB out). Not seen
+  in B4; watch for it on the next board (it has a supply supervisor on EN).
+- **RTC:** the HW-084's LIR2032 is flat (it can't charge from 3.3 V) — the clock can lose its time at
+  a power-up; NTP corrects it. No action on Rev N; replaced on the next board. Also the older
+  unexplained 2 h 27 m loss, and the DS3231 temperature register reading garbage (never used).
+- **For B6:** log download and settings over WiFi, a "door opened" marker, folding run-fan step 1
+  into the step 2 mapping test.
+
+---
+
+# History, stage by stage
 
 ## Stage 1 — passed (Josh, 2026-11-07)
 
@@ -182,12 +236,6 @@ correction event was marked untrusted. Also: tools/fill_card.py wrote one 46.9 G
 holds nothing of 4 GiB or more; now parts under 3.9 GB. The logger now starts a -p2 part file if a
 log file would pass 3.9 GB (Mac-tested; never near it in practice).
 
-## Next
+## B4 (2026-11-09 to 2026-11-11)
 
-B4 soak running (run soak, real_test, started 2026-11-08 20:43; verdict ~17:43 on the 9th). Night 1: two SD
-write failures (readings batches, recovered at once). After the verdict: RTC cell hold check, card to
-the Mac (check_logs --soak), then the SD stress test (spec 5.4 / B4 note) on bench_test:
-`sdstress 4000 noretry 2000` (baseline), `sdstress 1000 retry 2000`, then a card pull across an hour
-boundary (check_logs --outage). Built, not flashed or committed: retry with the failing step, 1 MHz
-clock (sdcard::kSpiHz), outage buffers 100 events / 60 rows / 24 hourly (include/board.h, from the
-heap), sdstress command, checker --outage. Native tests 238/238.
+See "Phase closed" at the top and the build log, B4.1.
