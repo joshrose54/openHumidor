@@ -128,6 +128,12 @@ Four phases, each one reviewed before the next starts:
   it's a 2.54mm IDC header or a fine-pitch FPC, and whether JLCPCB can fit an SMD mate.
 - Please tell us the safe **cable length and SPI speed** for the run to the lid.
 - The **touch controller is I²C** — which bus it goes on is part of section 5.
+- **SD signal and power design:** on the current board's SD module, about **1 in 250–670 large
+  (~7 KB) writes fails** mid-data and succeeds on a retry after a remount; small writes don't fail.
+  Not the card (a new one did the same) and not the SPI clock (1 MHz no better than 4 MHz) — the
+  cause is still being investigated. For the LCD's SD, at the end of a cable, please design the
+  lines with care: series resistors, pull-ups on the data lines, and good decoupling at the card's
+  3.3V.
 
 ### 4.5 Blower speed control (new)
 

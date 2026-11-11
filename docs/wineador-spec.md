@@ -1255,14 +1255,15 @@ an asked-for load becomes blocked, another when the reason changes or clears —
 **Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
 Monthly files in year folders; a month of readings is ~12 MB. FAT32 holds no file of 4 GB or more:
 a log file that would pass 3.9 GB continues in a `-p2` part file. **A failed write is retried once
-after a remount;** a recovered retry is logged and counted, not a failure. Only a second failure
+after a remount** — a permanent requirement, not a workaround; a recovered retry is logged and counted, not a failure. Only a second failure
 sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and remount —
 logging needs very little bandwidth. **During a card outage,** events (up to 100), readings rows (up
 to 60) and pending hourly rows are kept in RAM and written in order when the card returns; beyond
 that the oldest are dropped and counted. Buffer sizes are set per board (larger on the next board's
 PSRAM).
 
-**Self-describing headers** — comment lines then a column header:
+**Self-describing headers** — comment lines then a column header. A file keeps the header of the build
+that created it; each boot event names its build, so later rows are still traceable.
 
 ```
 # wineador readings
@@ -1449,7 +1450,7 @@ the PCB**. A failure in B3 is then a firmware fault.
 | B2 | Bench, perfboard | Mains and load hardware | ✅ |
 | BP | Bench, PCB | Bring-up — new on-board parts tested, the perfboard retired | ✅ Rev N — D7 checks, BP15 and BP16 repeat on Rev P |
 | B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | ✅ |
-| B4 | Bench | Soak, real profile, ~24 hours | Pending |
+| B4 | Bench | Soak, real profile, at least 20 hours | Pending |
 | BP2 | Bench, next board | Bring-up of the next board (SMD) and repeat of the B3 tests it affects — defined once the board is in the spec | Pending |
 | B5 | Cabinet | Install, on the next board. Fixed settings, serial interface | Pending |
 | B6 | Cabinet | Tuning. Settings to NVS, rough web dashboard | Pending |
@@ -1741,7 +1742,7 @@ checks use the scripted values** — implausible reading, divergence, and every 
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 1 | Bench soak | **Test build, real profile timers**, ~24 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures — retried writes logged and counted, and more than an occasional retry investigated, not accepted; SD latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
+| 1 | Bench soak | **Test build, real profile timers**, at least 20 hours. Heater pad, SSR control input on J10 1–2 with **no mains** (the SSR switching mains was proven in B2; mains switching noise is tested with the compressor in B5), blowers and humidifier fan connected. The **soak scenario** feeds scripted readings with real timings so every load cycles: repeating cooling demand, heating demand, RH high enough to strip and low enough to humidify, and idle spells — each load several times over the day, running into its real minimum-off, maximum-run and crossover limits | No resets; heap stable; near-zero CRC failures on the real sensors (read and logged alongside the scripted values); no SD failures — retried writes logged and counted, and more than an occasional retry investigated, not accepted; SD latency not creeping; **every load ran the scenario's expected number of times and no guard was ever breached** (checked from the events file); loop time maximum steady | Pending |
 
 **A firmware fix found by the soak** that touches only the SD writing is proven by an **SD stress
 test**, not a full re-run, provided nothing else changed: a test build writes large readings
