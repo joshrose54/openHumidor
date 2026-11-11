@@ -12,8 +12,9 @@
 
 namespace board {
 
-constexpr uint16_t kSdEventsKept   = 100;     // events (spec 5.4: about 100)
-constexpr size_t   kSdEventsBytes  = 20000;   // ~200 characters an event
+constexpr uint16_t kSdEventsKept   = 60;      // events. Cut from 100 for heap margin over the 30 KB floor
+                                              // (lowest 32,060 bytes with 100, B4 SD proof run 2026-11-11)
+constexpr size_t   kSdEventsBytes  = 12000;   // ~200 characters an event
 
 constexpr uint16_t kSdRowsKept     = 30;      // readings rows: 30 min at the steady 60 s rate. Cut from 60 for
                                               // the 30 KB heap floor: with WiFi on (no card writes) the lowest

@@ -27,23 +27,25 @@ static void onSync(struct timeval*) {
 }
 
 static wineador::NtpWindow gWindow;
-static bool gRadio = false;
 static char gNote[120] = {};
-static bool gSntpStarted = false;         // in this window
-static uint32_t gSntpAtMs = 0;
+
+// The radio is switched by a small task of its own (core 0), never by the loop:
+// turning WiFi on or off takes 30-110 ms (B4 SD proof run), and nothing in the
+// loop may wait (5.2). The loop only says what it wants.
+static TaskHandle_t gRadioTask = nullptr;
+static volatile bool gWant = false;       // the loop wants the radio on
+static volatile bool gUp = false;         // the task has it on, or is still switching it
 
 static void radioUp() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_TIME_SSID, WIFI_TIME_PASSWORD);      // returns at once; connects in the background
-  gRadio = true;
+  WiFi.begin(WIFI_TIME_SSID, WIFI_TIME_PASSWORD);      // returns once started; connects in the background
 }
 
 static void radioDown() {
   WiFi.setAutoReconnect(false);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);                                  // frees the driver's buffers
-  gRadio = false;
 }
 
 static void startSntp() {
@@ -52,11 +54,45 @@ static void startSntp() {
   sntp_set_sync_interval(wineador::kNtpIntervalMs);   // every 24 h after the first sync
 }
 
+static void radioTask(void*) {
+  bool sntpStarted = false;
+  uint32_t sntpAtMs = 0;
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));      // woken by the loop, or every 0.5 s
+    if (gWant && !gUp) {
+      gUp = true;                                       // set first: card writes stay paused from here
+      radioUp();
+      sntpStarted = false;
+    } else if (!gWant && gUp) {
+      esp_sntp_stop();
+      radioDown();
+      gUp = false;                                      // cleared last: card writes resume only now
+    }
+    // SNTP's first requests are lost if sent before WiFi has connected, and it then
+    // backs off past the window (seen at boot, 2026-11-11). So start it once WiFi is
+    // up, and again every 10 s until the sync comes.
+    if (gWant && gUp && WiFi.status() == WL_CONNECTED && (!sntpStarted || millis() - sntpAtMs >= 10000)) {
+      startSntp();
+      sntpStarted = true;
+      sntpAtMs = millis();
+    }
+  }
+}
+
 void begin() {
   sntp_set_time_sync_notification_cb(onSync);
-  if (board::kWifiOnlyForNtp) return;                   // update() opens the first window
-  radioUp();
+  if (board::kWifiOnlyForNtp) {
+    // Core 0, priority 1: above the SD task and the idle task, below WiFi itself.
+    xTaskCreatePinnedToCore(radioTask, "radio", 4096, nullptr, 1, &gRadioTask, 0);
+    return;                                             // update() opens the first window
+  }
+  radioUp();                                            // the next board: always connected
   startSntp();
+}
+
+static void want(bool on) {
+  gWant = on;
+  if (gRadioTask) xTaskNotifyGive(gRadioTask);
 }
 
 void update(uint32_t nowMs) {
@@ -64,34 +100,24 @@ void update(uint32_t nowMs) {
   const uint32_t openMs = gWindow.openForMs(nowMs);
   switch (gWindow.update(nowMs, vSyncs)) {
     case wineador::NtpWindow::Action::Open:
-      radioUp();
-      gSntpStarted = false;               // SNTP starts once WiFi has connected (below)
+      want(true);
       snprintf(gNote, sizeof(gNote), "WiFi on for the NTP sync (Rev N: WiFi only for NTP; off after the sync or 2 min)");
       break;
     case wineador::NtpWindow::Action::CloseSynced:
-      esp_sntp_stop();
-      radioDown();
+      want(false);
       snprintf(gNote, sizeof(gNote), "WiFi off: NTP synced after %lu s; next sync in 24 h", (unsigned long)(openMs / 1000));
       break;
     case wineador::NtpWindow::Action::CloseTimedOut:
-      esp_sntp_stop();
-      radioDown();
+      want(false);
       snprintf(gNote, sizeof(gNote), "WiFi off: no NTP sync within 2 min; next try in 1 h");
       break;
     default:
       break;
   }
-  // SNTP's first requests are lost if sent before WiFi has connected, and it then
-  // backs off past the window (seen at boot, 2026-11-11). So start it once WiFi is
-  // up, and again every 10 s until the sync comes.
-  if (gWindow.isOpen() && WiFi.status() == WL_CONNECTED && (!gSntpStarted || nowMs - gSntpAtMs >= 10000)) {
-    startSntp();
-    gSntpStarted = true;
-    gSntpAtMs = nowMs;
-  }
 }
 
-bool radioOn() { return board::kWifiOnlyForNtp ? gRadio : true; }
+// On from the moment the loop asks for it until the task has fully switched it off.
+bool radioOn() { return board::kWifiOnlyForNtp ? (gWant || gUp) : true; }
 
 bool takeNote(char* out, size_t n) {
   if (!gNote[0]) return false;
