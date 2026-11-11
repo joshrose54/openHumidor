@@ -194,6 +194,8 @@ static void printStatus() {
     if (sdlog::stalledMs(millis()) > 5000) snprintf(sd, sizeof(sd), "SD STALLED %lus", (unsigned long)(sdlog::stalledMs(millis()) / 1000));
     else if (st.failed) snprintf(sd, sizeof(sd), "SD FAIL (logging paused)");
     else if (!sdlog::started()) snprintf(sd, sizeof(sd), "sd waiting for clock");
+    else if (st.paused) snprintf(sd, sizeof(sd), "sd paused (WiFi on) %lu/%u", (unsigned long)st.rowsBuffered,
+                                 (unsigned)board::kSdRowsKept);
     else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
   }
   s.sdText = sd;
@@ -892,9 +894,9 @@ static void watchSd(uint32_t now) {
       line("DONE");
       shown = 0;
       eventlog::log("sd", "SD STRESS DONE checks: size mismatches %lu; heap lowest after a write %lu (largest block then "
-                          "%lu), lowest since boot %lu",
+                          "%lu), lowest since boot %lu; paused for WiFi %lu s",
                     (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
-                    (unsigned long)x.heapMinEver);
+                    (unsigned long)x.heapMinEver, (unsigned long)(x.pausedMs / 1000));
     }
     if (!wasActive && x.active) shown = 0;
     wasActive = x.active;
@@ -1044,6 +1046,7 @@ void loop() {
     if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
   }
   timesync::update(now);                  // Rev N: the radio on only for the NTP sync
+  sdlog::setPaused(board::kSdPauseWhileWifi && timesync::radioOn());   // Rev N: no card writes meanwhile
   {
     char note[120];
     if (timesync::takeNote(note, sizeof(note))) eventlog::log("ntp", "%s", note);

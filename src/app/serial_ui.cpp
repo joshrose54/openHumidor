@@ -113,8 +113,8 @@ void printLog() {
   const sdlog::Stats s = sdlog::stats();
   char a[24];
   Serial.println("\n  LOG (SD card)");
-  Serial.printf("    card          %s%s%s\n", s.mounted ? "mounted" : "NOT MOUNTED", s.failed ? ", FAILED: " : "",
-                s.failed ? s.lastError : "");
+  Serial.printf("    card          %s%s%s%s\n", s.mounted ? "mounted" : "NOT MOUNTED", s.failed ? ", FAILED: " : "",
+                s.failed ? s.lastError : "", s.paused ? "; writes PAUSED while WiFi is on (Rev N)" : "");
   Serial.printf("    writing       %s; readings to %s\n", sdlog::started() ? "started" : "waiting for the clock",
                 s.readingsPath[0] ? s.readingsPath : "(none yet)");
   Serial.printf("    card clock    SPI %lu kHz; outage buffers: %u events, %u readings rows, %u hourly rows (board.h)\n",

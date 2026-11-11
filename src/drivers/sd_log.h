@@ -50,11 +50,13 @@ struct StressStats {
   uint32_t sizeMismatch = 0;  // file not the size the last verified write left (should stay 0)
   uint32_t heapMin = 0, heapMinLargest = 0;      // lowest free heap after any write, and the largest block then
   uint32_t heapMinEver = 0;   // the lowest free heap since boot (ESP-IDF's own low-water mark)
+  uint32_t pausedMs = 0;      // time the run waited while the radio was on
 };
 
 struct Stats {
   bool mounted = false;         // the card is mounted and the last operation worked
   bool failed = false;          // the last operation failed; remounting every 30 s
+  bool paused = false;          // Rev N: writes held while the radio is on
   uint32_t failures = 0;        // times it has failed since boot (a write failed twice)
   uint32_t retries = 0;         // writes that failed once and worked on the retry after a remount
   char lastRetry[64] = {};      // which file, and at which step the first attempt failed
@@ -105,5 +107,8 @@ void stressStop();
 bool takeFail(FailRecord* out);
 uint32_t failsLost();           // records that did not fit (more than 16 waiting)
 void setWifiUp(bool up);        // from the loop, for the records
+// Rev N (board.h kSdPauseWhileWifi): no card operation while the radio is on; rows
+// and events wait in the outage buffers. Set by the loop every pass.
+void setPaused(bool paused);
 
 }  // namespace sdlog

@@ -73,6 +73,7 @@ FailRecord gFails[kFails];             // guarded by gMux
 int gFailHead = 0, gFailCount = 0;
 uint32_t gFailSeq = 0, gFailsLost = 0;
 volatile bool gWifiUp = false;
+volatile bool gPaused = false;         // Rev N: no card operation while the radio is on (5.4)
 
 char* dupe(const char* s) {
   const size_t n = strlen(s) + 1;
@@ -523,6 +524,17 @@ void stressRun() {
   size_t expected = 0;                 // the size the file should have at the next write
   bool expectedKnown = false;
   while (mounted && ok + fail < gStressTarget && !gStressStop) {
+    if (gPaused) {                     // as in normal running: no card write while the radio is on
+      withStats([](Stats& s) { s.stress.pausedMs += 50; });
+      vTaskDelay(pdMS_TO_TICKS(50));
+      Msg m;
+      if (xQueueReceive(gQ, &m, 0) == pdTRUE) {
+        if (m.kind == Kind::Reading) gRows.push(m.text, strlen(m.text));
+        else if (m.kind == Kind::Event) gEvents.push(m.text, strlen(m.text));
+        else gHourly.push(m.text, strlen(m.text));
+      }
+      continue;
+    }
     Payload p;
     p.text = batch;
     p.len = len;
@@ -614,6 +626,10 @@ void task(void*) {
       // (the oldest dropped and counted when a buffer is full).
       LineRing& r = m.kind == Kind::Reading ? gRows : m.kind == Kind::Event ? gEvents : gHourly;
       r.push(m.text, strlen(m.text));
+    }
+    if (gPaused) {                     // the radio is on: everything waits in the buffers
+      publishBuffers();
+      continue;
     }
     if (!cardOk() && millis() - gLastRemount >= kRemountMs) tryRemount();
     if (cardOk() && !gRetentionDone) retention();
@@ -737,5 +753,10 @@ uint32_t failsLost() {
 }
 
 void setWifiUp(bool up) { gWifiUp = up; }
+
+void setPaused(bool paused) {
+  gPaused = paused;
+  withStats([&](Stats& s) { s.paused = paused; });
+}
 
 }  // namespace sdlog

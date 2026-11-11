@@ -25,5 +25,9 @@ constexpr size_t   kSdHourlyBytes  = 9000;    // ~360 characters a row
 // bursts reset the SD card and took most of the heap; B4 SD investigation). The next
 // board: always connected, for the dashboard and OTA.
 constexpr bool     kWifiOnlyForNtp = true;
+// Rev N: no card writes while the radio is on (spec 5.4). Rows and events wait in the
+// outage buffers above and are written once WiFi is off, so WiFi bursts and card
+// writes never overlap (heap and SD supply). The next board writes normally.
+constexpr bool     kSdPauseWhileWifi = true;
 
 }  // namespace board
