@@ -6,8 +6,11 @@
 //   - events and hourly rows are written at once;
 //   - a new file gets its header first; folders are made as needed;
 //   - at start, once the clock is known, the retention check (logbook.h);
+//   - every write is verified: flushed, and the file checked to have grown by exactly
+//     what was written, before it is closed (a mismatch is a failed write);
 //   - a failed write is retried once after a remount; a recovered retry is counted
-//     and logged ("SD write error, retried ... OK");
+//     and logged ("SD write error, retried ... OK"), and every failed attempt is
+//     recorded (takeFail) for the loop to log;
 //   - a second failure (card missing, write error) marks the card FAILED; while it
 //     is out, events (up to 100), readings rows (up to 60) and hourly rows (up to
 //     24) are kept in RAM (sizes per board, include/board.h), the oldest dropped and
@@ -21,6 +24,21 @@
 
 namespace sdlog {
 
+// One write attempt that failed (B4 SD investigation), stress test or normal logging.
+struct FailRecord {
+  uint32_t seq = 0;           // 1, 2, ... since boot
+  bool stress = false;        // from the stress test (else normal logging)
+  uint32_t writeNo = 0;       // the stress test's write number
+  bool retried = false;       // a retry was made
+  bool recovered = false;     // ... and it wrote the data
+  char stage[8] = {};         // the step the first attempt failed at: folder / open / header / data / verify
+  uint32_t attemptMs = 0;     // how long the failed attempt took
+  uint32_t fileOffset = 0;    // where in the file the write started
+  uint32_t len = 0;           // bytes in the write
+  uint32_t heapFree = 0, heapLargest = 0;   // just after
+  bool wifiUp = false;
+};
+
 // The SD stress test (test builds, spec B4 note): 16-row batches back to back.
 struct StressStats {
   bool active = false, done = false;
@@ -28,6 +46,10 @@ struct StressStats {
   bool retry = false;
   uint32_t target = 0, writes = 0, failures = 0, retries = 0, worstMs = 0;
   uint32_t atFolder = 0, atOpen = 0, atHeader = 0, atData = 0;   // step the first attempt failed at
+  uint32_t atVerify = 0;      // ... or at the check that the file grew by what was written
+  uint32_t sizeMismatch = 0;  // file not the size the last verified write left (should stay 0)
+  uint32_t heapMin = 0, heapMinLargest = 0;      // lowest free heap after any write, and the largest block then
+  uint32_t heapMinEver = 0;   // the lowest free heap since boot (ESP-IDF's own low-water mark)
 };
 
 struct Stats {
@@ -78,5 +100,10 @@ uint32_t stalledMs(uint32_t nowMs);   // how long the current operation has run 
 // TEST BUILDS: the SD stress test. False if one is already running.
 bool stressStart(uint32_t khz, bool retry, uint32_t writes);
 void stressStop();
+
+// Failed write attempts, oldest first: false when none is waiting.
+bool takeFail(FailRecord* out);
+uint32_t failsLost();           // records that did not fit (more than 16 waiting)
+void setWifiUp(bool up);        // from the loop, for the records
 
 }  // namespace sdlog

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "pins.h"
 #include "board.h"
 #include "sd_card.h"
@@ -65,6 +66,13 @@ bool gRetentionDone = false;
 volatile bool gStressRequest = false, gStressStop = false;
 uint32_t gStressKhz = 0, gStressTarget = 0;
 bool gStressRetry = true;
+
+// A record of every write attempt that failed, for the loop to log (B4 SD investigation).
+constexpr int kFails = 16;
+FailRecord gFails[kFails];             // guarded by gMux
+int gFailHead = 0, gFailCount = 0;
+uint32_t gFailSeq = 0, gFailsLost = 0;
+volatile bool gWifiUp = false;
 
 char* dupe(const char* s) {
   const size_t n = strlen(s) + 1;
@@ -169,17 +177,26 @@ struct Payload {
   }
 };
 
+// What one attempt did: the step it got to (the one that failed, if it failed),
+// whether the file got longer before it failed (a partial write), and where in the
+// file the data went.
+struct Attempt {
+  const char* stage = "";
+  bool grew = false;
+  size_t before = 0;                   // the file's size when opened (the write's offset)
+  size_t len = 0;                      // bytes of data
+  size_t headerLen = 0;                // header bytes written first (a new file)
+};
+
 // One attempt at a write: folders, the right part file, the header into a new file,
-// then the data. `stage` gets the step that failed; `grew` whether the file got
-// longer (a partial write) before it failed.
-bool appendOnce(const char* path, const char* header, const Payload& data, bool newlineFirst, const char** stage,
-                bool* grew) {
-  *grew = false;
-  *stage = "folder";
+// then the data, then the check that it all reached the card.
+bool appendOnce(const char* path, const char* header, const Payload& data, bool newlineFirst, Attempt& a) {
+  a = Attempt{};
+  a.stage = "folder";
   if (!makeFolders(path)) return false;
   // FAT32 holds no file of 4 GiB or more: if this write would pass the limit, move
   // on to the next part (-p2, -p3 ...). The part in use is remembered per file.
-  *stage = "open";
+  a.stage = "open";
   File f;
   char partPath[48];
   int* part = partFor(path);
@@ -194,23 +211,67 @@ bool appendOnce(const char* path, const char* header, const Payload& data, bool 
     if (++*part > 99) return false;
   }
   const size_t before = f.size();
+  a.before = before;
+  a.len = len;
   bool ok = true;
+  size_t extra = 0;                    // header or newline written before the data
   if (f.size() == 0 && header) {
-    *stage = "header";
+    a.stage = "header";
+    a.headerLen = strlen(header);
+    extra = a.headerLen;
     ok = f.write((const uint8_t*)header, strlen(header)) == strlen(header);
   } else if (newlineFirst) {
     // A retry after a partial write: start a fresh line, so the fragment stays one
     // visibly broken row instead of running into the next.
-    *stage = "data";
+    a.stage = "data";
+    extra = 1;
     ok = f.write((const uint8_t*)"\n", 1) == 1;
   }
   if (ok) {
-    *stage = "data";
+    a.stage = "data";
     ok = data.writeTo(f);
   }
-  *grew = f.size() > before;
+  // Every write verified (5.4). The last part of a write sits in the file's buffer
+  // until it is flushed, and an error then is not reported (B4 SD investigation: 5 in
+  // 6,000 writes lost that way). So flush, then check the file has grown by exactly
+  // what was written, before closing it. A short (or long) file fails the attempt
+  // like any other error, and the caller retries.
+  f.flush();
+  const size_t got = f.size();         // after a write this reads the size back from the card
   f.close();
+  a.grew = got > before;
+  if (ok) {
+    a.stage = "verify";
+    ok = got == before + extra + len;
+  }
+  if (ok) a.stage = "data";            // worked: report the last real step
   return ok;
+}
+
+// Keep a record of one failed attempt (B4 SD investigation), for the loop to log.
+void record(bool stress, uint32_t writeNo, bool retried, bool recovered, const Attempt& a, uint32_t attemptMs) {
+  FailRecord r;
+  r.stress = stress;
+  r.writeNo = writeNo;
+  r.retried = retried;
+  r.recovered = recovered;
+  strncpy(r.stage, a.stage, sizeof(r.stage) - 1);
+  r.attemptMs = attemptMs;
+  r.fileOffset = (uint32_t)a.before;
+  r.len = (uint32_t)a.len;
+  r.heapFree = esp_get_free_heap_size();
+  r.heapLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  r.wifiUp = gWifiUp;
+  withStats([&](Stats&) {
+    r.seq = ++gFailSeq;
+    if (gFailCount == kFails) {        // full: the oldest goes
+      gFailHead = (gFailHead + 1) % kFails;
+      gFailCount--;
+      gFailsLost++;
+    }
+    gFails[(gFailHead + gFailCount) % kFails] = r;
+    gFailCount++;
+  });
 }
 
 // The one place the card is written. A failed write is retried ONCE after a remount
@@ -220,22 +281,23 @@ bool appendFile(const char* path, const char* header, const Payload& data) {
   gBusySince = millis();
   gBusy = true;
   const uint32_t t0 = millis();
-  const char* stage = "";
-  bool grew = false;
-  bool ok = appendOnce(path, header, data, false, &stage, &grew);
+  Attempt a;
+  bool ok = appendOnce(path, header, data, false, a);
+  const uint32_t firstMs = millis() - t0;
   if (!ok) {
-    const char* firstStage = stage;
-    const bool firstGrew = grew;
-    if (gRetry && mountCard()) ok = appendOnce(path, header, data, firstGrew, &stage, &grew);
+    const Attempt first = a;
+    const bool retried = gRetry && mountCard();
+    if (retried) ok = appendOnce(path, header, data, first.grew, a);
+    record(false, 0, retried, ok, first, firstMs);
     if (ok) {
       withStats([&](Stats& s) {
         s.retries++;
-        snprintf(s.lastRetry, sizeof(s.lastRetry), "%s at %s%s", path, firstStage, firstGrew ? " (partial)" : "");
+        snprintf(s.lastRetry, sizeof(s.lastRetry), "%s at %s%s", path, first.stage, first.grew ? " (partial)" : "");
       });
       gRetryNote = true;
     } else {
       char what[48];
-      snprintf(what, sizeof(what), "write failed (%s%s):", gRetry ? stage : firstStage, gRetry ? ", retried" : "");
+      snprintf(what, sizeof(what), "write failed (%s%s):", retried ? a.stage : first.stage, retried ? ", retried" : "");
       setError(what, path);
     }
   }
@@ -422,10 +484,9 @@ void tryRemount() {
 }
 
 // ---------------------------------------------------------------- stress test
-bool retriedNow(uint32_t retried, uint32_t prev) { return retried != prev; }
-
 // Test builds: 16-row batches of a realistic test-build readings row, back to back,
-// into /stress/. Counts writes, failures, retries and the step that failed.
+// into /stress/. Counts writes, failures, retries and the step that failed, keeps a
+// record of every failed attempt, and the lowest free heap.
 void stressRun() {
   gStressRequest = false;
   gStressStop = false;
@@ -442,26 +503,25 @@ void stressRun() {
   });
   char path[40];
   snprintf(path, sizeof(path), "/stress/stress-%luk-%s.csv", (unsigned long)gStressKhz, gStressRetry ? "retry" : "noretry");
-  // One realistic test-build row (~460 characters), 16 times = one batch (~7.4 KB),
-  // from the heap only while the test runs.
+  // One realistic test-build row, 16 times = one batch (~5.4 KB), from the heap only
+  // while the test runs.
   constexpr size_t kBatch = 16 * 470;
   char* batch = (char*)malloc(kBatch);
-  if (!batch) {
-    gSpiHz = normalHz;
-    gRetry = normalRetry;
-    withStats([](Stats& s) { s.stress.active = false; s.stress.done = true; });
-    return;
-  }
   size_t len = 0;
-  for (int r = 0; r < 16; r++) {
-    int k = snprintf(batch + len, kBatch - len, "2026-11-09T12:00:%02dZ,1", r);
-    len += k;
-    for (int c = 0; c < 12; c++) { k = snprintf(batch + len, kBatch - len, ",20.%02d,62.%02d,64.50,ok", c, r); len += k; }
-    k = snprintf(batch + len, kBatch - len, ",20.12,19.98,20.30,62.10,20.12,40,912,1,0,0,cool,3.5,97800,64\n");
-    len += k;
+  if (batch) {
+    for (int r = 0; r < 16; r++) {
+      int k = snprintf(batch + len, kBatch - len, "2026-11-09T12:00:%02dZ,1", r);
+      len += k;
+      for (int c = 0; c < 12; c++) { k = snprintf(batch + len, kBatch - len, ",20.%02d,62.%02d,64.50,ok", c, r); len += k; }
+      k = snprintf(batch + len, kBatch - len, ",20.12,19.98,20.30,62.10,20.12,40,912,1,0,0,cool,3.5,97800,64\n");
+      len += k;
+    }
   }
-  const bool mounted = mountCard();
-  uint32_t ok = 0, fail = 0, retried = 0, worst = 0, prevRetried = 0;
+  const bool mounted = batch && mountCard();
+  const char* kHead = "# wineador SD stress test\n";
+  uint32_t ok = 0, fail = 0, retried = 0, worst = 0;
+  size_t expected = 0;                 // the size the file should have at the next write
+  bool expectedKnown = false;
   while (mounted && ok + fail < gStressTarget && !gStressStop) {
     Payload p;
     p.text = batch;
@@ -469,15 +529,20 @@ void stressRun() {
     const uint32_t t0 = millis();
     gBusySince = t0;
     gBusy = true;
-    const char* stage = "";
-    bool grew = false;
-    bool good = appendOnce(path, "# wineador SD stress test\n", p, false, &stage, &grew);
-    const char* firstStage = stage;
+    Attempt a;
+    bool good = appendOnce(path, kHead, p, false, a);
+    const uint32_t firstMs = millis() - t0;
+    const Attempt first = a;
+    // An independent check of the verify step: the file must be the size the last
+    // verified write left it.
+    const bool mismatch = expectedKnown && first.before != expected;
+    bool didRetry = false;
     if (!good) {
       // with the retry: remount and try once more; without: count it, remount, carry on
       const bool remounted = mountCard();
       if (gRetry && remounted) {
-        good = appendOnce(path, "# wineador SD stress test\n", p, grew, &stage, &grew);
+        didRetry = true;
+        good = appendOnce(path, kHead, p, first.grew, a);
         if (good) retried++;
       }
     }
@@ -486,9 +551,16 @@ void stressRun() {
     if (ms > worst) worst = ms;
     if (good) ok++;
     else fail++;
-    // The step the FIRST attempt failed at, whenever it failed (recovered by the retry or not).
-    const bool firstFailed = !good || retriedNow(retried, prevRetried);
-    prevRetried = retried;
+    const bool firstFailed = !good || didRetry;
+    if (firstFailed) record(true, ok + fail, didRetry, good, first, firstMs);
+    if (good) {
+      expected = a.before + a.headerLen + (didRetry && first.grew ? 1 : 0) + len;
+      expectedKnown = true;
+    } else {
+      expectedKnown = false;           // after a lost write the size is not known; start again
+    }
+    const uint32_t heapNow = esp_get_free_heap_size();
+    const uint32_t largestNow = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     withStats([&](Stats& s) {
       StressStats& x = s.stress;
       x.writes = ok + fail;
@@ -496,11 +568,15 @@ void stressRun() {
       x.retries = retried;
       x.worstMs = worst;
       if (firstFailed) {
-        if (strcmp(firstStage, "folder") == 0) x.atFolder++;
-        else if (strcmp(firstStage, "open") == 0) x.atOpen++;
-        else if (strcmp(firstStage, "header") == 0) x.atHeader++;
+        if (strcmp(first.stage, "folder") == 0) x.atFolder++;
+        else if (strcmp(first.stage, "open") == 0) x.atOpen++;
+        else if (strcmp(first.stage, "header") == 0) x.atHeader++;
+        else if (strcmp(first.stage, "verify") == 0) x.atVerify++;
         else x.atData++;
       }
+      if (mismatch) x.sizeMismatch++;
+      if (x.heapMin == 0 || heapNow < x.heapMin) { x.heapMin = heapNow; x.heapMinLargest = largestNow; }
+      x.heapMinEver = esp_get_minimum_free_heap_size();
     });
     vTaskDelay(1);                       // let the idle task run
     // pass a queued line through now and then, so logging carries on
@@ -641,5 +717,25 @@ bool stressStart(uint32_t khz, bool retry, uint32_t writes) {
 }
 
 void stressStop() { gStressStop = true; }
+
+bool takeFail(FailRecord* out) {
+  bool got = false;
+  withStats([&](Stats&) {
+    if (gFailCount == 0) return;
+    *out = gFails[gFailHead];
+    gFailHead = (gFailHead + 1) % kFails;
+    gFailCount--;
+    got = true;
+  });
+  return got;
+}
+
+uint32_t failsLost() {
+  uint32_t n;
+  withStats([&](Stats&) { n = gFailsLost; });
+  return n;
+}
+
+void setWifiUp(bool up) { gWifiUp = up; }
 
 }  // namespace sdlog

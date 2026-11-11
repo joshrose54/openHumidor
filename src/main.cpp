@@ -856,15 +856,35 @@ static void watchSd(uint32_t now) {
     const sdlog::StressStats& x = st.stress;
     auto line = [&](const char* what) {
       eventlog::log("sd", "SD STRESS %s: %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt "
-                          "failed at: folder %lu, open %lu, header %lu, data %lu); worst write %lu ms",
+                          "failed at: folder %lu, open %lu, header %lu, data %lu, verify %lu); worst write %lu ms",
                     what, (unsigned long)x.khz, x.retry ? "on" : "off", (unsigned long)x.writes, (unsigned long)x.target,
                     (unsigned long)x.failures, (unsigned long)x.retries, (unsigned long)x.atFolder, (unsigned long)x.atOpen,
-                    (unsigned long)x.atHeader, (unsigned long)x.atData, (unsigned long)x.worstMs);
+                    (unsigned long)x.atHeader, (unsigned long)x.atData, (unsigned long)x.atVerify,
+                    (unsigned long)x.worstMs);
     };
     if (x.active && x.writes >= shown + 100) { shown = x.writes - x.writes % 100; line("progress"); }
-    if (wasActive && !x.active) { line("DONE"); shown = 0; }
+    if (wasActive && !x.active) {
+      line("DONE");
+      shown = 0;
+      eventlog::log("sd", "SD STRESS DONE checks: size mismatches %lu; heap lowest after a write %lu (largest block then "
+                          "%lu), lowest since boot %lu",
+                    (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
+                    (unsigned long)x.heapMinEver);
+    }
     if (!wasActive && x.active) shown = 0;
     wasActive = x.active;
+  }
+  // Every failed write attempt (stress test or logging), one event each.
+  sdlog::setWifiUp(timesync::wifiUp());
+  sdlog::FailRecord r;
+  for (int k = 0; k < 4 && sdlog::takeFail(&r); k++) {
+    char where[32];
+    if (r.stress) snprintf(where, sizeof(where), "stress write %lu", (unsigned long)r.writeNo);
+    else snprintf(where, sizeof(where), "logging");
+    eventlog::log("sd", "SD FAIL #%lu %s at %s, %s; took %lu ms; offset %lu +%lu B; heap %lu, largest %lu; wifi %s",
+                  (unsigned long)r.seq, where, r.stage, r.recovered ? "retry OK" : r.retried ? "retry FAILED" : "no retry",
+                  (unsigned long)r.attemptMs, (unsigned long)r.fileOffset, (unsigned long)r.len, (unsigned long)r.heapFree,
+                  (unsigned long)r.heapLargest, r.wifiUp ? "up" : "down");
   }
   if (st.failed && !gSdFailedShown && gLogStarted) {
     gSdFailedShown = true;
