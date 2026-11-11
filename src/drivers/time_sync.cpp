@@ -29,6 +29,8 @@ static void onSync(struct timeval*) {
 static wineador::NtpWindow gWindow;
 static bool gRadio = false;
 static char gNote[120] = {};
+static bool gSntpStarted = false;         // in this window
+static uint32_t gSntpAtMs = 0;
 
 static void radioUp() {
   WiFi.mode(WIFI_STA);
@@ -63,7 +65,7 @@ void update(uint32_t nowMs) {
   switch (gWindow.update(nowMs, vSyncs)) {
     case wineador::NtpWindow::Action::Open:
       radioUp();
-      startSntp();
+      gSntpStarted = false;               // SNTP starts once WiFi has connected (below)
       snprintf(gNote, sizeof(gNote), "WiFi on for the NTP sync (Rev N: WiFi only for NTP; off after the sync or 2 min)");
       break;
     case wineador::NtpWindow::Action::CloseSynced:
@@ -78,6 +80,14 @@ void update(uint32_t nowMs) {
       break;
     default:
       break;
+  }
+  // SNTP's first requests are lost if sent before WiFi has connected, and it then
+  // backs off past the window (seen at boot, 2026-11-11). So start it once WiFi is
+  // up, and again every 10 s until the sync comes.
+  if (gWindow.isOpen() && WiFi.status() == WL_CONNECTED && (!gSntpStarted || nowMs - gSntpAtMs >= 10000)) {
+    startSntp();
+    gSntpStarted = true;
+    gSntpAtMs = nowMs;
   }
 }
 

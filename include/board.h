@@ -15,8 +15,10 @@ namespace board {
 constexpr uint16_t kSdEventsKept   = 100;     // events (spec 5.4: about 100)
 constexpr size_t   kSdEventsBytes  = 20000;   // ~200 characters an event
 
-constexpr uint16_t kSdRowsKept     = 60;      // readings rows: an hour at the steady 60 s rate
-constexpr size_t   kSdRowsBytes    = 28000;   // test-build rows are up to ~460 characters (cabinet ~260)
+constexpr uint16_t kSdRowsKept     = 30;      // readings rows: 30 min at the steady 60 s rate. Cut from 60 for
+                                              // the 30 KB heap floor: with WiFi on (no card writes) the lowest
+                                              // free heap was 24,192 bytes (2026-11-11)
+constexpr size_t   kSdRowsBytes    = 14000;   // test-build rows are up to ~460 characters (cabinet ~260)
 
 constexpr uint16_t kSdHourlyKept   = 24;      // pending hourly rows: a day
 constexpr size_t   kSdHourlyBytes  = 9000;    // ~360 characters a row

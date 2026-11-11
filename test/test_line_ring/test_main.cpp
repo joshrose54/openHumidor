@@ -79,16 +79,16 @@ void test_line_too_big_is_refused() {
 
 void test_rev_n_sizes_hold_the_spec_counts() {
   // Rev N's budgets (include/board.h) must hold the full counts of typical lines.
-  static char ev[20000], rows[28000], hr[9000];
-  LineRing e(ev, sizeof(ev), 100), r(rows, sizeof(rows), 60), h(hr, sizeof(hr), 24);
+  static char ev[20000], rows[14000], hr[9000];
+  LineRing e(ev, sizeof(ev), 100), r(rows, sizeof(rows), 30), h(hr, sizeof(hr), 24);
   char line[600];
   memset(line, 'e', 190);
   for (int i = 0; i < 100; i++) TEST_ASSERT_TRUE(e.push(line, 190));
   TEST_ASSERT_EQUAL_UINT16(100, e.count());
   TEST_ASSERT_EQUAL_UINT32(0, e.dropped());
   memset(line, 'r', 460);                          // a test-build readings row
-  for (int i = 0; i < 60; i++) TEST_ASSERT_TRUE(r.push(line, 460));
-  TEST_ASSERT_EQUAL_UINT16(60, r.count());
+  for (int i = 0; i < 30; i++) TEST_ASSERT_TRUE(r.push(line, 460));
+  TEST_ASSERT_EQUAL_UINT16(30, r.count());
   TEST_ASSERT_EQUAL_UINT32(0, r.dropped());
   memset(line, 'h', 360);
   for (int i = 0; i < 24; i++) TEST_ASSERT_TRUE(h.push(line, 360));

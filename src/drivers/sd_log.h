@@ -12,7 +12,7 @@
 //     and logged ("SD write error, retried ... OK"), and every failed attempt is
 //     recorded (takeFail) for the loop to log;
 //   - a second failure (card missing, write error) marks the card FAILED; while it
-//     is out, events (up to 100), readings rows (up to 60) and hourly rows (up to
+//     is out, events (up to 100), readings rows (up to 30 on Rev N) and hourly rows (up to
 //     24) are kept in RAM (sizes per board, include/board.h), the oldest dropped and
 //     counted beyond that; the task tries to remount every 30 s and, when the card
 //     is back, writes everything kept, in order.
