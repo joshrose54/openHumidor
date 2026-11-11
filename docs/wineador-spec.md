@@ -1168,6 +1168,9 @@ humidifier guards — the 70% RH ceiling included — and turn off any load whos
 unsatisfied. Turning a load off must never depend
 on a sensor read, a log write or the network.
 
+**Free heap never below 30 KB**, including during WiFi bursts and SD writes; the lowest seen is
+logged in the readings.
+
 **OTA updates** (from B6/B7): authenticated (5.5); a new image that fails to start properly rolls
 back to the previous one (min_spiffs keeps two app slots); after any update the normal boot hold
 applies.
@@ -1254,7 +1257,8 @@ an asked-for load becomes blocked, another when the reason changes or clears —
 
 **Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
 Monthly files in year folders; a month of readings is ~12 MB. FAT32 holds no file of 4 GB or more:
-a log file that would pass 3.9 GB continues in a `-p2` part file. **A failed write is retried once
+a log file that would pass 3.9 GB continues in a `-p2` part file. **Every write is verified:** flushed and the file size checked before the file is closed; a
+mismatch is treated as a failed write. No write may be lost without being logged. **A failed write is retried once
 after a remount** — a permanent requirement, not a workaround; a recovered retry is logged and counted, not a failure. Only a second failure
 sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and remount —
 logging needs very little bandwidth. **During a card outage,** events (up to 100), readings rows (up
@@ -1288,8 +1292,10 @@ never deleted. The Mac is the real archive — pull the card or download every f
 **Clock:** timestamps from the DS3231 in **UTC**, ISO 8601 with a trailing Z; files named by UTC
 month. **At boot, set the ESP32 system clock from the DS3231 with `settimeofday`, TZ UTC** — the SD
 library dates files from the system clock, and left unset every file is dated 1 January 1980.
-**NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background — WiFi stays
-connected and reconnects by itself; control never waits for it. Each sync sets the system clock and
+**NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background; control never
+waits for it. **WiFi, per board:** on Rev N it connects only for the NTP sync and turns off once the
+sync has worked or after 2 minutes (it caused the SD errors and most of the heap use); on the next
+board it stays connected and reconnects by itself, for the dashboard and OTA. Each sync sets the system clock and
 writes the DS3231 if it is more than 2 s out; the correction is logged. Until NTP has corrected a
 clock that lost time (OSF, 5.6), timestamps are marked untrusted. Local time only on the dashboard.
 

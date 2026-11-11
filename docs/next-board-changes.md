@@ -23,7 +23,7 @@ Four phases, each one reviewed before the next starts:
   current size unless there's a good reason, and tell us the new dimensions and hole positions —
   the enclosure will follow.
 - **Connectors may move.** Please group them sensibly — for example power and loads along one edge,
-  sensors along another, USB and the LCD together.
+  sensors along another, USB, the LCD and the SD slot together.
 - **Where parts come from.** JLCPCB supplies and solders **only the SMD parts** it assembles.
   **Every through-hole part is bought from Farnell UK and hand-soldered by us** — no JLCPCB
   through-hole assembly. Please give the **Farnell UK order code** for each through-hole part and
@@ -67,6 +67,9 @@ Four phases, each one reviewed before the next starts:
 - **No load output may pulse at boot or reset.** Every load is off until the firmware drives it —
   except the blowers, which run at full speed until the firmware drives them (4.5).
 - **A 3.3V supply with good headroom** for WiFi current bursts.
+- **Designed against electrical noise from the start** (4.7). The board switches a relay, a heater,
+  fans and a mains SSR, carries WiFi, and runs sensor leads into the cabinet — the logic, sensors and
+  SD card must stay reliable through all of it.
 - **Test points:** keep TP1–TP7 and add **EN** and **GPIO0**.
 
 ## 4. Changes
@@ -118,22 +121,38 @@ Four phases, each one reviewed before the next starts:
 - The DS3231 module also carries **4.7kΩ pull-ups on the main I²C bus**; with it and the mux
   module gone, the board needs its own main-bus pull-ups — your choice of value.
 
-### 4.4 LCD with its own SD card, replacing the SD module
+### 4.4 LCD display, and an SD card slot on the main board
 
-- **lcdwiki 4.0" ST7796 capacitive-touch SPI display**, with its own SD slot. **Remove U4**; logging
-  moves to the LCD's SD card (it stays removable with the LCD mounted).
-- The LCD mounts on the enclosure lid. **How it connects is your call.** Two options we can see:
-  wires onto its header pins (Dupont ends could work loose on a lid that opens), or the **ribbon connector on the LCD**,
-  which carries the same signals — we think it's 14-way, but please check the pin count, whether
-  it's a 2.54mm IDC header or a fine-pitch FPC, and whether JLCPCB can fit an SMD mate.
-- Please tell us the safe **cable length and SPI speed** for the run to the lid.
-- The **touch controller is I²C** — which bus it goes on is part of section 5.
-- **SD signal and power design:** on the current board's SD module, about **1 in 250–670 large
-  (~7 KB) writes fails** mid-data and succeeds on a retry after a remount; small writes don't fail.
-  Not the card (a new one did the same) and not the SPI clock (1 MHz no better than 4 MHz) — the
-  cause is still being investigated. For the LCD's SD, at the end of a cable, please design the
-  lines with care: series resistors, pull-ups on the data lines, and good decoupling at the card's
-  3.3V.
+**LCD — display, touch and backlight only:**
+- **lcdwiki 4.0" ST7796 capacitive-touch SPI display (MSP4031).** Docs, schematic and datasheets:
+  https://www.lcdwiki.com/4.0inch_Capacitive_SPI_Module_ST7796
+- **Interface:** 14 pins, as a 2.54mm header and a **0.5mm-pitch, 14-position FPC socket** with the
+  same signals: VCC, GND, LCD_CS, LCD_RST, LCD_RS, MOSI, SCK, LED, MISO, CTP_SCL, CTP_RST, CTP_SDA,
+  CTP_INT, SD_CS. A 30cm 0.5mm FPC cable comes with it.
+- **Power from 5V** (recommended; at 3.3V the backlight is dim). It has its own small 3.3V
+  regulator (XC6206) for its logic. Backlight 103mA; please budget the total and add bulk
+  capacitance at the connector.
+- **Touch:** FT6336U on I²C, plus GPIOs for **CTP_RST** and **CTP_INT**.
+- **Backlight:** the LED pin is transistor-driven and takes on/off or PWM — put it on a GPIO so the
+  firmware can dim it or switch it off.
+- **Its SD slot is not used** (SD_CS left unconnected). On its schematic the card hangs off the
+  XC6206 with only 100nF and through BSS138 level shifters, at the end of the cable — too weak for
+  reliable logging.
+- The LCD mounts on the enclosure lid. **How it connects is your call** — the FPC is likely more
+  secure than Dupont wires onto the header for a lid that opens. Please tell us the safe **cable
+  length and SPI speed**.
+
+**SD card slot on the main board (replaces U4):**
+- A **micro-SD slot on the board**, its own SPI chip select, designed for reliability: short traces
+  to the S3, pull-ups on the data lines, series resistors where right, and **local bulk and
+  ceramic decoupling at the card's 3.3V** from a supply with headroom for its write peaks
+  (~100mA+). Place it so the card can be removed with the lid open; logs will also be downloadable
+  over WiFi.
+- **Why:** on the current board, the SD module runs straight off the shared 3.3V rail with only
+  small ceramic capacitors. About **1 in 250–670 large (~7 KB) writes failed**: the card accepted the
+  data, then reported it had just reset. Not the card (a new one did the same), not the SPI clock
+  (1 MHz no better than 4 MHz). Errors fell about **twentyfold with WiFi off** — WiFi's current bursts
+  most likely dip the shared rail. The card's supply must not dip when WiFi transmits.
 
 ### 4.5 Blower speed control (new)
 
@@ -153,7 +172,27 @@ Four phases, each one reviewed before the next starts:
 - Its own GPIO and low-side MOSFET, **gate pulled down so it's off at boot**, and a small diode
   across the output.
 
-### 4.7 Diodes
+### 4.7 Electrical noise — plan for it and prevent it (new)
+
+On the current board we've seen: an ESP32 crash and a freeze when a 21W bulb switched on (USB out),
+and about 1 in 250–670 large SD writes failing (cause still under investigation). Please design the
+next board to prevent this kind of problem, and **tell us your approach**. Points we'd expect you to
+consider — your judgement on all of them:
+
+- **Grounding:** a solid ground plane under the logic; the high-current returns (heater, relay,
+  fans, blowers) kept off the path the logic, sensors and SD use. Is **4 layers** worth it over 2?
+- **Power:** decoupling at every IC; bulk capacitance where loads switch and at the module and SD
+  card; the 12V input filtered so load surges don't reach the 3.3V side.
+- **Switching parts:** any regulators (including the blower circuit) and the load MOSFETs kept away
+  from the antenna, the sensor lines and the SD and LCD lines; flyback or snubbing on every
+  inductive load.
+- **Leads that leave the board:** the sensor leads run into the cabinet, the LCD cable to the lid —
+  ESD and noise protection on them (TVS, series resistors, filtering where right), without spoiling
+  the I²C and SPI signals.
+- **The enclosure:** the SSR and PSU switch mains a few centimetres away. Anything in the board's
+  layout or connector placement that keeps mains wiring away from the logic and sensor connectors.
+
+### 4.8 Diodes
 
 - D1 becomes **SB540** (same DO-201AD footprint). D7 too, if it survives the new USB power path.
 
@@ -170,7 +209,8 @@ Four phases, each one reviewed before the next starts:
 5. **RTC** — part, cell, charger, backup time.
 6. **LCD** — connector, cable, length and SPI speed (4.4).
 7. **Blowers** — the voltage-control circuit (4.5).
-8. **Anything else** you'd do differently, or think we've missed.
+8. **Electrical noise** — your approach (4.7), including 2 vs 4 layers.
+9. **Anything else** you'd do differently, or think we've missed.
 
 ## 6. What we'll check at each review
 
@@ -180,7 +220,8 @@ Four phases, each one reviewed before the next starts:
   unchanged from Rev P; the USB power path; strapping pins; blowers full speed by default; ion
   generator off by default.
 - **Layout:** components on top only; the antenna keep-out; connectors grouped; the outline and
-  holes (we'll update the enclosure); test points reachable.
+  holes (we'll update the enclosure); test points reachable; the noise measures in 4.7 — ground
+  plane, load return paths, decoupling placement.
 
 ## 7. First bring-up tests, for your awareness
 

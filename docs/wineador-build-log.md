@@ -885,6 +885,13 @@ hold a day, and compare that level's dip against its A2 average.
 
 ## 4. Open issues
 
+**For B6's procedures (agreed ideas, not yet in the spec):**
+- The tuning dashboard offers a **log download and settings changes over WiFi** (LAN only), so
+  Claude Code can fetch the data and apply an approved change without USB or pulling the card.
+- A **"door opened" marker** (dashboard button or command) logged at each door-test opening.
+- Consider folding **step 1** (run fan speed) into the **step 2 mapping test**, which already varies
+  run fan speed.
+
 **A freeze the ESP32's own watchdogs can't catch.** With USB out, the 21W bulb's switch-on surge
 once crashed the ESP32 (`INT_WATCHDOG`, recovered by itself) and once froze it: silent, not in
 flashing mode, no brownout or watchdog reset — only an EN reset recovered it. Not seen with the
