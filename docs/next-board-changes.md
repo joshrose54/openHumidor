@@ -78,12 +78,17 @@ Four phases, each one reviewed before the next starts:
 ### 4.1 ESP32-S3 module with its built-in USB
 
 - **ESP32-S3-WROOM-1, soldered on by JLCPCB** (chip, flash and antenna built in). Not the bare
-  chip. Variant: we suggest **N8R2** — 8MB flash leaves room for wireless (OTA) updates, and its
-  quad PSRAM leaves GPIO 35–37 free (the octal R8 versions use them). Confirm or recommend otherwise.
+  chip. **A variant with at least 2MB PSRAM is required** — the firmware puts WiFi's buffers there
+  to keep enough internal RAM free. We suggest **N8R2**: 8MB flash leaves room for wireless (OTA)
+  updates, and its quad PSRAM leaves GPIO 35–37 free (the octal R8 versions use them). Confirm or
+  recommend otherwise.
 - **USB-C wired to the S3's built-in USB** (GPIO19 D−, GPIO20 D+). **No USB-to-serial chip (CP2102,
   CH340 or similar) and no auto-reset transistors.** Flashing then needs no buttons and no
   auto-reset circuit, and nothing on the USB side touches EN — the main fix for the first two
   requirements. Please confirm nothing on the USB side can hold EN or GPIO0 low when USB is absent.
+  We know the S3's USB-Serial-JTAG can reset the chip when a computer toggles DTR/RTS (that's how
+  flashing resets it); we expect to handle that in firmware and settings, but tell us if your
+  design can help.
 - **USB-C sits inside the enclosure** — it's for flashing and debugging with the lid open; in
   service, updates will be wireless. Place it wherever routes best.
 - **Antenna** at the board edge with nothing under it. The enclosure is 3D-printed plastic.
@@ -144,6 +149,8 @@ Four phases, each one reviewed before the next starts:
   length and SPI speed**.
 
 **SD card slot on the main board (replaces U4):**
+- **The SD card and the LCD on separate SPI buses** (the S3 has two usable), so a screen redraw
+  can never hold up a log write, or the other way round.
 - A **micro-SD slot on the board**, its own SPI chip select, designed for reliability: short traces
   to the S3, pull-ups on the data lines, series resistors where right, and **local bulk and
   ceramic decoupling at the card's 3.3V** from a supply with headroom for its write peaks
@@ -243,7 +250,7 @@ run these first, so please design so they can pass:
 - Every load quiet through boot; blowers at full speed from power-up; ion generator off.
 - **A deep SD test with WiFi on all the time:** tens of thousands of large writes back to back,
   with **zero first-try failures**, plus a card pull. The current board failed about 1 in 316.
-- **Free heap above 30 KB at all times,** including while WiFi connects (firmware, using the
+- **Free internal heap above 30 KB at all times,** including while WiFi connects (firmware, using the
   module's PSRAM).
 
 **Tests you'd add.** Please suggest any bring-up checks your design needs — only ones that would

@@ -1168,7 +1168,7 @@ humidifier guards — the 70% RH ceiling included — and turn off any load whos
 unsatisfied. Turning a load off must never depend
 on a sensor read, a log write or the network.
 
-**Free heap never below 30 KB**, including during WiFi bursts and SD writes; the lowest seen is
+**Free internal heap never below 30 KB** (internal RAM; PSRAM is measured separately), including during WiFi bursts and SD writes; the lowest seen is
 logged in the readings. On **Rev N** the floor applies outside NTP windows: while WiFi connects its
 own buffers dip it to ~29 KB, which is logged (card writes are paused). **The next board must meet
 it at all times.**
