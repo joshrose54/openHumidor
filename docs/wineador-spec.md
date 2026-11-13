@@ -1878,7 +1878,9 @@ normal and the LCD still works.
   - **OTA accepts only a Rev Q cabinet build** (real profile, not a test build); a bench, test or
     Rev N image is refused before anything is written. The image carries its build identity and
     the firmware checks it.
-  - **Limits:** at most **2 browser connections** at once, and at most one long transfer (a
+  - **Limits:** at most **2 browser connections** at once — **a third is closed at once, never
+    queued** (the web server itself would queue it, so it is allowed 3 and the firmware closes the
+    third; the page retries and shows "board busy" only if that keeps happening) — and at most one long transfer (a
     download or an update) at a time; log downloads sent in pieces, read by the SD task between its
     own log writes, within the 50ms rule (3A.11) and the 30 KB internal-heap floor (5.2). **A new
     transfer is refused when free internal RAM is near the floor**, the margin set from BP2 test 39.
