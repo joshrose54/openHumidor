@@ -1,5 +1,6 @@
 #include "wineador/web_lists.h"
 #include "wineador/image_identity.h"
+#include "wineador/event_sentence.h"
 #include <stdio.h>
 
 namespace wineador {
@@ -37,6 +38,9 @@ bool EventsReply::step(JsonWriter& w) {
       w.kStr("uk", formatUkDateTime(uk, sizeof(uk), r.utcS));
       w.kBool("trusted", r.trusted);
       w.kStr("type", r.type);
+      char sentence[320];
+      eventSentence(sentence, sizeof(sentence), r.type, r.detail);
+      w.kStr("sentence", sentence);
       w.kStr("detail", r.detail);
       w.endObject();
       return true;

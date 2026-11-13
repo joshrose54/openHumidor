@@ -164,9 +164,9 @@ void printSettings(const View& v) {
   Serial.println("\n  SETTINGS");
   Serial.println("    USER (change with 'set ...' / 'exclude ...'; saved)");
   Serial.printf("      target temperature %.1f C (%.0f-%.0f) · RH setpoint %.0f%% (%.0f-%.0f) · heater %s · humidifier %s · "
-                "manual excludes 0x%02X\n", u.targetTempC, kTargetTempMinC, kTargetTempMaxC, u.rhSetpointPct,
-                kRhSetpointMinPct, kRhSetpointMaxPct, u.heaterEnable ? "on" : "OFF", u.humidifierEnable ? "on" : "OFF",
-                (unsigned)u.manualExcludeMask);
+                "ion generator %s (stays off until 4.6c) · manual excludes 0x%02X\n", u.targetTempC, kTargetTempMinC,
+                kTargetTempMaxC, u.rhSetpointPct, kRhSetpointMinPct, kRhSetpointMaxPct, u.heaterEnable ? "on" : "OFF",
+                u.humidifierEnable ? "on" : "OFF", u.ionEnable ? "on" : "OFF", (unsigned)u.manualExcludeMask);
   Serial.println("    TUNING (B6 sets these; read-only here)");
   Serial.printf("      cooling hysteresis %.1f C · heating deadband %.1f C · heating ends %.1f C below · crossover %lu s\n",
                 t.coolingHysteresisC, t.heatingDeadbandC, t.heatingStopBelowSetpointC, (unsigned long)(t.crossoverDelayMs / 1000));

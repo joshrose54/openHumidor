@@ -39,6 +39,14 @@ static StatusSnapshot normal() {
   s.weekReady = true;
   s.crossovers = 2; s.strips = 1; s.humidRuns = 14; s.disturbances = 3;
   s.sdOk = true;
+  s.sdFreeBytes = 59000000000ULL;
+  s.sdTotalBytes = 59700000000ULL;
+  s.wifiRssi = -61;
+  s.bootReason = "POWERON";
+  s.hasV12 = true;
+  s.v12NowV = 12.08f;
+  s.v12LowTodayV = 11.96f;
+  s.heapFreeBytes = 182000;
   for (int i = 0; i < kNumSensors; i++) {
     s.sensors[i].state = SensorState::Healthy;
     s.sensors[i].read = true;
@@ -86,6 +94,10 @@ void test_status_reply_content() {
   // disturbance detection is off until B6: shown as null, not 0
   TEST_ASSERT_TRUE(has(w, "\"week\":{\"crossovers\":2,\"strips\":1,\"humid_runs\":14,\"disturbances\":null,\"ready\":true}"));
   TEST_ASSERT_TRUE(has(w, "\"update\":{\"window_open\":false,\"window_s\":0,\"updating\":false,\"pct\":0}"));
+  // the Board section (5.5)
+  TEST_ASSERT_TRUE(has(w, "\"board\":{\"version\":\"2.0.0\",\"uptime_s\":7200,\"restart_reason\":\"POWERON\",\"v12_now\":12.08,"
+                          "\"v12_low_today\":11.96,\"wifi_rssi\":-61,\"heap_free_bytes\":182000,\"card_free_bytes\":59000000000,"
+                          "\"card_total_bytes\":59700000000}"));
 }
 
 void test_dashes_and_untrusted_time() {
@@ -103,6 +115,13 @@ void test_dashes_and_untrusted_time() {
   TEST_ASSERT_TRUE(has(w, "\"uk\":\"--:--\",\"uk_date\":null,\"trusted\":false"));
   TEST_ASSERT_TRUE(has(w, "\"week\":{\"crossovers\":null"));
   TEST_ASSERT_TRUE(has(w, "\"state\":\"excluded\",\"reason\":\"absent\",\"t\":null"));
+  // no 12V sense (Rev N), the card out: nulls, not zeros
+  StatusSnapshot n = normal();
+  n.hasV12 = false;
+  n.sdOk = false;
+  const std::string nw = json(n);
+  TEST_ASSERT_TRUE(has(nw, "\"v12_now\":null,\"v12_low_today\":null"));
+  TEST_ASSERT_TRUE(has(nw, "\"card_free_bytes\":null,\"card_total_bytes\":null"));
 }
 
 void test_zones() {

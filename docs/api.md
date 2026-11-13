@@ -1,6 +1,9 @@
 # openHumidor dashboard API
 
-API version 1
+API version 2
+
+**Changes in version 2** (stage Q5b): `ion_enable` in the user settings (read and write); the
+`board` object in `GET /api/status`; `source`, `note` and `sentence` in `GET /api/events`.
 
 The JSON endpoints the board serves for the web dashboard and for tools on the Mac (spec 5.5).
 Every endpoint and every field is listed here. The firmware's own constant (`kApiVersion` in
@@ -9,7 +12,7 @@ Every endpoint and every field is listed here. The firmware's own constant (`kAp
 or the codes and names below.
 
 **The version changes whenever any endpoint changes** — a field added, renamed or removed, a
-new endpoint, a changed meaning. Every JSON reply carries it as `"api": 1`, so a Mac tool can
+new endpoint, a changed meaning. Every JSON reply carries it as `"api": 2`, so a Mac tool can
 check it and stop with a clear message rather than misread a newer reply.
 
 The board answers on the home network only, as `http://wineador.local/` (plain http). Rev Q
@@ -65,7 +68,7 @@ only: Rev N has no dashboard.
 A refused request gets an HTTP status and this body:
 
 ```json
-{"api":1,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
+{"api":2,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
 ```
 
 `field` is present when the refusal is about one field; `min`, `max` and `step` with
@@ -110,7 +113,7 @@ Who the board is. Small: for tools, and for the Update page to see the new versi
 restart.
 
 ```json
-{"api":1,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
+{"api":2,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
 ```
 
 - `build.board`: `"rev-q"`. `build.profile`: `"real"` or `"bench"`. `build.test`: a test build
@@ -125,7 +128,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
 (spec 5.5).
 
 ```json
-{"api":1,
+{"api":2,
  "time":{"utc_s":1794573120,"uk":"12:32","uk_date":"2026-11-13","trusted":true},
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "uptime_s":7200,
@@ -143,7 +146,9 @@ Everything the Overview and Sensors pages and every page's header show, in one r
  "week":{"crossovers":2,"strips":1,"humid_runs":14,"disturbances":null,"ready":true},
  "update":{"window_open":false,"window_s":0,"updating":false,"pct":0},
  "card":{"ok":true,"free_bytes":59000000000},
- "wifi":{"rssi":-61}}
+ "wifi":{"rssi":-61},
+ "board":{"version":"2.0.0","uptime_s":7200,"restart_reason":"POWERON","v12_now":12.08,"v12_low_today":11.96,
+          "wifi_rssi":-61,"heap_free_bytes":182000,"card_free_bytes":59000000000,"card_total_bytes":59700000000}}
 ```
 
 (`sensors` has all six channels; one is shown.)
@@ -185,6 +190,12 @@ Everything the Overview and Sensors pages and every page's header show, in one r
   out: they can't be placed in the week.
 - `update`: the Allow update window (`window_s` seconds left) and an update in progress.
 - `card.ok`: the SD card is mounted and working. `wifi.rssi`: signal strength in dBm.
+- `board`: the Overview's Board section (spec 5.5). `version` the firmware; `uptime_s` since the
+  last restart; `restart_reason` as the boot event logs it (spec 3A.11: an EN reset reads
+  `POWERON`); `v12_now` the 12V supply's last 1 s average and `v12_low_today` its lowest 1 s
+  average since UK midnight (or since the restart, if later), both null without the 12V sense;
+  `wifi_rssi` in dBm; `heap_free_bytes` free internal RAM now (spec 5.2: never below 30 KB);
+  `card_free_bytes`, `card_total_bytes` the SD card, null while it is failed or out.
 
 ### `GET /api/history?range=hour|day|week|month&since=<utc_s>`
 
@@ -192,7 +203,7 @@ The graphs (spec 5.5): hour and day from the readings, week and month from the h
 Columns ready for uPlot: `t`, then one array per line, all the same length.
 
 ```json
-{"api":1,"range":"day","step_s":60,"now":1794573120,
+{"api":2,"range":"day","step_s":60,"now":1794573120,
  "duty":{"compressor":0.231,"heater":0,"humidifier":0.05},
  "t":[1794486780,1794486840,...],
  "cab_t":[19.82,19.85,...],"cab_t_min":[...],"cab_t_max":[...],"cab_rh":[...],
@@ -234,8 +245,10 @@ Columns ready for uPlot: `t`, then one array per line, all the same length.
 Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 
 ```json
-{"api":1,"source":"card","note":null,
- "events":[{"utc":"2026-11-13T14:32:05Z","uk":"13 Nov 2026 14:32:05","trusted":true,"type":"settings","detail":"target_temp_c 20.0 -> 20.5 (dashboard)"}],
+{"api":2,"source":"card","note":null,
+ "events":[{"utc":"2026-11-13T14:32:05Z","uk":"13 Nov 2026 14:32:05","trusted":true,"type":"settings",
+            "sentence":"Settings changed from dashboard: target_temp_c 20.0 → 20.5",
+            "detail":"settings changed (dashboard): target_temp_c 20.0 -> 20.5"}],
  "older":"/logs/2026/2026-11-events-s2.csv@81234",
  "newest":"/logs/2026/2026-11-events-s2.csv@90412"}
 ```
@@ -247,6 +260,9 @@ Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 - A cursor is a file and a byte offset, `"<path>@<offset>"`; pass it back unchanged
   (URL-encoded).
 - `trusted` false: the time was written while the clock wasn't trusted.
+- `sentence`: the event as a plain sentence (spec 5.5), e.g. "Humidifier called: RH 59.4%, below
+  60.0%", made by the board from `type` and `detail` (`lib/core/src/wineador/event_sentence.h`;
+  every event type has one). `detail` is the text as logged on the card, which tools read.
 - `source`: `"card"` normally. **While the SD card is failed or out** the reply is the newest
   events kept in RAM since the boot (at most 50, newest first), with `"source":"ram"`,
   `"note":"card unavailable: recent events only"`, and `older` and `newest` null (there is
@@ -261,15 +277,19 @@ The settings page (spec 5.5): the user settings with their bounds and steps, and
 settings, read only. **Safety values are never sent** (spec 5.5).
 
 ```json
-{"api":1,
+{"api":2,
  "user":{"target_temp_c":{"value":20,"min":15,"max":22,"step":0.5,"unit":"°C"},
          "rh_setpoint_pct":{"value":62,"min":55,"max":70,"step":1,"unit":"%"},
          "heater_enable":{"value":true},
-         "humidifier_enable":{"value":true}},
+         "humidifier_enable":{"value":true},
+         "ion_enable":{"value":true,"built":false}},
  "manual_exclude":[],
  "tuning":[{"name":"cooling_hysteresis_c","label":"Cooling hysteresis","value":0.5,"unit":"°C"}]}
 ```
 
+- `ion_enable`: the ion generator may run (spec 5.5, 4.6c "Switched off": off means no runs at
+  all; the run settings keep their values). `built` is false until spec 4.6c is built: until then
+  the generator stays off whatever this says.
 - `manual_exclude`: the channels excluded by hand (change them with `POST /api/sensors/exclude`).
 - `tuning`: each with `name`, `label`, `value` (true/false for on/off settings) and `unit`.
   The names, in this order: `cooling_hysteresis_c`, `heating_deadband_c`,
@@ -282,14 +302,14 @@ settings, read only. **Safety values are never sent** (spec 5.5).
   `cooling_ineffective_fall_c`, `cooling_ineffective_window_min`, `humid_ineffective_rise_pts`,
   `humid_ineffective_window_min`, `humid_ineffective_retry_min`, `disturbance_detection`,
   `log_steady_s`, `log_active_s`, `heater_pwm_period_s`, `sensor_read_s`.
-- The ion generator's settings join `user` once spec 4.6c is built (not in API version 1).
+- The ion generator's runs-per-day and minutes settings join `user` once spec 4.6c is built.
 
 ### `GET /api/logs`
 
 The Logs page: the card and every log file on it, newest first.
 
 ```json
-{"api":1,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
+{"api":2,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
  "files":[{"path":"/logs/2026/2026-11-readings-s2.csv","name":"2026-11-readings-s2.csv","kind":"readings","month":"2026-11","schema":2,"part":1,"bytes":4567890},
           {"path":"/logs/hourly-s2.csv","name":"hourly-s2.csv","kind":"hourly","month":null,"schema":2,"part":1,"bytes":12345}]}
 ```
@@ -311,7 +331,7 @@ A long transfer (above). Not JSON.
 The Update page.
 
 ```json
-{"api":1,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"pct":0,
+{"api":2,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"pct":0,
  "slot_bytes":3342336,"check_bytes":352,
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "pending_verify":false,
@@ -339,6 +359,7 @@ Changes user settings (spec 5.5). Any of these, all or nothing:
 | `rh_setpoint_pct` | number | 55–70 %, steps of 1 |
 | `heater_enable` | true / false | |
 | `humidifier_enable` | true / false | |
+| `ion_enable` | true / false | (the generator stays off until spec 4.6c is built) |
 
 ```json
 {"target_temp_c": 20.5}
@@ -361,7 +382,7 @@ setting).
 - `channel`: the number 0–5, or as on the serial console the position name (`"mid_rear"`),
   `"ch3"`, or the probe label (`"A1C5"`), any case.
 - The reply echoes what it acted on, as the serial console does:
-  `{"api":1,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
+  `{"api":2,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
 - Excluding enough sensors to leave fewer than 3 cabinet sensors causes a Fault (spec 4.3): the
   page asks first; the board doesn't refuse it.
 - Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`.
@@ -376,7 +397,7 @@ Logs a "door test" event with an optional note (spec 5.5), for disturbance-detec
 
 `{}` logs it with no note. The note is text of at most 120 bytes (`too_long`), with no control
 characters such as newlines (`wrong_type`). Reply:
-`{"api":1,"logged":true}`.
+`{"api":2,"logged":true}`.
 
 ### `POST /api/update`
 
@@ -427,7 +448,7 @@ is refused.
 Updating with its %, the image is written in 4 KB pieces. An upload with no data for 60 s is
 abandoned (`stalled`): the half-written image is discarded and normal control resumes. When the
 whole image has arrived and its own checksum is right, the board replies
-`{"api":1,"installed":true,"version":"2.0.0","restarting":true}` and restarts. The page then asks
+`{"api":2,"installed":true,"version":"2.0.0","restarting":true}` and restarts. The page then asks
 `GET /api/info` every few seconds until it answers with the new version. If the new image
 doesn't start properly (spec 5.2) the board rolls back by itself; `GET /api/update` then shows
 `rolled_back`.

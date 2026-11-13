@@ -16,7 +16,7 @@
 
 namespace wineador {
 
-constexpr int kApiVersion = 1;                 // docs/api.md "API version 1"; changes with any endpoint
+constexpr int kApiVersion = 2;                 // docs/api.md "API version 2"; changes with any endpoint
 constexpr int kMaxBrowserConnections = 2;      // spec 5.5
 constexpr size_t kMaxDoorNote = 120;           // the door-test note, in bytes (docs/api.md)
 
@@ -100,7 +100,7 @@ bool isJsonContentType(const char* contentType);
 bool queryValue(const char* query, const char* name, char* out, size_t n);
 
 // ---------------------------------------------------------------- writes
-// POST /api/settings: any of target_temp_c, rh_setpoint_pct, heater_enable, humidifier_enable.
+// POST /api/settings: any of target_temp_c, rh_setpoint_pct, heater_enable, humidifier_enable, ion_enable.
 // All or nothing: on a refusal `out` is unchanged. Same bounds and steps as the LCD and serial.
 ApiResult checkSettingsWrite(const char* body, size_t n, const UserSettings& now, bool updating, UserSettings* out);
 

@@ -250,6 +250,18 @@ bool StatusReply::step(JsonWriter& w) {
       w.beginObject();
       w.kInt("rssi", s.wifiRssi);
       w.endObject();
+      w.key("board");
+      w.beginObject();
+      w.kStr("version", s.build.version);
+      w.kInt("uptime_s", (int64_t)s.uptimeS);
+      w.kStr("restart_reason", s.bootReason ? s.bootReason : "");
+      if (s.hasV12) { w.kNum("v12_now", s.v12NowV, 2); w.kNum("v12_low_today", s.v12LowTodayV, 2); }
+      else { w.kNull("v12_now"); w.kNull("v12_low_today"); }
+      w.kInt("wifi_rssi", s.wifiRssi);
+      w.kInt("heap_free_bytes", s.heapFreeBytes);
+      if (s.sdOk) { w.kInt("card_free_bytes", (int64_t)s.sdFreeBytes); w.kInt("card_total_bytes", (int64_t)s.sdTotalBytes); }
+      else { w.kNull("card_free_bytes"); w.kNull("card_total_bytes"); }
+      w.endObject();
       phase_ = 8;
       return true;
     }

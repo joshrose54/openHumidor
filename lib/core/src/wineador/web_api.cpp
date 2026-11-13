@@ -204,10 +204,12 @@ ApiResult checkSettingsWrite(const char* body, size_t n, const UserSettings& now
       }
       const bool ok = temp ? setTargetTemp(u, v) : setRhSetpoint(u, v);
       if (!ok) return limits(Refusal::OutOfBounds, f.key, nullptr, lo, hi, st);   // belt and braces
-    } else if (strcmp(f.key, "heater_enable") == 0 || strcmp(f.key, "humidifier_enable") == 0) {
+    } else if (strcmp(f.key, "heater_enable") == 0 || strcmp(f.key, "humidifier_enable") == 0 ||
+               strcmp(f.key, "ion_enable") == 0) {
       if (f.kind != JsonField::Kind::Bool) return refuse(Refusal::WrongType, f.key, "That setting takes true or false.");
-      if (f.key[1] == 'e') u.heaterEnable = f.boolean;
-      else                 u.humidifierEnable = f.boolean;
+      if (f.key[0] == 'i')      u.ionEnable = f.boolean;
+      else if (f.key[1] == 'e') u.heaterEnable = f.boolean;
+      else                      u.humidifierEnable = f.boolean;
     } else if (isTuningName(f.key)) {
       return refuse(Refusal::ReadOnly, f.key);
     } else {
@@ -296,6 +298,10 @@ int describeUserChange(char* out, size_t n, const UserSettings& a, const UserSet
   if (a.humidifierEnable != b.humidifierEnable) {
     sep();
     appendf(out, n, &len, "humidifier_enable %s%s%s", onOff(a.humidifierEnable), kEvChangeArrow, onOff(b.humidifierEnable));
+  }
+  if (a.ionEnable != b.ionEnable) {
+    sep();
+    appendf(out, n, &len, "ion_enable %s%s%s", onOff(a.ionEnable), kEvChangeArrow, onOff(b.ionEnable));
   }
   for (int i = 0; i < kNumSensors; i++) {
     const bool x = a.manualExcludeMask & (1u << i), y = b.manualExcludeMask & (1u << i);
@@ -462,6 +468,12 @@ bool SettingsReply::step(JsonWriter& w) {
     w.key("humidifier_enable");
     w.beginObject();
     w.kBool("value", u_.humidifierEnable);
+    w.endObject();
+    // 5.5 / 4.6c: off stops every ion run; until 4.6c is built the generator stays off whatever this says
+    w.key("ion_enable");
+    w.beginObject();
+    w.kBool("value", u_.ionEnable);
+    w.kBool("built", false);
     w.endObject();
     w.endObject();   // user
     return true;

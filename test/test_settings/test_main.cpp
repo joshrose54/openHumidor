@@ -33,6 +33,7 @@ void test_real_profile_matches_spec_5_5() {
   TEST_ASSERT_EQUAL_FLOAT(62.0f, s.user.rhSetpointPct);
   TEST_ASSERT_TRUE(s.user.heaterEnable);
   TEST_ASSERT_TRUE(s.user.humidifierEnable);
+  TEST_ASSERT_TRUE(s.user.ionEnable);   // 5.5: ion generator enable, default on
   // Tuning starting values
   TEST_ASSERT_EQUAL_FLOAT(0.5f, s.tuning.coolingHysteresisC);
   TEST_ASSERT_EQUAL_FLOAT(1.5f, s.tuning.heatingDeadbandC);

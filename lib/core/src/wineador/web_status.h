@@ -87,8 +87,14 @@ struct StatusSnapshot {
   uint8_t updatePct = 0;
   // card and WiFi
   bool sdOk = false;
-  uint64_t sdFreeBytes = 0;
+  uint64_t sdFreeBytes = 0, sdTotalBytes = 0;
   int wifiRssi = 0;
+  // the Board section (5.5): with the version, uptime, WiFi and card above
+  const char* bootReason = "";        // the last restart's reason, as the boot event logs it
+  bool hasV12 = false;                // Rev Q: the 12V sense
+  float v12NowV = 0;                  // the last 1 s average
+  float v12LowTodayV = 0;             // the lowest 1 s average since UK midnight (or since boot, if later)
+  uint32_t heapFreeBytes = 0;         // free internal RAM now (5.2)
   // the six sensors
   SensorStatus sensors[kNumSensors];
 };

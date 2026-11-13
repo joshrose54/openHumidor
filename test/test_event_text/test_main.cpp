@@ -15,6 +15,8 @@
 #include "wineador/web_api.h"
 #include "wineador/logbook.h"
 #include "wineador/log_read.h"
+#include "wineador/event_sentence.h"
+#include "wineador/sensor_table.h"
 #include "../json_check.h"
 
 using namespace wineador;
@@ -159,11 +161,90 @@ void test_the_other_writers_use_the_words() {
   TEST_ASSERT_NOT_NULL(strstr(d, kEvChangeArrow));
 }
 
+// ---------------------------------------------------------------- plain sentences (5.5)
+void test_every_event_type_has_a_sentence() {
+  // a new event type can't reach the dashboard without its own sentence
+  for (int i = 0; i < kEventTypeCount; i++)
+    TEST_ASSERT_TRUE_MESSAGE(hasEventSentence(kEventTypes[i].type), kEventTypes[i].type);
+  // and an unknown one still reads as something
+  char s[200];
+  eventSentence(s, sizeof(s), "future", "a new kind of event");
+  TEST_ASSERT_EQUAL_STRING("future: a new kind of event", s);
+}
+
+static std::string sentence(const char* type, const char* detail) {
+  char s[400];
+  eventSentence(s, sizeof(s), type, detail);
+  return s;
+}
+
+void test_sentences_from_the_real_writers() {
+  const Settings st = settingsFor(Profile::Real);
+  char d[300];
+  // the spec's own example
+  HumidEvent he;
+  he.type = HumidEvent::Type::CallStart;
+  he.rh = 59.4f;
+  he.count = 3;
+  formatHumidEvent(d, sizeof(d), he, st);
+  TEST_ASSERT_EQUAL_STRING("Humidifier called: RH 59.4%, below 60.0%", sentence(kEvTypeHumidify, d).c_str());
+  he.type = HumidEvent::Type::CallEnd;
+  he.rh = 62.0f;
+  formatHumidEvent(d, sizeof(d), he, st);
+  TEST_ASSERT_EQUAL_STRING("Humidifier call ended: RH 62.0% reached the setpoint", sentence(kEvTypeHumidify, d).c_str());
+  ControlEvent e;
+  e.type = ControlEvent::Type::StripStart;
+  e.a = 68.1f; e.b = 1.6f; e.count = 1;
+  formatControlEvent(d, sizeof(d), e, st);
+  TEST_ASSERT_EQUAL_STRING("RH strip started: RH 68.1%, above 67.0%", sentence(kEvTypeStrip, d).c_str());
+  e.type = ControlEvent::Type::Crossover;
+  e.a = 1;
+  formatControlEvent(d, sizeof(d), e, st);
+  TEST_ASSERT_EQUAL_STRING("Crossover: cooling started after heating", sentence(kEvTypeCrossover, d).c_str());
+  formatLoadEvent(d, sizeof(d), 0, true, "temperature call");
+  TEST_ASSERT_EQUAL_STRING("Compressor started: temperature call", sentence(loadEventType(0), d).c_str());
+  formatLoadEvent(d, sizeof(d), 2, false, guardBlockName(GuardBlock::MaxRun));
+  TEST_ASSERT_EQUAL_STRING("Humidifier stopped: max-run", sentence(loadEventType(2), d).c_str());
+  TEST_ASSERT_EQUAL_STRING("Interlock moved to the heating side", sentence(kEvTypeInterlock, kEvK1Heating).c_str());
+  formatRecovered12v(d, sizeof(d), 11.0f, 5300, 10.52f);
+  TEST_ASSERT_EQUAL_STRING("12\xC2\xA0V supply back after 5.3\xC2\xA0s; lowest 10.52\xC2\xA0V", sentence(kEvTypeSupply12v, d).c_str());
+  formatWifiBack(d, sizeof(d), 61);
+  TEST_ASSERT_EQUAL_STRING("WiFi back after 61\xC2\xA0s", sentence(kEvTypeWifi, d).c_str());
+  // settings: where from, old -> new
+  UserSettings a, b;
+  b.targetTempC = 20.5f;
+  char c[200];
+  describeUserChange(c, sizeof(c), a, b);
+  snprintf(d, sizeof(d), "%s (dashboard): %s", kEvSettingsChanged, c);
+  TEST_ASSERT_EQUAL_STRING("Settings changed from dashboard: target_temp_c 20.0 \xE2\x86\x92 20.5", sentence(kEvTypeSettings, d).c_str());
+  // a sensor, the card, a boot, a door test, the ion setting
+  snprintf(d, sizeof(d), "ch3 %s excluded: absent", kSensors[3].position);
+  TEST_ASSERT_EQUAL_STRING("Sensor ch3 (mid_rear) left out: absent", sentence(kEvTypeSensor, d).c_str());
+  snprintf(d, sizeof(d), "%s: write failed: /logs/2026/x.csv", kEvSdFlushFailure);
+  TEST_ASSERT_EQUAL_STRING("SD card failed: the logs are kept in memory until it is back", sentence(kEvTypeSd, d).c_str());
+  snprintf(d, sizeof(d), "%s POWERON; firmware 2.0.0; board Rev Q%sREAL", kEvBootLine, kEvBootProfile);
+  TEST_ASSERT_EQUAL_STRING("Board started (POWERON), firmware 2.0.0", sentence(kEvTypeBoot, d).c_str());
+  snprintf(d, sizeof(d), "%s: door open 30 s", kEvDoorTest);
+  TEST_ASSERT_EQUAL_STRING("Door test: door open 30 s", sentence(kEvTypeDoor, d).c_str());
+  b = a;
+  b.ionEnable = false;
+  describeUserChange(c, sizeof(c), a, b);
+  TEST_ASSERT_EQUAL_STRING("ion_enable on -> off", c);
+  // harvest, with °C written properly
+  e.type = ControlEvent::Type::HarvestStart;
+  e.kind = HarvestKind::Cooling;
+  e.a = 6.02f;
+  formatControlEvent(d, sizeof(d), e, st);
+  TEST_ASSERT_TRUE(sentence(kEvTypeHarvest, d).find("Harvest after cooling started: chamber 6.02\xC2\xA0\xC2\xB0" "C from the cabinet mean") == 0);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_the_json_file_is_made_from_the_constants);
   RUN_TEST(test_names_are_unique_and_texts_sensible);
   RUN_TEST(test_the_real_writers_and_the_weekly_counts_agree);
   RUN_TEST(test_the_other_writers_use_the_words);
+  RUN_TEST(test_every_event_type_has_a_sentence);
+  RUN_TEST(test_sentences_from_the_real_writers);
   return UNITY_END();
 }

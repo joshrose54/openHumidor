@@ -24,6 +24,8 @@ struct UserSettings {
   float rhSetpointPct   = 62.0f;
   bool  heaterEnable    = true;
   bool  humidifierEnable = true;
+  bool  ionEnable       = true;    // Rev Q (5.5, 4.6c "Switched off"): off = no ion runs at all; the run
+                                   // settings keep their values. Until 4.6c is built the generator stays off.
   uint8_t manualExcludeMask = 0;   // bit i set = sensor index i force-excluded for maintenance
 };
 

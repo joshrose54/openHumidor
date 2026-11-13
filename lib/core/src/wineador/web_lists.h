@@ -37,8 +37,9 @@ class EventsReply : public JsonPump {
  public:
   EventsReply(const EventRow* rows, int n, const char* olderCursor, const char* newestCursor, bool recentOnly = false)
       : rows_(rows), n_(n), older_(olderCursor), newest_(newestCursor), recent_(recentOnly) {}
-  // the worst row: every detail and type byte a control character, written as \u00XX (6 bytes)
-  size_t maxStep() const override { return 1600; }
+  // the worst row: every detail and type byte a control character, written as \u00XX (6 bytes),
+  // plus its sentence (event_sentence.h, at most 320 bytes, the same escaping)
+  size_t maxStep() const override { return 3600; }
  protected:
   bool step(JsonWriter& w) override;
  private:

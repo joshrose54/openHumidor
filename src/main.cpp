@@ -283,6 +283,7 @@ static void applyUser(const UserSettings& was, const char* what) {
   if (was.heaterEnable != u.heaterEnable) add("heater %s%s%s; ", was.heaterEnable ? "on" : "off", to, u.heaterEnable ? "on" : "off");
   if (was.humidifierEnable != u.humidifierEnable)
     add("humidifier %s%s%s; ", was.humidifierEnable ? "on" : "off", to, u.humidifierEnable ? "on" : "off");
+  if (was.ionEnable != u.ionEnable) add("ion generator %s%s%s; ", was.ionEnable ? "on" : "off", to, u.ionEnable ? "on" : "off");
   if (was.manualExcludeMask != u.manualExcludeMask)
     add("manual excludes 0x%02X%s0x%02X; ", was.manualExcludeMask, to, u.manualExcludeMask);
   add("%s", saved ? "saved" : "NOT SAVED (NVS write failed) - lost at the next boot");
@@ -291,7 +292,7 @@ static void applyUser(const UserSettings& was, const char* what) {
 
 static bool sameUser(const UserSettings& a, const UserSettings& b) {
   return a.targetTempC == b.targetTempC && a.rhSetpointPct == b.rhSetpointPct && a.heaterEnable == b.heaterEnable &&
-         a.humidifierEnable == b.humidifierEnable && a.manualExcludeMask == b.manualExcludeMask;
+         a.humidifierEnable == b.humidifierEnable && a.ionEnable == b.ionEnable && a.manualExcludeMask == b.manualExcludeMask;
 }
 
 static serialui::View uiView() {
@@ -391,12 +392,15 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     }
     case Command::SetHeater:
-    case Command::SetHumid: {
-      if (arg < 0) { Serial.println("  set heater on|off, set humid on|off. Nothing changed."); break; }
+    case Command::SetHumid:
+    case Command::SetIon: {
+      if (arg < 0) { Serial.println("  set heater on|off, set humid on|off, set ion on|off. Nothing changed."); break; }
       const UserSettings was = gSettings.user;
-      (c == Command::SetHeater ? gSettings.user.heaterEnable : gSettings.user.humidifierEnable) = (arg == 1);
+      (c == Command::SetHeater ? gSettings.user.heaterEnable
+       : c == Command::SetHumid ? gSettings.user.humidifierEnable : gSettings.user.ionEnable) = (arg == 1);
       if (sameUser(was, gSettings.user)) Serial.println("  No change.");
-      else applyUser(was, c == Command::SetHeater ? "serial: set heater" : "serial: set humid");
+      else applyUser(was, c == Command::SetHeater ? "serial: set heater" : c == Command::SetHumid ? "serial: set humid" : "serial: set ion");
+      if (c == Command::SetIon) Serial.println("  (The ion generator stays off until its run rules, 4.6c, are built.)");
       break;
     }
     case Command::SetDefaults: {

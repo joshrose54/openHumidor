@@ -2,6 +2,36 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q5b (accepted 2026-11-13)
+
+**The web dashboard's pages** (spec 5.5), reviewed on the Mac before the board (no board-side
+server yet: Q5c).
+- **`web/`:** `index.html`, `app.css`, `app.js`: seven pages in one file. Structure "Where it sits,
+  and why" (Josh's choice on the Impeccable decision page): each reading on its control band with
+  the reason in words. The LCD's palette and icons (Material Symbols Rounded 0.49.0, Apache 2.0),
+  the openHumidor logo, system fonts, uPlot 1.6.32 (MIT) pinned in `web/vendor/`; licences in
+  `web/LICENSES.md`. Fetch rules of 5.5 in `app.js` (nothing while the tab is hidden). UK time.
+- **`tools/make_web_assets.py`:** packs `web/` into one page (refuses anything from the internet),
+  gzip -9 into `lib/webui/src/webui/page.cpp` (generated): 150 KB packed, ~54 KB compressed.
+- **`dashboard_sim`** (native build, `src/sim/`): serves the packed page and answers the API with
+  the lib/core code, from a simulated board: the cabinet model run by the real control logic, a
+  month of history made at start, events, files. Review states and "press Allow update" at `/sim`.
+  `pio run -e dashboard_sim -t exec`; then http://localhost:8080 (phone: http://<Mac>.local:8080).
+- **Screenshots:** `python3 tools/dashboard_shots.py` writes 44 PNGs (every page, phone and
+  desktop, normal and Fault, and the other states) and an index to `.pio.nosync/dashboard-shots/`.
+- Impeccable: surface brief `.impeccable/surfaces/web-index-html.md`; finish review by its reviewer.
+- **Added before acceptance (spec update):** the **ion generator enable** user setting (default on;
+  NVS key `ion`; `set ion on|off`; API `ion_enable`; Settings page says it stays off until 4.6c);
+  the **Board section** on Overview (`board` in `/api/status`: version, uptime, restart reason,
+  12V now and lowest today, WiFi, free internal RAM, card space); **events as plain sentences**
+  (`lib/core event_sentence`, from the event list; a test fails if a type has none), the logged
+  text beneath. **API version 2** (docs/api.md lists the changes).
+- **The page's early image check** is `web/image_check.js`; `test_image_check` runs it under node on
+  124 images beside the C++ check and fails if they ever disagree. `make_web_assets.py` refuses a
+  page whose scripts don't parse. DESIGN.md's type scale and tokens match the CSS (detector 0).
+
+Native tests **410/410**; 25 builds (24 board, dashboard_sim) without warnings.
+
 ## Port to Rev Q: stage Q5a (accepted 2026-11-13)
 
 **The dashboard's JSON API, plain-logic half** (spec 5.5, 5.2). No web server or pages yet (Q5b

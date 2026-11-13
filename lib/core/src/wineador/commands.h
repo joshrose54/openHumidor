@@ -5,7 +5,7 @@
 // Every build:
 //   boot · help · exercise
 //   status · sensors · events [n] · log · settings
-//   set temp <C> · set rh <%> · set heater on|off · set humid on|off · set defaults
+//   set temp <C> · set rh <%> · set heater on|off · set humid on|off · set ion on|off · set defaults
 //   exclude chN on|off              (user settings and manual excludes, saved to NVS)
 // Test builds only:
 //   stall · run <n> (or "run soak") · stop · resets [clear] · fan <pct>|auto ·
@@ -40,6 +40,7 @@ enum class Command : uint8_t {
   SetRh,             // "set rh 63":     f = value (arg -2 = not a number)
   SetHeater,         // "set heater on|off": arg 1 / 0, -2 neither
   SetHumid,          // "set humid on|off":  arg 1 / 0, -2 neither
+  SetIon,            // "set ion on|off":    arg 1 / 0, -2 neither (ion generator enable, 5.5)
   SetDefaults,       // "set defaults": every user setting back to its default, excludes cleared
   Exclude,           // "exclude <channel> on|off": arg = channel 0..5 (-2 = bad), arg2 = 1 on / 0 off.
                      //   <channel> = 0-5, ch0-ch5, a position name or a probe label (channelWord)

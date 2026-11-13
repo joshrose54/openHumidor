@@ -347,12 +347,12 @@ void test_events_reply() {
   const std::string w = jsoncheck::whole(a);
   TEST_ASSERT_TRUE(jsoncheck::valid(w));
   TEST_ASSERT_EQUAL_STRING(w.c_str(), jsoncheck::inPieces(b, b.maxStep() + 1).c_str());
-  TEST_ASSERT_TRUE(w.find("\"uk\":\"13 Nov 2026 14:32:05\",\"trusted\":true,\"type\":\"settings\"") != std::string::npos);
+  TEST_ASSERT_TRUE(w.find("\"uk\":\"13 Nov 2026 14:32:05\",\"trusted\":true,\"type\":\"settings\",\"sentence\":") != std::string::npos);
   TEST_ASSERT_TRUE(w.find("\\\"quoted\\\"") != std::string::npos);
   TEST_ASSERT_TRUE(w.find("\"older\":\"/logs/2026/2026-11-events-s2.csv@100\"") != std::string::npos);
   TEST_ASSERT_TRUE(w.find("\"source\":\"card\",\"note\":null") != std::string::npos);
   EventsReply none(rows, 0, nullptr, nullptr);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"source\":\"card\",\"note\":null,\"events\":[],\"older\":null,\"newest\":null}",
+  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"source\":\"card\",\"note\":null,\"events\":[],\"older\":null,\"newest\":null}",
                            jsoncheck::whole(none).c_str());
   // the worst row: every byte a control character (6 bytes each as \u00XX) still fits one step
   EventRow ctl;

@@ -260,6 +260,10 @@ void test_stage6_serial_interface_commands() {
   TEST_ASSERT_EQUAL_INT(0, a.arg);
   TEST_ASSERT_TRUE(parseCommand("set humid on", false, a) == Command::SetHumid);
   TEST_ASSERT_EQUAL_INT(1, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set ion off", false, a) == Command::SetIon);   // 5.5 ion generator enable
+  TEST_ASSERT_EQUAL_INT(0, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("set ion sometimes", false, a) == Command::SetIon);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
   TEST_ASSERT_TRUE(parseCommand("set humid maybe", false, a) == Command::SetHumid);
   TEST_ASSERT_EQUAL_INT(-2, a.arg);
   TEST_ASSERT_TRUE(parseCommand("set defaults", false, a) == Command::SetDefaults);

@@ -108,9 +108,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
                             (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",
                             (unsigned long)b.sdMountMs);
-  Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, manual excludes 0x%02X\n",
-                 b.userNote, b.nvsSpace, s.user.targetTempC, s.user.rhSetpointPct, s.user.heaterEnable ? "on" : "OFF",
-                 s.user.humidifierEnable ? "on" : "OFF", (unsigned)s.user.manualExcludeMask);
+  Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, ion generator %s, "
+                 "manual excludes 0x%02X\n", b.userNote, b.nvsSpace, s.user.targetTempC, s.user.rhSetpointPct,
+                 s.user.heaterEnable ? "on" : "OFF", s.user.humidifierEnable ? "on" : "OFF", s.user.ionEnable ? "on" : "OFF",
+                 (unsigned)s.user.manualExcludeMask);
   if (kBootDemand)
     Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
   else if (kTestBuild)
@@ -184,7 +185,7 @@ void printHelp(bool testBuild) {
   Serial.println("    exercise  relay exercise now: compressor and heater held off, 3 cycles of K1");
   Serial.println("    status    everything at a glance     sensors   per-channel health and counts");
   Serial.println("    events [n]  the last n events (10)   log       SD card and logging     settings  all settings");
-  Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set defaults  (saved)");
+  Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set ion on|off | set defaults  (saved)");
   Serial.println("    exclude <sensor> on|off   take a sensor out for maintenance, or put it back (saved)");
   Serial.println("              <sensor> = 0-5, a position (top_front ...) or a probe label (09ED ...)");
   Serial.println("    lcd       the LCD's drawing, sending and touch times (Rev Q)");

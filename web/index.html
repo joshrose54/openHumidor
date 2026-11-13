@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#14110F">
+<title>openHumidor</title>
+<!-- Licences: uPlot 1.6.32 (MIT, Leon Sorokin); Material Symbols Rounded 0.49.0 (Apache 2.0, Google). See web/LICENSES.md in the source. -->
+<link rel="stylesheet" href="vendor/uplot-1.6.32/uPlot.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- ICONS -->
+<header class="bar">
+  <a class="brand" href="#overview" aria-label="openHumidor: Overview"><!-- LOGO --></a>
+  <nav class="tabs" aria-label="Pages">
+    <a href="#overview" data-page="overview"><svg aria-hidden="true"><use href="#i-thermometer"/></svg><span>Overview</span></a>
+    <a href="#graphs" data-page="graphs"><svg aria-hidden="true"><use href="#i-show_chart"/></svg><span>Graphs</span></a>
+    <a href="#sensors" data-page="sensors"><svg aria-hidden="true"><use href="#i-sensors"/></svg><span>Sensors</span></a>
+    <a href="#events" data-page="events"><svg aria-hidden="true"><use href="#i-list"/></svg><span>Events</span></a>
+    <a href="#settings" data-page="settings"><svg aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></a>
+    <a href="#logs" data-page="logs"><svg aria-hidden="true"><use href="#i-download"/></svg><span>Logs</span></a>
+    <a href="#update" data-page="update"><svg aria-hidden="true"><use href="#i-system_update_alt"/></svg><span>Update</span></a>
+  </nav>
+  <div class="now" aria-live="polite">
+    <span class="modes" id="hdr-modes"></span>
+    <span class="tag" id="hdr-tag" hidden></span>
+    <time id="hdr-time">--:--</time>
+    <span class="fresh" id="hdr-fresh">connecting</span>
+  </div>
+</header>
+<div class="board-note" id="board-note" hidden></div>
+
+<main>
+<!-- ======================================================== Overview -->
+<section class="page" id="page-overview" aria-labelledby="h-overview">
+  <h1 class="sr" id="h-overview">Overview</h1>
+  <div class="ov">
+    <div class="ov-main">
+      <article class="reading" id="ov-temp">
+        <h2>Cabinet temperature</h2>
+        <div class="reading-top">
+          <p class="big"><span class="v" data-k="t">--</span><span class="u">°C</span></p>
+          <p class="why" data-k="why"></p>
+        </div>
+        <div class="band" data-k="band" role="img"></div>
+        <p class="spread" data-k="spread"></p>
+      </article>
+      <article class="reading" id="ov-rh">
+        <h2>Cabinet humidity</h2>
+        <div class="reading-top">
+          <p class="big"><span class="v" data-k="rh">--</span><span class="u">%</span></p>
+          <p class="why" data-k="why"></p>
+        </div>
+        <div class="band" data-k="band" role="img"></div>
+      </article>
+    </div>
+    <aside class="ov-side">
+      <div class="line" id="ov-lines"></div>
+      <section class="block" aria-labelledby="h-alerts">
+        <h2 id="h-alerts">Alerts</h2>
+        <ul class="alerts" id="ov-alerts"></ul>
+      </section>
+      <section class="block" aria-labelledby="h-loads">
+        <h2 id="h-loads">Loads</h2>
+        <dl class="loads" id="ov-loads"></dl>
+      </section>
+      <section class="block" aria-labelledby="h-week">
+        <h2 id="h-week">Last 7 days</h2>
+        <dl class="loads week" id="ov-week"></dl>
+      </section>
+      <section class="block" aria-labelledby="h-board">
+        <h2 id="h-board">Board</h2>
+        <dl class="loads week" id="ov-board"></dl>
+      </section>
+    </aside>
+  </div>
+</section>
+
+<!-- ======================================================== Graphs -->
+<section class="page" id="page-graphs" aria-labelledby="h-graphs" hidden>
+  <div class="page-head">
+    <h1 id="h-graphs">Graphs</h1>
+    <div class="seg" role="radiogroup" aria-label="Range" id="g-range">
+      <button role="radio" data-range="hour">Hour</button>
+      <button role="radio" data-range="day" aria-checked="true">Day</button>
+      <button role="radio" data-range="week">Week</button>
+      <button role="radio" data-range="month">Month</button>
+    </div>
+  </div>
+  <dl class="g-sum" id="g-sum"></dl>
+  <p class="empty" id="g-empty" hidden></p>
+  <figure class="chart"><figcaption>Temperature, °C <span class="key"><i class="k-line"></i>cabinet mean <i class="k-band"></i>coldest to warmest sensor <i class="k-set"></i>setpoint</span></figcaption><div id="g-temp"></div></figure>
+  <figure class="chart"><figcaption>Humidity, % <span class="key"><i class="k-line k-humid"></i>cabinet mean <i class="k-set"></i>setpoint</span></figcaption><div id="g-rh"></div></figure>
+  <figure class="chart"><figcaption>What ran <span class="key"><i class="k-sw k-cool"></i>compressor <i class="k-sw k-heat"></i>heater <i class="k-sw k-humid"></i>humidifier</span></figcaption><div id="g-loads"></div></figure>
+  <fieldset class="chips" id="g-sensors"><legend>Each sensor</legend></fieldset>
+</section>
+
+<!-- ======================================================== Sensors -->
+<section class="page" id="page-sensors" aria-labelledby="h-sensors" hidden>
+  <div class="page-head"><h1 id="h-sensors">Sensors</h1><p class="sub" id="s-sub"></p></div>
+  <div class="table-wrap">
+    <table class="tbl" id="s-table">
+      <thead><tr><th>Channel</th><th>Where</th><th>State</th><th class="n">Temp</th><th class="n">RH</th><th class="n">Raw RH</th><th class="n">Read</th><th class="n">CRC / timeouts this hour</th><th><span class="sr">Exclude</span></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note" id="s-note"></p>
+</section>
+
+<!-- ======================================================== Events -->
+<section class="page" id="page-events" aria-labelledby="h-events" hidden>
+  <div class="page-head">
+    <h1 id="h-events">Events</h1>
+    <label class="field-inline">Show <select id="e-type"><option value="">all types</option></select></label>
+  </div>
+  <p class="board-note inline" id="e-ram" hidden></p>
+  <ol class="events" id="e-list"></ol>
+  <div class="row-actions"><button class="btn" id="e-older" hidden>Older events</button></div>
+  <form class="door" id="e-door">
+    <h2>Door test</h2>
+    <p>Logs a "door test" event now, for the disturbance-detection tests.</p>
+    <div class="door-row"><label for="e-note" class="sr">Note</label><input id="e-note" maxlength="120" placeholder="Note (optional), e.g. door open 30 s"><button class="btn" type="submit">Log door test</button></div>
+    <p class="msg" id="e-door-msg" role="status"></p>
+  </form>
+</section>
+
+<!-- ======================================================== Settings -->
+<section class="page" id="page-settings" aria-labelledby="h-settings" hidden>
+  <div class="page-head"><h1 id="h-settings">Settings</h1></div>
+  <form class="settings" id="st-form" novalidate>
+    <div class="stepper" data-field="target_temp_c">
+      <div><label>Target temperature</label><p class="hint" data-k="hint"></p></div>
+      <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Lower"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Higher"><svg><use href="#i-add"/></svg></button></div>
+    </div>
+    <div class="stepper" data-field="rh_setpoint_pct">
+      <div><label>RH setpoint</label><p class="hint" data-k="hint"></p></div>
+      <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Lower"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Higher"><svg><use href="#i-add"/></svg></button></div>
+    </div>
+    <label class="switch"><span><b>Heater</b><small>The heater may run when the cabinet is cold</small></span><input type="checkbox" data-field="heater_enable"><i></i></label>
+    <label class="switch"><span><b>Humidifier</b><small>The humidifier may run when the cabinet is dry</small></span><input type="checkbox" data-field="humidifier_enable"><i></i></label>
+    <label class="switch"><span><b>Ion generator</b><small id="st-ion-note">Off means no runs at all; its run settings are kept for when it is switched back on.</small></span><input type="checkbox" data-field="ion_enable"><i></i></label>
+    <div class="form-actions"><p class="msg" id="st-msg" role="status"></p><button type="button" class="btn" id="st-cancel" disabled>Cancel</button><button type="submit" class="btn primary" id="st-save" disabled>Save</button></div>
+  </form>
+  <section class="block tuning" aria-labelledby="h-tuning">
+    <h2 id="h-tuning">Tuning</h2>
+    <p class="sub">Set once from measurements of this cabinet. Shown here for reference; they can't be changed from this page.</p>
+    <dl class="kv" id="st-tuning"></dl>
+  </section>
+</section>
+
+<!-- ======================================================== Logs -->
+<section class="page" id="page-logs" aria-labelledby="h-logs" hidden>
+  <div class="page-head"><h1 id="h-logs">Logs</h1><p class="sub" id="l-card"></p></div>
+  <div class="table-wrap">
+    <table class="tbl" id="l-table">
+      <thead><tr><th>File</th><th>Kind</th><th>Month</th><th class="n">Size</th><th><span class="sr">Download</span></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note" id="l-note">Downloads run at the card's own pace: a month of readings takes a few minutes. One download at a time.</p>
+</section>
+
+<!-- ======================================================== Update -->
+<section class="page" id="page-update" aria-labelledby="h-update" hidden>
+  <div class="page-head"><h1 id="h-update">Update</h1></div>
+  <div class="upd">
+    <div class="upd-window" id="u-window"></div>
+    <dl class="kv" id="u-facts"></dl>
+    <form class="upd-send" id="u-form">
+      <h2>Send firmware</h2>
+      <p>Only the <b>revq</b> cabinet build is accepted: <code>.pio.nosync/build/revq/firmware.bin</code>. The board checks it before anything is written.</p>
+      <label class="file"><input type="file" id="u-file" accept=".bin,application/octet-stream"><span id="u-file-name">Choose firmware.bin</span></label>
+      <p class="msg" id="u-check" role="status"></p>
+      <div class="progress" id="u-progress" hidden><div></div></div>
+      <button type="submit" class="btn primary" id="u-send" disabled>Send update</button>
+    </form>
+  </div>
+</section>
+</main>
+
+<script src="vendor/uplot-1.6.32/uPlot.iife.min.js"></script>
+<script src="image_check.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

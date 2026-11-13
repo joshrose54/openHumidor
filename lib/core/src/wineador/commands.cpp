@@ -192,6 +192,7 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
     }
     if (strcmp(w[1], "heater") == 0) { a.arg = onOff(w[2]); return Command::SetHeater; }
     if (strcmp(w[1], "humid") == 0)  { a.arg = onOff(w[2]); return Command::SetHumid; }
+    if (strcmp(w[1], "ion") == 0)    { a.arg = onOff(w[2]); return Command::SetIon; }
     return Command::Unknown;
   }
   if (strcmp(c, "exclude") == 0) {

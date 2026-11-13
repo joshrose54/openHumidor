@@ -21,6 +21,7 @@ const char* load(UserSettings& u) {
   wineador::loadRhSetpoint(v, p.getFloat("rh", u.rhSetpointPct));
   v.heaterEnable = p.getBool("heater", u.heaterEnable);
   v.humidifierEnable = p.getBool("humid", u.humidifierEnable);
+  v.ionEnable = p.getBool("ion", u.ionEnable);        // absent in NVS saved before it existed: the default, on
   v.manualExcludeMask = p.getUChar("excl", 0) & 0x3F;                    // six sensors
   p.end();
   u = v;
@@ -34,6 +35,7 @@ bool save(const UserSettings& u) {
   ok = (p.putFloat("rh", u.rhSetpointPct) == sizeof(float)) && ok;
   ok = (p.putBool("heater", u.heaterEnable) == 1) && ok;
   ok = (p.putBool("humid", u.humidifierEnable) == 1) && ok;
+  ok = (p.putBool("ion", u.ionEnable) == 1) && ok;
   ok = (p.putUChar("excl", u.manualExcludeMask) == 1) && ok;
   p.end();
   return ok;

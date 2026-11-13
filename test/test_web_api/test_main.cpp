@@ -194,6 +194,11 @@ void test_settings_write_accepts_any_of_the_four() {
   TEST_ASSERT_FALSE(u.humidifierEnable);
   r = settingsWrite("{\"target_temp_c\":22,\"rh_setpoint_pct\":55}", &u);   // the bounds themselves
   TEST_ASSERT_TRUE(r.ok());
+  r = settingsWrite("{\"ion_enable\":false}", &u);   // 5.5: ion generator enable, default on
+  TEST_ASSERT_TRUE(r.ok());
+  TEST_ASSERT_FALSE(u.ionEnable);
+  TEST_ASSERT_TRUE(u.heaterEnable);
+  TEST_ASSERT_TRUE(settingsWrite("{\"ion_enable\":\"off\"}", &u).refusal == Refusal::WrongType);
   r = settingsWrite("{\"target_temp_c\":2.15e1}", &u);
   TEST_ASSERT_TRUE(r.ok());
   TEST_ASSERT_EQUAL_FLOAT(21.5f, u.targetTempC);
@@ -333,7 +338,7 @@ void test_every_refusal_has_a_status_code_and_words() {
   r.hasLimits = true; r.min = 15; r.max = 22; r.step = 0.5f;
   TEST_ASSERT_TRUE(formatError(out, sizeof(out), r) > 0);
   TEST_ASSERT_TRUE(jsoncheck::valid(out, strlen(out)));
-  TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"error\":\"off_step\",\"field\":\"target_temp_c\",\"message\":\"Target "
+  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"error\":\"off_step\",\"field\":\"target_temp_c\",\"message\":\"Target "
                            "temperature goes in steps of 0.5 \xC2\xB0" "C.\",\"min\":15,\"max\":22,\"step\":0.5}", out);
   TEST_ASSERT_EQUAL_INT(-1, formatError(out, 10, r));
 }
@@ -343,20 +348,20 @@ void test_info_reply() {
   b.version = "2.0.0";
   char out[300];
   TEST_ASSERT_TRUE(formatInfo(out, sizeof(out), b, 3725, "POWERON") > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"name\":\"openHumidor\",\"build\":{\"board\":\"rev-q\",\"profile\":\"real\","
+  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"name\":\"openHumidor\",\"build\":{\"board\":\"rev-q\",\"profile\":\"real\","
                            "\"test\":false,\"version\":\"2.0.0\"},\"uptime_s\":3725,\"boot_reason\":\"POWERON\"}", out);
 }
 
 void test_the_write_replies() {
   char out[200], want[200];
   TEST_ASSERT_TRUE(formatExcludeReply(out, sizeof(out), 3, true) > 0);
-  snprintf(want, sizeof(want), "{\"api\":1,\"ch\":3,\"name\":\"%s\",\"probe\":\"%s\",\"excluded\":true}",
+  snprintf(want, sizeof(want), "{\"api\":2,\"ch\":3,\"name\":\"%s\",\"probe\":\"%s\",\"excluded\":true}",
            kSensors[3].position, kSensors[3].label);
   TEST_ASSERT_EQUAL_STRING(want, out);
   TEST_ASSERT_TRUE(formatDoorTestReply(out, sizeof(out)) > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"logged\":true}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"logged\":true}", out);
   TEST_ASSERT_TRUE(formatInstalledReply(out, sizeof(out), "2.0.0") > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":1,\"installed\":true,\"version\":\"2.0.0\",\"restarting\":true}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"installed\":true,\"version\":\"2.0.0\",\"restarting\":true}", out);
 }
 
 void test_settings_reply_shows_user_and_tuning_never_safety() {
@@ -371,6 +376,7 @@ void test_settings_reply_shows_user_and_tuning_never_safety() {
   TEST_ASSERT_TRUE(whole.find("\"target_temp_c\":{\"value\":20,\"min\":15,\"max\":22,\"step\":0.5") != std::string::npos);
   TEST_ASSERT_TRUE(whole.find("\"rh_setpoint_pct\":{\"value\":62,\"min\":55,\"max\":70,\"step\":1") != std::string::npos);
   TEST_ASSERT_TRUE(whole.find("\"manual_exclude\":[1,5]") != std::string::npos);
+  TEST_ASSERT_TRUE(whole.find("\"ion_enable\":{\"value\":true,\"built\":false}") != std::string::npos);
   TEST_ASSERT_EQUAL_INT(tuningItemCount(), jsoncheck::count(whole, "\"label\":"));
   TEST_ASSERT_TRUE(whole.find("\"name\":\"crossover_delay_min\",\"label\":\"Crossover delay\",\"value\":10") != std::string::npos);
   // no safety value appears (5.5): none of the safety names, nor the word
