@@ -1010,8 +1010,9 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   off:** write 0x00 to the FT6336U's register 0x86 after every reset, so it keeps answering while
   idle.
   Backlight on until the firmware drives GPIO13; PWM dims it.
-- **LCD at boot:** cleared to black, backlight off until the first walk-past screen has been sent;
-  then full, dimmed per 5.5. The BP2 test sketches keep their own behaviour.
+- **LCD at boot:** cleared to black, backlight off until the boot splash (5.5) has been sent; then
+  full, dimmed per 5.5. The splash never delays control: the boot hold and every load rule run
+  underneath. The BP2 test sketches keep their own behaviour.
 - **Nothing the LCD or the web server does holds the loop more than 50ms:** screens are drawn in
   pieces across passes (a full screen at 13.3MHz takes about 184ms, so redraw only what changed, or
   send it by DMA in the background); the web server runs in its own task and never calls the
@@ -1818,7 +1819,11 @@ normal and the LCD still works.
 **Two interfaces** (Rev Q):
 - **LCD** on the enclosure — **landscape, 480 × 320, fixed** (no rotation setting). Which of the two
   landscape ways is up is one fixed constant, set at BP2 test 29 to suit the enclosure (build log).
-  Three screens:
+  Three screens, after a boot splash:
+  - **Boot splash:** the openHumidor logo (`docs/brand/openhumidor-logo.svg`) centred on black,
+    somewhat larger than its 302 × 84, with the firmware version small beneath it. Shown at every
+    boot and restart (OTA included) until the walk-past screen is ready — **at least 2s, at most
+    5s** — then the walk-past screen (Starting with its countdown). Not animated.
   - **Walk-past screen:**
     - cabinet temperature and RH, large (the mean of the healthy cabinet sensors; "--" when too few
       are healthy — fewer than 3, the 4.3 minimum — or no fresh reading for twice the sensor read rate);
@@ -1834,7 +1839,9 @@ normal and the LCD still works.
     - **Fault** = the sensor requirement of 4.3 not met (including its 5-minute recovery hold), the
       plenum fan stalled (5.6, until loads resume), or the settings failing their check at boot. Its
       alert names the cause;
-    - a small **BENCH** or **TEST** tag on any build that is not the cabinet build;
+    - a **small, dimmed openHumidor wordmark top-centre**, between the time and the WiFi icon; on any
+      build that is not the cabinet build, a small **BENCH** or **TEST** tag takes its place. The logo
+      is not shown on the settings or alerts screens;
     - the two setpoints, small; the time; a WiFi icon (connected or not);
     - an **alert line**, only when an alert is active: the most serious one, plus "+N more" when
       there are others. **Tapping it opens the alerts screen;**
@@ -1865,6 +1872,8 @@ normal and the LCD still works.
   - **Backlight:** dims to about **20%** 60s after the last touch — never off, so the walk-past
     screen stays readable; the exact level is set at BP2 test 29 (build log). A touch brings it
     back to full, and that first touch only wakes the screen.
+  - **The logo** is converted to a bitmap at build time, as the fonts and icons are, and drawn in
+    the palette's text colour.
   - **Icons and fonts** are drawn by the firmware or come from openly licensed sets, with the licence
     noted in the source.
   - **Colours:** the palette approved at stage Q4 is `lib/lcdgfx/src/lcdgfx/palette.h` in the firmware; the
