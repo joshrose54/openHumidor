@@ -2443,7 +2443,7 @@ on the top range unless stated; "open" means OL.
 |---|---|---|---|---|
 | 37 | B3 re-run | Every B3 test on Rev Q (every pin and bus moves), with the Rev Q exceptions below | As B3 | Pending |
 | 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures** — the stress build's own retry never power-cycles the card, so this is the card unaided; every buffered row and event written in order after the pull. With the normal build, a card pull shows one power-cycle event, then SD FAIL, then recovery when the card is back | Pending |
-| 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice); and with a log download and an OTA upload running at once from two browsers. **Set the margin** for refusing a new transfer near the floor (5.5; build log) | **Never below 30 KB** | Pending |
+| 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice); with a month's log download and a second browser polling; and with an OTA upload on its own (5.5 allows one long transfer at a time). Also the server, long-transfer and SD task stack margins, the loop's worst pass time during a download against idle, and the "third closed" count in normal use. **Set the margin** for refusing a new transfer near the floor (5.5; build log) | **Never below 30 KB** | Pending |
 | 40 | Soak | As B4 test 1, on Rev Q with WiFi always on | As B4 test 1 | Pending |
 
 **Rev Q exceptions to the B3 tests:**
