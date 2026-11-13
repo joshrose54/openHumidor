@@ -184,7 +184,8 @@ void printHelp(bool testBuild) {
   Serial.println("    status    everything at a glance     sensors   per-channel health and counts");
   Serial.println("    events [n]  the last n events (10)   log       SD card and logging     settings  all settings");
   Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set defaults  (saved)");
-  Serial.println("    exclude chN on|off   take sensor N (0-5) out for maintenance, or put it back (saved)");
+  Serial.println("    exclude <sensor> on|off   take a sensor out for maintenance, or put it back (saved)");
+  Serial.println("              <sensor> = 0-5, a position (top_front ...) or a probe label (09ED ...)");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
     Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24; 'run soak' = B4)");
@@ -193,7 +194,7 @@ void printHelp(bool testBuild) {
     Serial.println("    resets    TEST BUILD ONLY: the reset record ('resets clear' empties it)");
     Serial.println("    fan <n>   TEST BUILD ONLY: idle fan duty n% (0 or 20-100; 1-19 refused); 'fan auto' = the setting");
     Serial.println("    humidcool on|off  TEST BUILD ONLY: humidify during cooling runs (the setting is off)");
-    Serial.println("    crc chN | timeout chN  TEST BUILD ONLY: the next read of chN fails its CRC / times out");
+    Serial.println("    crc <sensor> | timeout <sensor>  TEST BUILD ONLY: its next read fails its CRC / times out");
     Serial.println("    sdstress <kHz> retry|noretry <writes>  TEST BUILD ONLY: SD stress test ('sdstress stop' ends it)");
     Serial.println("    ntpsync   TEST BUILD ONLY: open the NTP-only radio window now (Rev N)");
   }

@@ -343,15 +343,22 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     }
     case Command::Exclude: {
-      if (arg < 0 || arg > 5) { Serial.println("  exclude chN on|off (N = 0-5). Nothing changed."); break; }
+      if (arg < 0 || arg > 5) {
+        Serial.println("  exclude <sensor> on|off - sensor = 0-5, a position (e.g. mid_rear) or a probe label "
+                       "(e.g. A1C5). Nothing changed.");
+        break;
+      }
       const UserSettings was = gSettings.user;
-      // Channels were 2-7 before schema 2: say which sensor this is, so an old number is caught.
-      Serial.printf("  ch%d = %s, probe %s.\n", arg, kSensors[arg].position, kSensors[arg].label);
       const uint8_t bit = (uint8_t)(1u << arg);
       if (a.arg2 == 1) gSettings.user.manualExcludeMask |= bit;
       else gSettings.user.manualExcludeMask &= (uint8_t)~bit;
-      if (sameUser(was, gSettings.user)) Serial.println("  No change.");
-      else applyUser(was, a.arg2 == 1 ? "exclude on" : "exclude off");
+      // Echo what was acted on (spec 5.5): channels were 2-7 before schema 2, so an old number shows up here.
+      char e[80];
+      const bool same = sameUser(was, gSettings.user);
+      formatChannelEcho(e, sizeof(e), arg, a.arg2 == 1 ? (same ? "already excluded, no change" : "excluded")
+                                                        : (same ? "already in use, no change" : "back in use"));
+      Serial.printf("  %s\n", e);
+      if (!same) applyUser(was, a.arg2 == 1 ? "exclude on" : "exclude off");
       break;
     }
 #if defined(WINEADOR_TEST_BUILD)
@@ -371,10 +378,17 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     case Command::InjectCrc:
     case Command::InjectTimeout:
-      if (arg < 0 || arg > 5) { Serial.println("  crc chN / timeout chN (N = 0-5). Nothing done."); break; }
+      if (arg < 0 || arg > 5) {
+        Serial.println("  crc <sensor> / timeout <sensor> - sensor = 0-5, a position or a probe label. Nothing done.");
+        break;
+      }
       i2cbus::injectFault(arg, c == Command::InjectCrc ? BusResult::CrcFail : BusResult::ShortRead);
-      Serial.printf("  TEST: the next read of ch%d (%s, probe %s) will %s.\n", arg, kSensors[arg].position,
-                    kSensors[arg].label, c == Command::InjectCrc ? "fail its CRC" : "time out");
+      {
+        char e[96];
+        formatChannelEcho(e, sizeof(e), arg, c == Command::InjectCrc ? "TEST: its next read will fail its CRC"
+                                                                      : "TEST: its next read will time out");
+        Serial.printf("  %s\n", e);
+      }
       break;
     case Command::Stall: {
       // TEST BUILDS ONLY (B3 test 11). Stops feeding the watchdog on purpose.

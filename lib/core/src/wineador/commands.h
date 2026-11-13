@@ -41,9 +41,10 @@ enum class Command : uint8_t {
   SetHeater,         // "set heater on|off": arg 1 / 0, -2 neither
   SetHumid,          // "set humid on|off":  arg 1 / 0, -2 neither
   SetDefaults,       // "set defaults": every user setting back to its default, excludes cleared
-  Exclude,           // "exclude ch1 on|off": arg = channel 0..5 (-2 = bad), arg2 = 1 on / 0 off
-  InjectCrc,         // TEST BUILDS ONLY: "crc ch1" — the next read of ch1 fails its CRC (B3 test 24)
-  InjectTimeout,     // TEST BUILDS ONLY: "timeout ch1" — the next read of ch1 times out
+  Exclude,           // "exclude <channel> on|off": arg = channel 0..5 (-2 = bad), arg2 = 1 on / 0 off.
+                     //   <channel> = 0-5, ch0-ch5, a position name or a probe label (channelWord)
+  InjectCrc,         // TEST BUILDS ONLY: "crc <channel>" — its next read fails its CRC (B3 test 24)
+  InjectTimeout,     // TEST BUILDS ONLY: "timeout <channel>" — its next read times out
   SdStress,          // TEST BUILDS ONLY: "sdstress <kHz> retry|noretry <writes>"; "sdstress stop" (arg -1).
                      //   arg = kHz (400-9999; -2 = bad), arg2 = 1 retry / 0 noretry, arg3 = writes
   NtpSync,           // TEST BUILDS ONLY: "ntpsync" — open the NTP-only radio window now (Rev N)
@@ -78,5 +79,11 @@ class LineReader {
 Command parseCommand(const char* line, bool testBuild, CommandArgs& a);
 // The short form (the integer argument only).
 Command parseCommand(const char* line, bool testBuild, int* arg = nullptr);
+
+// A sensor channel as typed (spec 5.5, serial console): the number 0-5 ("3" or "ch3"), the
+// position name ("mid_rear") or the probe label ("a1c5"), any case. Returns 0-5, or -2.
+int channelWord(const char* word);
+// What a channel command acted on, as spec 5.5 shows it: "ch3 = mid_rear (probe A1C5): excluded".
+int formatChannelEcho(char* out, size_t n, int channel, const char* what);
 
 }  // namespace wineador

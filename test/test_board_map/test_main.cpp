@@ -2,6 +2,7 @@
 //   Rev N: every value exactly as before stage Q1 (spec 3.1; the B3/B4-proven board).
 //   Rev Q: every pin as spec 3A.4; sensor channel n on mux channel n (3A.7).
 //   Both:  no pin used twice; sensor channels 0-5 map to the right mux channels.
+//   Console: a channel typed as a number, position name or probe label (spec 5.5).
 #define WINEADOR_BOARD_ANY   // compile both blocks, choose neither
 #include <unity.h>
 #include <stdio.h>
@@ -156,6 +157,73 @@ void test_channel_commands_take_0_to_5_only() {
   TEST_ASSERT_EQUAL_INT(0, a.arg);
 }
 
+// Spec 5.5, serial console: a channel by number, position name or probe label; anything else refused.
+void test_channel_by_position_name_or_probe_label() {
+  CommandArgs a;
+  for (int i = 0; i < kNumSensors; i++) {
+    char line[40];
+    snprintf(line, sizeof(line), "exclude %s on", kSensors[i].position);
+    TEST_ASSERT_TRUE(parseCommand(line, false, a) == Command::Exclude);
+    TEST_ASSERT_EQUAL_INT(i, a.arg);
+    snprintf(line, sizeof(line), "exclude %s off", kSensors[i].label);
+    TEST_ASSERT_TRUE(parseCommand(line, false, a) == Command::Exclude);
+    TEST_ASSERT_EQUAL_INT(i, a.arg);
+    TEST_ASSERT_EQUAL_INT(0, a.arg2);
+  }
+  // the examples in the spec, and any case
+  TEST_ASSERT_TRUE(parseCommand("exclude A1C5 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(3, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude mid_rear on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(3, a.arg);
+  TEST_ASSERT_EQUAL_INT(3, channelWord("a1c5"));
+  TEST_ASSERT_EQUAL_INT(0, channelWord("TOP_FRONT"));
+  TEST_ASSERT_EQUAL_INT(0, channelWord("09ed"));
+  // test-build commands take them too
+  TEST_ASSERT_TRUE(parseCommand("crc chamber", true, a) == Command::InjectCrc);
+  TEST_ASSERT_EQUAL_INT(kChamberIndex, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("timeout EFBA", true, a) == Command::InjectTimeout);
+  TEST_ASSERT_EQUAL_INT(kAmbientIndex, a.arg);
+}
+
+void test_unknown_sensor_names_are_refused() {
+  CommandArgs a;
+  TEST_ASSERT_TRUE(parseCommand("exclude mid_back on", false, a) == Command::Exclude);   // no such position
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude A1C6 on", false, a) == Command::Exclude);       // no such probe
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude top on", false, a) == Command::Exclude);        // part of a name is not a name
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude A1C on", false, a) == Command::Exclude);        // nor part of a label
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("crc fridge", true, a) == Command::InjectCrc);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);
+  TEST_ASSERT_EQUAL_INT(-2, channelWord(""));
+  TEST_ASSERT_EQUAL_INT(-2, channelWord("ch"));
+}
+
+// Every position and label is unique, and none could be read as a channel number.
+void test_names_and_labels_are_unambiguous() {
+  for (int i = 0; i < kNumSensors; i++) {
+    TEST_ASSERT_EQUAL_INT(i, channelWord(kSensors[i].position));
+    TEST_ASSERT_EQUAL_INT(i, channelWord(kSensors[i].label));
+    for (const char* c = kSensors[i].label; *c; c++) {
+      if (*c < '0' || *c > '9') goto has_letter;
+    }
+    TEST_FAIL_MESSAGE("a probe label is all digits: it would clash with channel numbers");
+  has_letter:;
+  }
+}
+
+void test_channel_echo_names_what_was_acted_on() {
+  char e[96];
+  formatChannelEcho(e, sizeof(e), 3, "excluded");
+  TEST_ASSERT_EQUAL_STRING("ch3 = mid_rear (probe A1C5): excluded", e);    // the spec's example
+  formatChannelEcho(e, sizeof(e), 0, "back in use");
+  TEST_ASSERT_EQUAL_STRING("ch0 = top_front (probe 09ED): back in use", e);
+  formatChannelEcho(e, sizeof(e), 6, "excluded");
+  TEST_ASSERT_EQUAL_STRING("no such channel: excluded", e);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_revn_pins_unchanged);
@@ -167,5 +235,9 @@ int main(int, char**) {
   RUN_TEST(test_revq_no_pin_twice_and_none_on_reserved_pins);
   RUN_TEST(test_sensor_table_channels_are_0_to_5_in_order);
   RUN_TEST(test_channel_commands_take_0_to_5_only);
+  RUN_TEST(test_channel_by_position_name_or_probe_label);
+  RUN_TEST(test_unknown_sensor_names_are_refused);
+  RUN_TEST(test_names_and_labels_are_unambiguous);
+  RUN_TEST(test_channel_echo_names_what_was_acted_on);
   return UNITY_END();
 }

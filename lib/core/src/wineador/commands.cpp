@@ -1,4 +1,6 @@
 #include "wineador/commands.h"
+#include "wineador/sensor_table.h"
+#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -71,13 +73,32 @@ int onOff(const char* s) {
   return -2;
 }
 
-// "ch3" or "3" -> 3 (channels 0..5, spec 2.3); -2 otherwise.
+// Case-insensitive whole-word match (the words are already lower case; the table's labels aren't).
+bool sameWord(const char* word, const char* name) {
+  for (; *word && *name; word++, name++)
+    if (tolower((unsigned char)*word) != tolower((unsigned char)*name)) return false;
+  return *word == 0 && *name == 0;
+}
+
+}  // namespace
+
+// Spec 5.5, serial console: a sensor channel is the number 0-5 ("3" or "ch3"), the
+// position name ("mid_rear") or the probe label ("a1c5", any case). -2 otherwise.
 int channelWord(const char* s) {
+  for (int i = 0; i < kNumSensors; i++)
+    if (sameWord(s, kSensors[i].position) || sameWord(s, kSensors[i].label)) return i;
   if (s[0] == 'c' && s[1] == 'h') s += 2;
   int v;
   if (!toInt(s, &v) || v < 0 || v > 5) return -2;
   return v;
 }
+
+int formatChannelEcho(char* out, size_t n, int channel, const char* what) {
+  if (channel < 0 || channel >= kNumSensors) return snprintf(out, n, "no such channel: %s", what);
+  return snprintf(out, n, "ch%d = %s (probe %s): %s", channel, kSensors[channel].position, kSensors[channel].label, what);
+}
+
+namespace {
 
 }  // namespace
 
