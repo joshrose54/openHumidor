@@ -2,6 +2,32 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q5c (accepted 2026-11-13)
+
+**The web server on the board** (spec 5.5, 5.2, 3A.11). Rev Q only; no OTA writes yet (Q5d).
+- **lib/core (native tests):** `web_app` - every request, the same code on the board and in
+  `dashboard_sim` (moved out of the review server): routes, JSON errors, events paging through the
+  files a 4 KB piece at a time (from RAM while the card is out), downloads in pieces (cut if the
+  card fails partway), the upload gate then the identity check then `not_built`, a refused upload
+  read to its end so the browser sees why. `web_mail` - the mailbox: numbered requests, withdrawn
+  if not taken, decided by the loop against its own settings (refused while Updating).
+  `web_feed` - graphs, events kept in RAM and the week's counts fed by the SD task; the boot
+  refill from the card's files. `DayLow` (supply.h) - the Board section's lowest 12V today.
+  `log_read`'s `LineReader` renamed `FileLineReader` (it clashed with the console's).
+- **Board:** `src/app/web_server` (esp_http_server on core 0; allowed 3 sockets, the firmware closes
+  any third at once; every reply closes; no CORS; long transfers on their own task; mDNS
+  `wineador.local`; `web` console command), `src/app/web_link` (the state copy, published about
+  once a second with a try-lock; the mailbox), `sd_log` (read jobs between the writes, the line
+  feed, the boot refill), `main.cpp` (the mailbox and state copy each pass), the LCD's logic runs
+  even if the LCD fails (the dashboard shows its modes and alerts).
+- **API:** error codes `no_answer` and `not_built` added (still API version 2; docs/api.md).
+- **Sizes (revq):** flash 1,367,286 bytes (+190,848), static RAM 79,168 (+3,152). PSRAM ~335 KB
+  (graphs 227 KB). Internal RAM estimate: ~28 KB fixed, ~40 KB with one busy connection, ~52 KB
+  with two (to be measured at BP2 test 39). Rev N: static RAM unchanged, flash +364 bytes (the
+  `web` command's one-line answer), no server code.
+
+Native tests **431/431**; 25 builds without warnings.
+
 ## Port to Rev Q: stage Q5b (accepted 2026-11-13)
 
 **The web dashboard's pages** (spec 5.5), reviewed on the Mac before the board (no board-side

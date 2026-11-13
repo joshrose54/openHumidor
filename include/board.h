@@ -57,6 +57,8 @@ constexpr float    k12vScale       = 0.0f;
 constexpr wineador::LcdOrientation kLcdOrientation = wineador::LcdOrientation::Portrait;
 constexpr uint8_t  kBacklightDimPct = 20;
 constexpr size_t   kLcdSendBytes = 0;
+constexpr bool     kHasDashboard = false;            // no dashboard on Rev N (spec 5.5)
+constexpr uint32_t kTransferMarginBytes = 0;
 
 }  // namespace board_revn
 
@@ -103,6 +105,12 @@ constexpr uint8_t  kBacklightDimPct = 20;
 // (Josh: about 8 KB, so WiFi and the Q5 web server keep their internal RAM; tuned at BP2).
 // 4,096 bytes a piece = 4 full-width rows, about 2.2 ms on the wire at 15 MHz.
 constexpr size_t   kLcdSendBytes = 8192;
+
+// The web dashboard and its JSON API (spec 5.5), Rev Q only.
+constexpr bool     kHasDashboard = true;
+// A new long transfer (download or upload) is refused while free internal RAM is below the 30 KB
+// floor plus this margin (5.5). Unset (0) until BP2 test 39 measures what a transfer takes.
+constexpr uint32_t kTransferMarginBytes = 0;
 
 }  // namespace board_revq
 

@@ -56,6 +56,8 @@ enum class Command : uint8_t {
   Lcd,               // "lcd": the LCD's timings (every build). "lcd stress on|off" TEST BUILDS ONLY:
                      //   redraw the whole screen every second (3A.11's 50 ms check). arg = -1 plain,
                      //   1 on, 0 off, -2 bad
+  Web,               // "web": the web dashboard's server - connections, requests, transfers, stacks,
+                     //   internal RAM (every build; Rev Q has the dashboard; BP2 test 39)
   TestOnly,          // a test-build command typed in a cabinet build
   Unknown,
 };

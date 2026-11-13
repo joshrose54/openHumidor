@@ -79,7 +79,7 @@ void test_forward_lines_any_piece_size() {
   const size_t n = strlen(kFile);
   for (size_t piece = 1; piece <= n + 3; piece++) {
     Lines L;
-    LineReader r;
+    FileLineReader r;
     r.begin(0, collect, &L);
     for (size_t at = 0; at < n; at += piece) r.feed(kFile + at, (at + piece > n) ? n - at : piece);
     r.finish();
@@ -127,7 +127,7 @@ void test_backward_from_a_cursor_and_stopping_early() {
 void test_overlong_lines_are_skipped_not_split() {
   std::string f = "a,1\n" + std::string(kMaxLogLine + 10, 'x') + "\nb,2\n";
   Lines L;
-  LineReader r;
+  FileLineReader r;
   r.begin(0, collect, &L);
   for (size_t at = 0; at < f.size(); at += 100) r.feed(f.data() + at, std::min<size_t>(100, f.size() - at));
   r.finish();
@@ -228,7 +228,7 @@ void test_week_counts_from_an_events_file_read_in_pieces() {
   }
   struct Ctx { WeekCounts w; };
   Ctx c;
-  LineReader r;
+  FileLineReader r;
   r.begin(0, [](const char* line, size_t len, uint64_t, void* p) -> bool {
     EventRow e;
     if (parseEventRow(line, len, &e) && e.trusted) ((Ctx*)p)->w.add(e.utcS, weekKindOf(e.type, e.detail));

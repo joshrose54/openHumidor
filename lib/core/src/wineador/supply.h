@@ -63,4 +63,19 @@ class SupplySense {
   int evN_ = 0;
 };
 
+// The Board section's "lowest today" (spec 5.5): the lowest 1 s average since UK midnight, or
+// since boot if that was later. While the clock isn't trusted the day can't be told, so it carries
+// on from boot (or from the last midnight seen).
+class DayLow {
+ public:
+  void add(float volts, int64_t utcS, bool clockOk);
+  bool have() const { return have_; }
+  float low() const { return low_; }
+
+ private:
+  bool have_ = false;
+  float low_ = 0;
+  int64_t day_ = -1;     // the UK date (days since 1970) the low belongs to; -1 not known
+};
+
 }  // namespace wineador

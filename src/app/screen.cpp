@@ -46,7 +46,12 @@ static uint32_t gLongUs = 0, gLongCount = 0, gLongLoggedMs = 0;
 static bool gLongEverLogged = false;
 static const char* gLongWhat = "";
 
+static bool gLogic = false;
+
 bool begin(uint32_t nowMs) {
+  // The screen's logic first: the dashboard shows it even if the LCD itself fails (5.5).
+  gUi.begin(nowMs, board::kBacklightDimPct);
+  gLogic = true;
   // The backlight was started (off) early in setup(); it stays off until the first screen is sent (3A.11).
   // BOOT ONLY: the picture in PSRAM, once.
   gFrame = (uint16_t*)heap_caps_malloc((size_t)kScreenW * kScreenH * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -56,7 +61,6 @@ bool begin(uint32_t nowMs) {
   canvas.fill(Rect(0, 0, kScreenW, kScreenH), 0);
   if (!lcd::begin(board::kLcdOrientation, board::kLcdSendBytes)) { gProblem = "LCD send buffers or SPI bus not had"; return false; }
   lcd::setFrame(gFrame, kScreenW, kScreenH);
-  gUi.begin(nowMs, board::kBacklightDimPct);
   gPainter.invalidate();
   gRunning = true;
   gProblem = nullptr;
@@ -65,12 +69,19 @@ bool begin(uint32_t nowMs) {
 
 bool running() { return gRunning; }
 const char* problem() { return gProblem; }
+bool logicRunning() { return gLogic; }
+const LcdUi& ui() { return gUi; }
 
 static void maxInto(uint32_t& m, uint32_t v) { if (v > m) m = v; }
 
 void update(const UiInputs& in) {
-  if (!gRunning || !lcd::ready()) return;
+  if (!gLogic) return;
   const uint32_t now = in.nowMs;
+  if (!gRunning || !lcd::ready()) {
+    // No LCD to draw on: the logic still runs (the dashboard shows its modes and alerts).
+    if (now - gLastLogicMs >= kLogicEveryMs) { gLastLogicMs = now; gUi.update(in); }
+    return;
+  }
   uint32_t t0 = micros(), touchUs = 0, logicUs = 0, drawUs = 0, sendUs = 0;
 
   // 1. Touch, every 50 ms (I2C1, from the loop as the RTC is). No read until 300 ms after a reset.
@@ -181,8 +192,11 @@ void formatStatus(char* out, size_t n) {
 #else   // Rev N: no LCD
 
 static UpdateWindow gWindow;
+static LcdUi gNoUi;
 bool begin(uint32_t) { return false; }
 bool running() { return false; }
+bool logicRunning() { return false; }
+const LcdUi& ui() { return gNoUi; }
 const char* problem() { return "no LCD on this board"; }
 void update(const UiInputs&) {}
 bool takeSave(float*, float*) { return false; }

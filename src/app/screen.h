@@ -24,6 +24,10 @@ namespace screen {
 // can't be had; control is unaffected.
 bool begin(uint32_t nowMs);
 bool running();
+// Rev Q: the screen's logic (what it shows: modes, alerts, the Allow update window) runs even if the
+// LCD itself failed, because the dashboard shows the same (5.5). Rev N: false.
+bool logicRunning();
+const wineador::LcdUi& ui();
 const char* problem();                 // why it isn't running, or nullptr
 
 void update(const wineador::UiInputs& in);

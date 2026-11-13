@@ -189,6 +189,7 @@ void printHelp(bool testBuild) {
   Serial.println("    exclude <sensor> on|off   take a sensor out for maintenance, or put it back (saved)");
   Serial.println("              <sensor> = 0-5, a position (top_front ...) or a probe label (09ED ...)");
   Serial.println("    lcd       the LCD's drawing, sending and touch times (Rev Q)");
+  Serial.println("    web       the web dashboard: connections, requests, transfers, stack and RAM (Rev Q)");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
     Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24; 'run soak' = B4)");

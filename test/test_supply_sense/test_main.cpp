@@ -119,6 +119,21 @@ void test_hour_window_is_separate() {
   TEST_ASSERT_FALSE(s.takeHour(&mean, &low));
 }
 
+// The Board section's lowest today (5.5): reset at UK midnight, not UTC midnight; carried on
+// while the clock isn't trusted.
+void test_lowest_today_resets_at_uk_midnight() {
+  const int64_t julyNoonUtc = 1783166400;    // 2026-07-04T12:00:00Z (BST)
+  DayLow d;
+  TEST_ASSERT_FALSE(d.have());
+  d.add(11.9f, julyNoonUtc, true);
+  d.add(12.1f, julyNoonUtc + 60, true);
+  TEST_ASSERT_EQUAL_FLOAT(11.9f, d.low());
+  d.add(12.2f, julyNoonUtc + 11 * 3600 + 1800, true);   // 23:30 UTC = 00:30 BST: a new UK day
+  TEST_ASSERT_EQUAL_FLOAT(12.2f, d.low());
+  d.add(11.5f, 0, false);                               // the clock lost: carries on
+  TEST_ASSERT_EQUAL_FLOAT(11.5f, d.low());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_volts_from_the_pin);
@@ -128,5 +143,6 @@ int main(int, char**) {
   RUN_TEST(test_recovered_with_the_lowest_value);
   RUN_TEST(test_exactly_eleven_is_not_a_dip);
   RUN_TEST(test_hour_window_is_separate);
+  RUN_TEST(test_lowest_today_resets_at_uk_midnight);
   return UNITY_END();
 }

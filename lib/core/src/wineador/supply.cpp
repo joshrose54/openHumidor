@@ -1,4 +1,5 @@
 #include "wineador/supply.h"
+#include "wineador/uk_time.h"
 
 namespace wineador {
 
@@ -60,6 +61,17 @@ bool SupplySense::takeEvent(Event& e) {
   ev_[0] = ev_[1];
   evN_--;
   return true;
+}
+
+void DayLow::add(float volts, int64_t utcS, bool clockOk) {
+  if (clockOk) {
+    const LocalTime t = ukLocal(utcS);
+    const int64_t d = daysFromCivil(t.year, t.month, t.day);
+    if (day_ >= 0 && d != day_) have_ = false;     // a new UK day
+    day_ = d;
+  }
+  if (!have_ || volts < low_) low_ = volts;
+  have_ = true;
 }
 
 }  // namespace wineador

@@ -4,6 +4,8 @@ API version 2
 
 **Changes in version 2** (stage Q5b): `ion_enable` in the user settings (read and write); the
 `board` object in `GET /api/status`; `source`, `note` and `sentence` in `GET /api/events`.
+Stage Q5c (the board's server) added two error codes, `no_answer` and `not_built`, with the usual
+error body; no reply changed, so the version stays 2. `not_built` goes again in stage Q5d.
 
 The JSON endpoints the board serves for the web dashboard and for tools on the Mac (spec 5.5).
 Every endpoint and every field is listed here. The firmware's own constant (`kApiVersion` in
@@ -40,7 +42,8 @@ only: Rev N has no dashboard.
 - **Connections:** at most **2** browser connections at once; every reply closes its connection.
   A third connection is closed at once by the board: try again a few seconds later.
 - **One long transfer at a time:** a log download or a firmware upload. Another is refused with
-  `busy`; a new one is refused with `low_memory` while free internal RAM is near the 30 KB floor
+  `busy` at once (its body isn't read: an upload sent anyway sees the reply, then the connection
+  cut); a new one is refused with `low_memory` while free internal RAM is near the 30 KB floor
   (the margin is set at BP2 test 39).
 - **Methods:** `GET` reads, `POST` writes. Another method on a known path gives
   `method_not_allowed`; an unknown path gives `not_found`.
@@ -100,6 +103,8 @@ A refused request gets an HTTP status and this body:
 | `wrong_image` | 422 | The image isn't a Rev Q cabinet build; `image` gives the reason (below) |
 | `stalled` | 408 | No upload data for 60 s: the half-written image is discarded (spec 5.2) |
 | `card_unavailable` | 503 | The SD card is failed or out (logs and downloads; events are then served from RAM) |
+| `no_answer` | 503 | The control loop didn't answer a write within 3 s (it answers on its next pass, a few ms; not expected) |
+| `not_built` | 501 | Stage Q5c only: an upload that passed every check is refused, nothing written: updates come with stage Q5d |
 
 ## Reads
 
@@ -444,7 +449,11 @@ byte 0x120, straight after it, the 64-byte identity block every build carries fr
 Only a positive match is accepted: no block, or any field other than `rev-q`, `real`, 0, layout 1,
 is refused.
 
-**Accepted:** the update starts (the window is used up): loads off as spec 5.2, the LCD shows
+**Stage Q5c:** an upload that passes every check above is refused with `not_built`, nothing
+written and the window left open. The rest of its body is read and thrown away first, so the
+browser sees the reason.
+
+**Accepted (from stage Q5d):** the update starts (the window is used up): loads off as spec 5.2, the LCD shows
 Updating with its %, the image is written in 4 KB pieces. An upload with no data for 60 s is
 abandoned (`stalled`): the half-written image is discarded and normal control resumes. When the
 whole image has arrived and its own checksum is right, the board replies

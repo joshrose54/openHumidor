@@ -71,7 +71,7 @@ const char* formatUkDateTime(char* out, size_t n, int64_t utcS) {
 }
 
 // ---------------------------------------------------------------- forwards
-void LineReader::begin(uint64_t startOffset, LineFn fn, void* ctx) {
+void FileLineReader::begin(uint64_t startOffset, LineFn fn, void* ctx) {
   len_ = 0;
   lineStart_ = pos_ = startOffset;
   overlong_ = stopped_ = false;
@@ -80,7 +80,7 @@ void LineReader::begin(uint64_t startOffset, LineFn fn, void* ctx) {
   skipped_ = 0;
 }
 
-bool LineReader::feed(const char* data, size_t n) {
+bool FileLineReader::feed(const char* data, size_t n) {
   for (size_t i = 0; i < n && !stopped_; i++) {
     const char c = data[i];
     pos_++;
@@ -102,7 +102,7 @@ bool LineReader::feed(const char* data, size_t n) {
   return !stopped_;
 }
 
-void LineReader::finish() {
+void FileLineReader::finish() {
   if (stopped_) return;
   if (overlong_) skipped_++;
   else if (len_ > 0) {

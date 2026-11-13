@@ -1,0 +1,86 @@
+#pragma once
+// The mailbox between the web server and the control loop (spec 5.2, 5.5), the plain-logic half.
+// The server never touches the control objects: a write (settings, a manual exclude, a door test)
+// or the start of an upload goes in here; the loop takes it on its next pass, decides it against
+// its own real settings and state (decideMail below), applies it, and puts the answer back. The
+// server waits for that answer (a few ms: one pass) and sends it to the browser.
+//
+// One request at a time. Each has a number, and an answer carries its request's number, so an
+// answer can only ever reach the request it belongs to. A request the loop hasn't taken yet can be
+// withdrawn (the server gave up waiting); once taken, the server waits for its answer, because the
+// loop is reading the request's fields.
+//
+// Not thread-safe by itself: on the board every call is made inside one short critical section
+// (src/app/web_link.cpp), so the loop never waits for the server.
+
+#include <stdint.h>
+#include <stddef.h>
+#include "wineador/web_api.h"
+#include "wineador/ota_rules.h"
+#include "wineador/json_in.h"
+#include "wineador/settings.h"
+
+namespace wineador {
+
+constexpr uint32_t kMailWaitMs = 3000;   // the server's wait for the loop's answer (no_answer after)
+
+enum class MailKind : uint8_t { None, Settings, Exclude, DoorTest, UpdateStart };
+
+struct MailRequest {
+  uint32_t id = 0;
+  MailKind kind = MailKind::None;
+  const FlatJson* json = nullptr;   // Settings, Exclude, DoorTest: the body, already read (stays put until answered)
+  uint32_t length = 0;              // UpdateStart: the upload's Content-Length
+  bool transferBusy = false;        // UpdateStart: a log download is running (the server's transfer gate)
+};
+
+struct MailAnswer {
+  uint32_t id = 0;
+  ApiResult result;
+  UserSettings user;                // Settings, Exclude: the settings now (accepted or not)
+  int channel = -1;                 // Exclude
+  bool excluded = false;            // Exclude
+  char note[kMaxDoorNote + 1] = ""; // DoorTest
+};
+
+class Mailbox {
+ public:
+  // Server: posts a request (it gets the next number). False while another is waiting or being
+  // decided; an old answer that was never collected is dropped.
+  bool post(MailRequest* r);
+  // Loop: the waiting request, if any; it is then taken (can no longer be withdrawn).
+  bool take(MailRequest* out);
+  // Loop: the answer to the request it took (the number must match, or it is dropped).
+  void answer(const MailAnswer& a);
+  // Server: its answer, if it has come (then the box is empty again).
+  bool collect(uint32_t id, MailAnswer* out);
+  // Server: gives up waiting. True if the loop hadn't taken it (it never will); false if it has,
+  // and then the server must keep waiting for collect().
+  bool withdraw(uint32_t id);
+
+  enum class State : uint8_t { Empty, Posted, Taken, Answered };
+  State state() const { return state_; }
+
+ private:
+  State state_ = State::Empty;
+  uint32_t next_ = 1;
+  MailRequest req_;
+  MailAnswer ans_;
+};
+
+// What the loop decides a request against: its own settings and state, at that pass.
+struct MailContext {
+  UserSettings user;
+  bool updating = false;
+  bool windowOpen = false;          // the LCD's Allow update window
+  bool compressorRunning = false;
+  uint32_t slotBytes = 0;           // the OTA app slot
+};
+
+// The loop's decision: the answer to send back, with the new settings for Settings and Exclude
+// (equal to ctx.user when refused). The loop then applies an accepted change (and logs it); an
+// accepted DoorTest is logged; an accepted UpdateStart means the upload may be read (the server
+// then checks the image).
+MailAnswer decideMail(const MailRequest& r, const MailContext& ctx);
+
+}  // namespace wineador

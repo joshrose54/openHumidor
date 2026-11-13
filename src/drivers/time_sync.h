@@ -21,6 +21,7 @@ namespace timesync {
 void begin();                          // BOOT ONLY: starts WiFi and SNTP, returns at once
 void update(uint32_t nowMs);           // every loop pass: opens and closes the NTP-only radio window
 bool wifiUp();
+int rssi();                            // the WiFi signal now, dBm (0 while not connected)
 bool radioOn();                        // the radio is on (always, unless WiFi is only for NTP)
 bool takeNote(char* out, size_t n);    // a radio window opened or closed: text for an "ntp" event
 void syncNow();                        // TEST BUILDS: open a radio window now (Rev N)

@@ -69,6 +69,8 @@ static const RefusalInfo kRefusals[(int)Refusal::Count] = {
   {422, "wrong_image",        "That image isn't a Rev Q cabinet build."},
   {408, "stalled",            "The upload stopped: nothing arrived for 60 seconds. Nothing was installed."},
   {503, "card_unavailable",   "The SD card isn't available just now."},
+  {503, "no_answer",          "The controller didn't answer in time. Try again."},
+  {501, "not_built",          "Updates from the dashboard aren't built yet (they come with stage Q5d)."},
 };
 
 int httpStatus(Refusal r) { return r < Refusal::Count ? kRefusals[(int)r].status : 500; }
@@ -177,9 +179,18 @@ static ApiResult limits(Refusal r, const char* field, const char* message, float
   return a;
 }
 
+ApiResult parseWriteBody(const char* body, size_t n, FlatJson* j) {
+  if (!j->parse(body, n)) return fromJsonError(*j);
+  return ApiResult{};
+}
+
 ApiResult checkSettingsWrite(const char* body, size_t n, const UserSettings& now, bool updating, UserSettings* out) {
   FlatJson j;
-  if (!j.parse(body, n)) return fromJsonError(j);
+  const ApiResult p = parseWriteBody(body, n, &j);
+  return p.ok() ? checkSettingsFields(j, now, updating, out) : p;
+}
+
+ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool updating, UserSettings* out) {
   if (updating) return refuse(Refusal::Updating);
   if (j.count() == 0) return refuse(Refusal::Empty);
   UserSettings u = now;
@@ -223,7 +234,11 @@ ApiResult checkSettingsWrite(const char* body, size_t n, const UserSettings& now
 ApiResult checkExcludeWrite(const char* body, size_t n, const UserSettings& now, bool updating, int* channel,
                             UserSettings* out) {
   FlatJson j;
-  if (!j.parse(body, n)) return fromJsonError(j);
+  const ApiResult p = parseWriteBody(body, n, &j);
+  return p.ok() ? checkExcludeFields(j, now, updating, channel, out) : p;
+}
+
+ApiResult checkExcludeFields(const FlatJson& j, const UserSettings& now, bool updating, int* channel, UserSettings* out) {
   if (updating) return refuse(Refusal::Updating);
   const JsonField* c = j.find("channel");
   const JsonField* e = j.find("excluded");
@@ -251,7 +266,12 @@ ApiResult checkExcludeWrite(const char* body, size_t n, const UserSettings& now,
 ApiResult checkDoorTest(const char* body, size_t n, char* note, size_t noteSize) {
   if (noteSize) note[0] = 0;
   FlatJson j;
-  if (!j.parse(body, n)) return fromJsonError(j);
+  const ApiResult p = parseWriteBody(body, n, &j);
+  return p.ok() ? checkDoorTestFields(j, note, noteSize) : p;
+}
+
+ApiResult checkDoorTestFields(const FlatJson& j, char* note, size_t noteSize) {
+  if (noteSize) note[0] = 0;
   for (int i = 0; i < j.count(); i++) {
     const JsonField& f = j.at(i);
     if (strcmp(f.key, "note") != 0) return refuse(Refusal::UnknownField, f.key);

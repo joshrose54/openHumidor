@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "wineador/log_read.h"
 
 namespace sdlog {
 
@@ -114,5 +115,29 @@ void setWifiUp(bool up);        // from the loop, for the records
 // Rev N (board.h kSdPauseWhileWifi): no card operation while the radio is on; rows
 // and events wait in the outage buffers. Set by the loop every pass.
 void setPaused(bool paused);
+
+// ---------------------------------------------------------------- the web dashboard (Rev Q, spec 5.5)
+// The web server never reads the card itself (5.2): it asks this task, which does one read at a
+// time between its own log writes (logging always first). One job at a time; a caller waits for its
+// turn and its piece (at most waitMs), on its own task, never the control loop's. While the card is
+// failed or out every read is refused at once (-1).
+
+// Up to n bytes (at most one 4 KB piece) of a file from offset into buf; *fileBytes its size (may
+// be null). Bytes read, -1 the card is failed or out (or no answer in time), -2 no such file.
+int readPiece(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes, uint32_t waitMs);
+// Every log file on the card (/logs and its year folders): -1 as above.
+int listLogs(wineador::LogFileEntry* out, int max, uint32_t waitMs);
+
+// Hooks the task calls (set once at boot, before start()):
+//   lines: every line handed to the task, as it is received (kind 0 readings, 1 event, 2 hourly);
+//   idle:  once a pass, after the writes, while the card is working (the boot refill reads a piece);
+//          true while it has more to do, so the task comes round again soon rather than in 500 ms.
+typedef void (*LineHook)(int kind, const char* line, size_t n);
+typedef bool (*IdleHook)();
+void setHooks(LineHook lines, IdleHook idle);
+// For the idle hook only (it runs on this task): a read done there and then.
+int readHere(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes);
+int listHere(wineador::LogFileEntry* out, int max);
+uint32_t stackLeft();                  // the task's stack never used yet, bytes (BP2 test 39)
 
 }  // namespace sdlog

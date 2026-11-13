@@ -167,6 +167,7 @@ bool takeNote(char* out, size_t n) {
 void syncNow() { gWindow.requestNow(); }
 
 bool wifiUp() { return WiFi.status() == WL_CONNECTED; }
+int rssi() { return wifiUp() ? WiFi.RSSI() : 0; }
 
 int takeWifiEvent(uint32_t* outageMs) {
   const wineador::WifiWatch::Event e = gWifiEvent;

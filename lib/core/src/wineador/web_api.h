@@ -68,6 +68,8 @@ enum class Refusal : uint8_t {
   WrongImage,        // 422 not a Rev Q cabinet build (image_identity.h gives the reason)
   Stalled,           // 408 no upload data for 60 s (5.2)
   CardUnavailable,   // 503 the SD card is failed or out
+  NoAnswer,          // 503 the control loop didn't answer in time (it answers within a pass; never expected)
+  NotBuilt,          // 501 stage Q5c: updates from the dashboard come with stage Q5d
   Count
 };
 int httpStatus(Refusal r);
@@ -111,6 +113,16 @@ ApiResult checkExcludeWrite(const char* body, size_t n, const UserSettings& now,
 
 // POST /api/door-test: {} or {"note": "..."} (at most kMaxDoorNote bytes). note gets the text ("" if none).
 ApiResult checkDoorTest(const char* body, size_t n, char* note, size_t noteSize);
+
+// The same three checks split in two, for the board: the web server reads the body into a FlatJson
+// (in its PSRAM work area), and the control loop then checks the fields against its own real
+// settings and Updating state (the mailbox, web_mail.h) without a 1.7 KB copy on its stack.
+// parseWriteBody refuses what isn't one flat object (bad_json, too_long); the *Fields checks do
+// everything else, in the same order as the checks above.
+ApiResult parseWriteBody(const char* body, size_t n, FlatJson* j);
+ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool updating, UserSettings* out);
+ApiResult checkExcludeFields(const FlatJson& j, const UserSettings& now, bool updating, int* channel, UserSettings* out);
+ApiResult checkDoorTestFields(const FlatJson& j, char* note, size_t noteSize);
 
 // The replies to the accepted writes (docs/api.md):
 //   exclude:   {"api":1,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}

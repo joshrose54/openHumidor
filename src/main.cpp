@@ -71,6 +71,13 @@
 #include "app/serial_ui.h"
 #include "app/screen.h"
 #include "wineador/lcd_ui.h"
+#include "app/web_server.h"
+#if defined(WINEADOR_BOARD_REVQ)
+#include "esp_ota_ops.h"
+#include "app/web_link.h"
+#include "wineador/web_mail.h"
+#include "wineador/web_status.h"
+#endif
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
 #include "wineador/scenario.h"
@@ -128,6 +135,10 @@ static uint64_t gLastCompressorStopMs = 0;
 static bool gFirstSweepDone = false;     // the LCD judges sensor alerts only after it (5.5)
 static bool gStepRounded = false;        // a stored setpoint was off its step: rounded at boot (5.5)
 static float gWasTemp = 0, gWasRh = 0;
+#if defined(WINEADOR_BOARD_REVQ)
+static bool gWebOn = false;              // the web dashboard is running (5.5)
+static uint32_t gSlotBytes = 0;          // the OTA app slot, read at boot
+#endif
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -329,6 +340,11 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::None: break;
     case Command::Boot: {
       console::printBanner(gSettings, gBoot);
+#if defined(WINEADOR_BOARD_REVQ)
+  if (gWebOn) Serial.printf("  Web dashboard: http://wineador.local/ (at most 2 connections)%s%s\n",
+                            web::problem() ? " - " : "", web::problem() ? web::problem() : "");
+  else Serial.printf("  Web dashboard NOT running: %s (control is unaffected)\n", web::problem());
+#endif
       console::printSensorCheck();
       char clock[240];
       formatClockSummary(clock, sizeof(clock), gClock);
@@ -339,6 +355,13 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::Help:
       console::printHelp(kTestBuild);
       break;
+    case Command::Web: {
+      char b[400];
+      web::formatStatus(b, sizeof(b));
+      Serial.printf("  %s\n", b);
+      if (web::problem()) Serial.printf("  web: %s\n", web::problem());
+      break;
+    }
     case Command::Lcd: {
       if (a.arg == -2) { Serial.println("  lcd, or (test builds) lcd stress on|off. Nothing done."); break; }
       if (a.arg >= 0) {
@@ -655,6 +678,15 @@ void setup() {
   // BOOT ONLY: start WiFi and SNTP. Both return at once and connect in the background.
   timesync::begin();
   watchdog::feed();
+#if defined(WINEADOR_BOARD_REVQ)
+  // BOOT ONLY: the web dashboard (5.5): its PSRAM, the server's tasks on core 0, mDNS (up to 2 s).
+  {
+    const esp_partition_t* slot = esp_ota_get_next_update_partition(nullptr);
+    gSlotBytes = slot ? (uint32_t)slot->size : 0;
+    gWebOn = web::begin();
+    watchdog::feed();
+  }
+#endif
 
 #if defined(WINEADOR_TEST_BUILD)
   gModel.begin(ModelRates{});
@@ -684,7 +716,7 @@ static BuildTag buildTag() {
 }
 
 static void updateScreen(uint32_t now) {
-  if (!screen::running()) return;
+  if (!screen::logicRunning()) return;
   UiInputs in;
   in.nowMs = now;
   in.uptimeMs = uptimeMs();
@@ -747,6 +779,166 @@ static void updateScreen(uint32_t now) {
     eventlog::log("lcd", "LCD STEP OVER 50 ms: the screen's part of a pass took up to %lu ms (longest part: %s), "
                   "%lu time(s) - 3A.11", (unsigned long)(us / 1000), what, (unsigned long)count);
 }
+
+// ---------------------------------------------------------------- the web dashboard (5.5, Rev Q)
+// The server (app/web_server) runs on its own task and never touches the control objects. The loop
+// does two things for it each pass, neither of which ever waits:
+//   - the mailbox: a write or the start of an upload from the dashboard, decided here against the
+//     real settings and state, applied as any other change (logged "dashboard"), answered;
+//   - the state copy: about once a second (and straight after a change), what the pages show.
+#if defined(WINEADOR_BOARD_REVQ)
+static uint32_t gLastWebStateMs = 0;
+static bool gWebStateDue = true;
+static DayLow gV12Low;                   // the Board section's lowest 12V today
+static uint32_t gLastV12Ms = 0;
+static bool gCoolWas = false;
+static uint64_t gCoolSinceMs = 0;
+static int64_t gCountHour = -1;          // the hour the "this hour" bus counts started
+static uint32_t gCrcHourBase[kNumSensors] = {}, gTimeoutHourBase[kNumSensors] = {};
+
+static void fillWebState(uint32_t now) {
+  weblink::State* st = weblink::staging();
+  if (!st) return;
+  StatusSnapshot& x = st->status;
+  x = StatusSnapshot();
+  x.build.board = board::kIdentityBoard;
+  x.build.profile = kBuildProfile;
+  x.build.testBuild = kTestBuild;
+  x.build.version = gVersion;
+  const uint64_t up = uptimeMs();
+  x.uptimeS = up / 1000;
+  ClockFacts cf;
+  cf.firstSweepDone = gFirstSweepDone;
+  cf.clockSet = gClockSet;
+  cf.trusted = gClock.trusted();
+  cf.rtcOk = i2cbus::rtcOk();
+  cf.ntpSynced = gClock.ntpSynced;
+  const bool clockOk = !clockBad(cf);
+  x.utcNowS = (int64_t)time(nullptr);
+  copyFromLcd(&x, screen::ui(), up, clockOk, x.utcNowS);     // the LCD's own modes and alerts
+  x.bootHold = gCtl.hold().active();
+  x.bootHoldLeftS = gCtl.hold().remainingMs() / 1000;
+  const CabinetSummary c = gHealth.summary();
+  const uint32_t age = elapsedMs(now, gLastSweepDoneMs);
+  x.readingsOk = c.cabinetOk >= gSettings.safety.minHealthyCabinet && age <= 2 * gSettings.tuning.sensorReadMs;
+  x.cabinetOk = c.cabinetOk;
+  x.meanC = c.meanC; x.minC = c.minC; x.maxC = c.maxC; x.spreadC = c.spreadC;
+  x.meanRhPct = c.meanRhPct; x.controlC = c.controlC;
+  x.readingsAgeS = age / 1000;
+  x.targetC = gSettings.user.targetTempC;
+  x.rhSetPct = gSettings.user.rhSetpointPct;
+  x.coolingHysteresisC = gSettings.tuning.coolingHysteresisC;
+  x.heatingDeadbandC = gSettings.tuning.heatingDeadbandC;
+  const LoadOutputs l = outputs::current();
+  x.cool = l.cool; x.heat = l.heat; x.humid = l.humid; x.relayHeating = l.relayHeating;
+  x.stripping = gTc.stripping();
+  x.heaterDutyPct = l.heat ? gSettings.tuning.heaterPwmCapPct : 0;
+  x.fanPct = fan::duty();
+  x.fanRpm = fan::rpm();
+  x.blowerPct = 100;                     // full speed until 4.6b (stages Q1-Q3)
+  x.blowerBoost = false;
+  x.ionOn = false;                       // held off until 4.6c
+  if (l.cool && !gCoolWas) gCoolSinceMs = up;
+  gCoolWas = l.cool;
+  x.compressorOnForS = l.cool ? (uint32_t)((up - gCoolSinceMs) / 1000) : 0;
+  x.compressorStoppedSinceBoot = gLastCompressorStopMs != 0;
+  x.compressorStoppedAgoS = gLastCompressorStopMs ? (uint32_t)((up - gLastCompressorStopMs) / 1000) : 0;
+  const GuardDecisions& g = gCtl.decisions();
+  const LoadDecision* ld[3] = {&g.cool, &g.heat, &g.humid};
+  for (int L = 0; L < 3; L++) {
+    if (!ld[L]->demanded || ld[L]->run || ld[L]->block == GuardBlock::None) continue;
+    GuardHold& h = x.guards[x.nGuards++];
+    h.load = (uint8_t)L;
+    h.reason = guardBlockName(ld[L]->block);
+    h.leftS = ld[L]->waitMs ? (int32_t)(ld[L]->waitMs / 1000) : -1;
+  }
+  x.disturbanceDetection = gSettings.tuning.disturbanceDetection;   // the week's counts: added by the server
+  x.windowOpen = screen::window().active(now);
+  x.windowLeftS = x.windowOpen ? screen::window().remainingMs(now) / 1000 : 0;
+  x.updating = false;                    // OTA writes come with stage Q5d
+  const sdlog::Stats sd = sdlog::stats();
+  x.sdOk = sd.mounted && !sd.failed;
+  x.sdFreeBytes = sd.freeBytes;
+  x.sdTotalBytes = sd.totalBytes;
+  // the WiFi signal is read by the server itself (the WiFi driver's call can wait for its lock)
+  x.bootReason = gBoot.bootReason;
+  x.hasV12 = supplysense::fitted() && supplysense::logic().haveAverage() && gV12Low.have();
+  x.v12NowV = supplysense::logic().lastAverage();
+  x.v12LowTodayV = gV12Low.low();
+  x.heapFreeBytes = heap::freeNow();
+  // "this hour": the bus counts since the hour began (UTC hours; uptime hours while the clock is bad)
+  const int64_t hour = clockOk ? x.utcNowS / 3600 : -2 - (int64_t)(up / 3600000);
+  if (hour != gCountHour) {
+    gCountHour = hour;
+    memcpy(gCrcHourBase, gCrcCount, sizeof(gCrcHourBase));
+    memcpy(gTimeoutHourBase, gTimeoutCount, sizeof(gTimeoutHourBase));
+  }
+  for (int i = 0; i < kNumSensors; i++) {
+    SensorStatus& o = x.sensors[i];
+    const Exclusion r = gHealth.reason(i);
+    o.state = r == Exclusion::None ? SensorState::Healthy : r == Exclusion::Manual ? SensorState::Manual
+            : r == Exclusion::NotYetRead ? SensorState::NotRead : SensorState::Excluded;
+    if (r != Exclusion::None) snprintf(o.reason, sizeof(o.reason), "%s", exclusionName(r));
+    const SensorReading& v = gLogicReadings.s[i];
+    o.read = gFirstSweepDone && v.bus == BusResult::Ok;
+    o.tempC = v.tempC;
+    o.rhRawPct = v.rhRawPct;
+    o.rhPct = correctedRh(i, v.rhRawPct);
+    o.ageS = age / 1000;
+    o.crcHour = (uint16_t)(gCrcCount[i] - gCrcHourBase[i]);
+    o.timeoutsHour = (uint16_t)(gTimeoutCount[i] - gTimeoutHourBase[i]);
+  }
+  st->user = gSettings.user;
+  st->tuning = gSettings.tuning;
+  UpdateState& u = st->update;
+  u = UpdateState();
+  u.windowOpen = x.windowOpen;
+  u.windowLeftS = x.windowLeftS;
+  u.compressorRunning = l.cool;
+  u.updating = false;
+  u.slotBytes = gSlotBytes;
+  u.running = x.build;
+}
+
+// Each pass: the mailbox, then (about once a second) the state copy. Never waits.
+static void serveWeb(uint32_t now) {
+  if (!gWebOn) return;
+  MailRequest r;
+  if (weblink::takeMail(&r)) {
+    MailContext c;
+    c.user = gSettings.user;
+    c.updating = false;                  // stage Q5d: while an update runs, settings are refused (5.5)
+    c.windowOpen = screen::window().active(now);
+    c.compressorRunning = outputs::current().cool;
+    c.slotBytes = gSlotBytes;
+    const MailAnswer a = decideMail(r, c);
+    if (a.result.ok()) {
+      if (r.kind == MailKind::Settings || r.kind == MailKind::Exclude) {
+        const UserSettings was = gSettings.user;
+        gSettings.user = a.user;
+        if (!sameUser(was, gSettings.user)) applyUser(was, "dashboard");
+      } else if (r.kind == MailKind::DoorTest) {
+        if (a.note[0]) eventlog::log(kEvTypeDoor, "%s: %s", kEvDoorTest, a.note);
+        else eventlog::log(kEvTypeDoor, "%s", kEvDoorTest);
+      }
+    }
+    weblink::answerMail(a);
+    gWebStateDue = true;                 // the pages see the change at once
+  }
+  if (elapsedMs(now, gLastV12Ms) >= 1000) {
+    gLastV12Ms = now;
+    if (supplysense::fitted() && supplysense::logic().haveAverage())
+      gV12Low.add(supplysense::logic().lastAverage(), (int64_t)time(nullptr), gClockSet && gClock.trusted());
+  }
+  if (gWebStateDue || elapsedMs(now, gLastWebStateMs) >= 1000) {
+    fillWebState(now);
+    if (weblink::publish()) {            // the server was copying: try again next pass
+      gLastWebStateMs = now;
+      gWebStateDue = false;
+    }
+  }
+}
+#endif
 
 // ---------------------------------------------------------------- loop
 static const char* loadWord(int L) { return L == 0 ? "cooling" : L == 1 ? "heater" : "humidifier"; }
@@ -1439,6 +1631,10 @@ void loop() {
 #endif
   // 7. The LCD (Rev Q): one small step; never waits (3A.11).
   updateScreen(now);
+#if defined(WINEADOR_BOARD_REVQ)
+  // 8. The web dashboard (Rev Q): the mailbox and the state copy; never waits (5.2, 5.5).
+  serveWeb(now);
+#endif
   if (printNow) printStatus();
   const uint32_t passUs = micros() - t0;
   gLoopMax.add(passUs);

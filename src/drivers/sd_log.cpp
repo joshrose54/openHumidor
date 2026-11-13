@@ -79,6 +79,27 @@ uint32_t gFailSeq = 0, gFailsLost = 0;
 volatile bool gWifiUp = false;
 volatile bool gPaused = false;         // Rev N: no card operation while the radio is on (5.4)
 
+// The web dashboard (Rev Q): one read job at a time for the server, done between the writes.
+TaskHandle_t gTask = nullptr;
+SemaphoreHandle_t gJobMutex = nullptr;   // callers take turns
+SemaphoreHandle_t gJobDone = nullptr;    // the task gives it when a job is done
+enum class JobKind : uint8_t { Read, List };
+struct Job {
+  JobKind kind = JobKind::Read;
+  char path[48] = "";
+  uint64_t offset = 0;
+  char* buf = nullptr;
+  size_t n = 0;
+  wineador::LogFileEntry* list = nullptr;
+  int max = 0;
+  int result = -1;
+  uint64_t size = 0;
+};
+Job gJob;                                // guarded by gMux (pending / started / result)
+volatile bool gJobPending = false, gJobStarted = false;
+LineHook gLineHook = nullptr;
+IdleHook gIdleHook = nullptr;
+
 char* dupe(const char* s) {
   const size_t n = strlen(s) + 1;
   char* p = (char*)malloc(n);
@@ -649,11 +670,25 @@ void stressRun() {
   });
 }
 
+void serveJob();
+
 void task(void*) {
+  bool idleMore = false;
   for (;;) {
     if (gStressRequest) { stressRun(); publishBuffers(); }
     Msg m;
-    const bool got = xQueueReceive(gQ, &m, pdMS_TO_TICKS(500)) == pdTRUE;
+    bool got;
+    if constexpr (board::kHasDashboard) {
+      // woken by a line (send()) or a read job; at most 500 ms otherwise, as before
+      got = xQueueReceive(gQ, &m, 0) == pdTRUE;
+      if (!got && !gJobPending) {
+        ulTaskNotifyTake(pdTRUE, idleMore ? 1 : pdMS_TO_TICKS(500));
+        got = xQueueReceive(gQ, &m, 0) == pdTRUE;
+      }
+      serveJob();
+    } else {
+      got = xQueueReceive(gQ, &m, pdMS_TO_TICKS(500)) == pdTRUE;
+    }
     if (!gStarted) {
       if (got) xQueueSendToFront(gQ, &m, 0);   // keep it until we may write
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -663,7 +698,10 @@ void task(void*) {
       // Into its buffer first: written in order, or kept while the card is out
       // (the oldest dropped and counted when a buffer is full).
       LineRing& r = m.kind == Kind::Reading ? gRows : m.kind == Kind::Event ? gEvents : gHourly;
-      r.push(m.text, strlen(m.text));
+      const size_t len = strlen(m.text);
+      r.push(m.text, len);
+      if constexpr (board::kHasDashboard)
+        if (gLineHook) gLineHook((int)m.kind, m.text, len);   // the graphs, the events kept in RAM, the week
     }
     if (gPaused) {                     // the radio is on: everything waits in the buffers
       publishBuffers();
@@ -684,7 +722,116 @@ void task(void*) {
     flushHourly();
     flushReadings(false);
     publishBuffers();
+    if constexpr (board::kHasDashboard) {
+      serveJob();                                            // a read for the server, after the writes
+      idleMore = cardOk() && gIdleHook && gIdleHook();       // one piece of the boot refill
+    }
   }
+}
+
+// ---------------------------------------------------------------- reads for the web server (Rev Q)
+// The card's own read of a piece. Never marks the card failed: only writes do (as before). Not
+// counted as "writing" (writing()), so the readings row's heap sample isn't skipped during a download.
+int doRead(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes) {
+  int r;
+  if (!SD.exists(path)) {
+    r = -2;
+  } else {
+    File f = SD.open(path, FILE_READ);
+    if (!f) {
+      r = -1;
+    } else {
+      const uint64_t size = f.size();
+      if (fileBytes) *fileBytes = size;
+      if (offset >= size || n == 0) r = 0;
+      else if (!f.seek((uint32_t)offset)) r = -1;
+      else r = (int)f.read((uint8_t*)buf, n);
+      f.close();
+    }
+  }
+  return r;
+}
+
+int doList(wineador::LogFileEntry* out, int max) {
+  int n = 0;
+  File logs = SD.open("/logs");
+  if (!logs || !logs.isDirectory()) {
+    if (logs) logs.close();
+    return SD.exists("/logs") ? -1 : 0;
+  }
+  auto keep = [&](const char* dir, File& f) {
+    if (n >= max) return;
+    snprintf(out[n].path, sizeof(out[n].path), "%s/%s", dir, f.name());
+    wineador::LogName ln;
+    if (!wineador::parseLogPath(out[n].path, &ln)) return;
+    out[n].bytes = f.size();
+    n++;
+  };
+  for (File e = logs.openNextFile(); e; e = logs.openNextFile()) {
+    if (e.isDirectory()) {
+      char dir[24];
+      snprintf(dir, sizeof(dir), "/logs/%s", e.name());
+      for (File f = e.openNextFile(); f; f = e.openNextFile()) {
+        if (!f.isDirectory()) keep(dir, f);
+        f.close();
+      }
+    } else {
+      keep("/logs", e);
+    }
+    e.close();
+  }
+  logs.close();
+  return n;
+}
+
+void serveJob() {
+  portENTER_CRITICAL(&gMux);
+  const bool pending = gJobPending;
+  if (pending) gJobStarted = true;
+  const Job j = gJob;
+  portEXIT_CRITICAL(&gMux);
+  if (!pending) return;
+  int r = -1;
+  uint64_t size = 0;
+  if (gStarted && !gPaused && cardOk())
+    r = j.kind == JobKind::Read ? doRead(j.path, j.offset, j.buf, j.n, &size) : doList(j.list, j.max);
+  portENTER_CRITICAL(&gMux);
+  gJob.result = r;
+  gJob.size = size;
+  gJobPending = false;
+  portEXIT_CRITICAL(&gMux);
+  xSemaphoreGive(gJobDone);
+}
+
+// The caller's half: posts the job, wakes the task, waits for it.
+int runJob(const Job& j, uint64_t* fileBytes, uint32_t waitMs) {
+  if (!gJobMutex || !cardOk()) return -1;
+  if (xSemaphoreTake(gJobMutex, pdMS_TO_TICKS(waitMs)) != pdTRUE) return -1;
+  xSemaphoreTake(gJobDone, 0);           // a late "done" from a job its caller gave up on
+  portENTER_CRITICAL(&gMux);
+  gJob = j;
+  gJobStarted = false;
+  gJobPending = true;
+  portEXIT_CRITICAL(&gMux);
+  xTaskNotifyGive(gTask);
+  bool done = xSemaphoreTake(gJobDone, pdMS_TO_TICKS(waitMs)) == pdTRUE;
+  if (!done) {
+    portENTER_CRITICAL(&gMux);
+    const bool started = gJobStarted;
+    if (!started) gJobPending = false;   // withdrawn: the task never starts it
+    portEXIT_CRITICAL(&gMux);
+    // started: the task is writing into the caller's buffer; wait for it to finish
+    if (started) done = xSemaphoreTake(gJobDone, pdMS_TO_TICKS(10000)) == pdTRUE;
+  }
+  int r = -1;
+  if (done) {
+    portENTER_CRITICAL(&gMux);
+    r = gJob.result;
+    if (fileBytes) *fileBytes = gJob.size;
+    portEXIT_CRITICAL(&gMux);
+  }
+  xSemaphoreGive(gJobMutex);
+  return r;
 }
 
 void send(Kind k, const char* line) {
@@ -697,6 +844,8 @@ void send(Kind k, const char* line) {
     if (k == Kind::Reading) gQueueDropsRows++;
     else gQueueDropsEvents++;
   }
+  if constexpr (board::kHasDashboard)
+    if (gTask) xTaskNotifyGive(gTask);   // never waits
 }
 
 }  // namespace
@@ -740,7 +889,11 @@ void begin(const char* readingsHeader, const char* eventsHeader, const char* hou
   // tick by tick. The watchdog watches that idle task (watchdog.cpp): a card call
   // that takes seconds (a remount with no card, free space on a big card) must
   // never starve it into a reset. WiFi and the network stack run above both.
-  xTaskCreatePinnedToCore(task, "sdlog", 8192, nullptr, 0, nullptr, 0);
+  if constexpr (board::kHasDashboard) {
+    gJobMutex = xSemaphoreCreateMutex();
+    gJobDone = xSemaphoreCreateBinary();
+  }
+  xTaskCreatePinnedToCore(task, "sdlog", 8192, nullptr, 0, &gTask, 0);
 }
 
 void start(int year, int month) {
@@ -808,5 +961,39 @@ void setPaused(bool paused) {
   gPaused = paused;
   withStats([&](Stats& s) { s.paused = paused; });
 }
+
+// ---------------------------------------------------------------- the web dashboard (Rev Q)
+int readPiece(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes, uint32_t waitMs) {
+  if constexpr (!board::kHasDashboard) return -1;
+  Job j;
+  j.kind = JobKind::Read;
+  snprintf(j.path, sizeof(j.path), "%s", path);
+  j.offset = offset;
+  j.buf = buf;
+  j.n = n;
+  return runJob(j, fileBytes, waitMs);
+}
+
+int listLogs(wineador::LogFileEntry* out, int max, uint32_t waitMs) {
+  if constexpr (!board::kHasDashboard) return -1;
+  Job j;
+  j.kind = JobKind::List;
+  j.list = out;
+  j.max = max;
+  return runJob(j, nullptr, waitMs);
+}
+
+void setHooks(LineHook lines, IdleHook idle) {
+  gLineHook = lines;
+  gIdleHook = idle;
+}
+
+int readHere(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes) {
+  return cardOk() ? doRead(path, offset, buf, n, fileBytes) : -1;
+}
+
+int listHere(wineador::LogFileEntry* out, int max) { return cardOk() ? doList(out, max) : -1; }
+
+uint32_t stackLeft() { return gTask ? (uint32_t)uxTaskGetStackHighWaterMark(gTask) : 0; }
 
 }  // namespace sdlog

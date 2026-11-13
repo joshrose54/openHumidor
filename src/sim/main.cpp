@@ -33,20 +33,20 @@
 #include "wineador/log_read.h"
 #include "wineador/ota_rules.h"
 #include "wineador/image_identity.h"
+#include "wineador/web_app.h"
+#include "wineador/web_mail.h"
+#include <algorithm>
 
 using namespace wineador;
 
 static sim::Board gBoard;
 static std::string gPageFile;        // --page
-static TransferGate gTransfers;
 
 // ---------------------------------------------------------------- HTTP, the smallest that works
 struct Request {
   std::string method, path, query, contentType;
-  size_t contentLength = 0;
-  std::string body;                  // writes (at most kMaxJsonBody + a little)
-  std::vector<uint8_t> head;         // an upload's first bytes (the identity check)
-  size_t uploaded = 0;
+  uint64_t contentLength = 0;
+  std::string pending;               // body bytes that came in with the headers
 };
 
 static bool sendAll(int fd, const void* p, size_t n) {
@@ -65,14 +65,14 @@ static const char* statusText(int code) {
     case 200: return "OK"; case 302: return "Found"; case 400: return "Bad Request"; case 403: return "Forbidden";
     case 404: return "Not Found"; case 405: return "Method Not Allowed"; case 408: return "Request Timeout";
     case 409: return "Conflict"; case 413: return "Payload Too Large"; case 415: return "Unsupported Media Type";
-    case 422: return "Unprocessable Entity"; case 503: return "Service Unavailable";
+    case 422: return "Unprocessable Entity"; case 501: return "Not Implemented"; case 503: return "Service Unavailable";
   }
   return "Error";
 }
 
 // Every reply closes its connection (5.5), and carries no CORS header: no other site may write.
 static void reply(int fd, int code, const char* type, const void* body, size_t n, const char* extra = "") {
-  char h[512];
+  char h[600];
   const int k = snprintf(h, sizeof(h),
                          "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n"
                          "Cache-Control: no-store\r\n%s\r\n", code, statusText(code), type, n, extra);
@@ -80,23 +80,7 @@ static void reply(int fd, int code, const char* type, const void* body, size_t n
   if (n) sendAll(fd, body, n);
 }
 
-static void replyJson(int fd, int code, const std::string& j) { reply(fd, code, "application/json; charset=utf-8", j.data(), j.size()); }
-
-static void replyError(int fd, const ApiResult& r) {
-  char b[600];
-  const int n = formatError(b, sizeof(b), r);
-  replyJson(fd, httpStatus(r.refusal), std::string(b, n > 0 ? (size_t)n : 0));
-}
-
-// A reply written in pieces, as the board sends it (4 KB at a time).
-static std::string pump(JsonPump& p) {
-  std::string out;
-  static char piece[4096];
-  while (!p.done()) out.append(piece, p.fill(piece, sizeof(piece)));
-  return out;
-}
-
-static bool readRequest(int fd, Request* r) {
+static bool readHead(int fd, Request* r) {
   std::string buf;
   char c[4096];
   size_t headerEnd = std::string::npos;
@@ -108,7 +92,7 @@ static bool readRequest(int fd, Request* r) {
     if (buf.size() > 16384) return false;
   }
   const std::string head = buf.substr(0, headerEnd);
-  std::string rest = buf.substr(headerEnd + 4);
+  r->pending = buf.substr(headerEnd + 4);
   const size_t sp1 = head.find(' '), sp2 = head.find(' ', sp1 + 1);
   if (sp1 == std::string::npos || sp2 == std::string::npos) return false;
   r->method = head.substr(0, sp1);
@@ -125,34 +109,133 @@ static bool readRequest(int fd, Request* r) {
       std::string k = line.substr(0, colon), v = line.substr(colon + 1);
       for (auto& ch : k) ch = (char)tolower(ch);
       while (!v.empty() && v[0] == ' ') v.erase(0, 1);
-      if (k == "content-length") r->contentLength = (size_t)strtoull(v.c_str(), nullptr, 10);
+      if (k == "content-length") r->contentLength = strtoull(v.c_str(), nullptr, 10);
       if (k == "content-type") r->contentType = v;
     }
     at = next;
   }
-  // the body: a write is kept whole; an upload keeps only its first bytes (the review build
-  // never writes an image anywhere) and is read to its end, in pieces
-  const bool upload = r->path == "/api/update" && r->method == "POST";
-  auto take = [&](const char* p, size_t n) {
-    if (upload) {
-      for (size_t i = 0; i < n && r->head.size() < kImageCheckBytes; i++) r->head.push_back((uint8_t)p[i]);
-      r->uploaded += n;
-    } else if (r->body.size() < kMaxJsonBody + 64) {
-      r->body.append(p, std::min(n, kMaxJsonBody + 64 - r->body.size()));
-    }
-  };
-  take(rest.data(), rest.size());
-  size_t got = rest.size();
-  while (got < r->contentLength) {
-    pollfd pf{fd, POLLIN, 0};
-    if (poll(&pf, 1, (int)kUploadStallMs) <= 0) return true;   // stalled: what arrived is what we have
-    const ssize_t k = recv(fd, c, sizeof(c), 0);
-    if (k <= 0) break;
-    take(c, (size_t)k);
-    got += (size_t)k;
-  }
   return true;
 }
+
+// The body, from what came with the headers and then the socket (never past Content-Length).
+class SocketBody : public BodyReader {
+ public:
+  SocketBody(int fd, Request& r) : fd_(fd), r_(r) {}
+  int read(char* p, size_t n, uint32_t waitMs) override {
+    if (got_ >= r_.contentLength) return 0;
+    if (n > r_.contentLength - got_) n = (size_t)(r_.contentLength - got_);
+    if (!r_.pending.empty()) {
+      const size_t k = std::min(n, r_.pending.size());
+      memcpy(p, r_.pending.data(), k);
+      r_.pending.erase(0, k);
+      got_ += k;
+      return (int)k;
+    }
+    pollfd pf{fd_, POLLIN, 0};
+    if (poll(&pf, 1, (int)waitMs) <= 0) return -1;
+    const ssize_t k = recv(fd_, p, n, 0);
+    if (k <= 0) return -1;
+    got_ += (uint64_t)k;
+    return (int)k;
+  }
+ private:
+  int fd_;
+  Request& r_;
+  uint64_t got_ = 0;
+};
+
+// The reply, kept whole and sent with its length (the board sends it in chunks as it goes).
+class BufferSink : public ReplySink {
+ public:
+  explicit BufferSink(int fd) : fd_(fd) {}
+  void begin(int status, const char* type, const char* name, const char* value) override {
+    status_ = status;
+    type_ = type;
+    extra_ = name ? std::string(name) + ": " + value + "\r\n" : "";
+  }
+  bool write(const char* p, size_t n) override { body_.append(p, n); return true; }
+  void end() override { reply(fd_, status_, type_.c_str(), body_.data(), body_.size(), extra_.c_str()); }
+  void abort() override {}
+ private:
+  int fd_;
+  int status_ = 500;
+  std::string type_, extra_, body_;
+};
+
+// ---------------------------------------------------------------- the simulated board, as the server sees it
+class SimBackend : public WebBackend {
+ public:
+  void status(StatusSnapshot* out) override { gBoard.fillStatus(out); }
+  void settings(UserSettings* u, TuningSettings* t) override { *u = gBoard.user(); *t = gBoard.tuning(); }
+  void updateState(UpdateState* out) override { *out = gBoard.updateState(); }
+  History& history() override { return gBoard.history(); }
+  void lockData() override {}
+  void unlockData() override {}
+  int recentEvents(EventRow* out, int max) override { return gBoard.recent().copyNewest(out, max); }
+  bool card(CardFacts* c) override {
+    c->ok = gBoard.sdOk();
+    c->freeBytes = 59200000000ULL;
+    c->totalBytes = 59700000000ULL;
+    return c->ok;
+  }
+  int listLogs(LogFileEntry* out, int max) override {
+    if (!gBoard.sdOk()) return -1;
+    const std::vector<LogFileEntry> f = gBoard.files();
+    int n = 0;
+    for (const LogFileEntry& e : f) if (n < max) out[n++] = e;
+    return n;
+  }
+  int readLog(const char* path, uint64_t off, char* buf, size_t n, uint64_t* size) override {
+    if (!gBoard.sdOk()) return -1;
+    const std::string* f = gBoard.file(path);
+    if (!f) return -2;
+    if (size) *size = f->size();
+    if (off >= f->size()) return 0;
+    const size_t k = std::min(n, (size_t)(f->size() - off));
+    memcpy(buf, f->data() + off, k);
+    return (int)k;
+  }
+  // the loop's half, as the board's loop does it: decided against the real settings, then applied
+  bool ask(MailRequest* r, MailAnswer* a) override {
+    if (!box_.post(r)) return false;
+    MailRequest taken;
+    box_.take(&taken);
+    MailContext c;
+    c.user = gBoard.user();
+    c.updating = gBoard.updating();
+    c.windowOpen = gBoard.windowOpen();
+    c.compressorRunning = gBoard.compressorRunning();
+    c.slotBytes = 3342336;
+    const MailAnswer ans = decideMail(taken, c);
+    if (ans.result.ok()) {
+      if (taken.kind == MailKind::Settings || taken.kind == MailKind::Exclude) gBoard.applyUser(ans.user, "dashboard");
+      if (taken.kind == MailKind::DoorTest) gBoard.doorTest(ans.note);
+    }
+    box_.answer(ans);
+    return box_.collect(r->id, a);
+  }
+  Refusal startTransfer(TransferKind k) override { return gate_.tryStart(k, 200000, 0); }
+  void endTransfer() override { gate_.finish(); }
+  bool transferBusy() override { return gate_.busy(); }
+  ApiResult install(const ImageFacts& f, BodyReader& body, uint64_t* left) override {
+    // the review build reads the image to its end and throws it away (never written anywhere)
+    char b[4096];
+    while (*left > 0) {
+      const int k = body.read(b, (size_t)std::min<uint64_t>(*left, sizeof(b)), kUploadStallMs);
+      if (k <= 0) return refuse(Refusal::Stalled);
+      *left -= (uint64_t)k;
+    }
+    if (!gBoard.startUpdate(f.version)) return refuse(Refusal::WindowClosed);
+    return ApiResult{};
+  }
+ private:
+  Mailbox box_;
+  TransferGate gate_;
+};
+
+static SimBackend gBackend;
+static WebApp gApp(gBackend, webui::kPageGz, webui::kPageGzLen);
+static WebWork gWork;
 
 // ---------------------------------------------------------------- the review-only /sim page
 static void simPage(int fd) {
@@ -178,124 +261,9 @@ static void simPage(int fd) {
 
 static void back(int fd) { reply(fd, 302, "text/plain", "", 0, "Location: /sim\r\n"); }
 
-// ---------------------------------------------------------------- the API
-static void serveEvents(int fd, const Request& rq) {
-  char v[160];
-  int n = kEventsPage;
-  if (queryValue(rq.query.c_str(), "n", v, sizeof(v))) {
-    n = atoi(v);
-    if (n < 1 || n > kEventsPage) { replyError(fd, refuse(Refusal::BadQuery, "n", "n is 1 to 50.")); return; }
-  }
-  static EventRow rows[kEventsPage];
-  if (!gBoard.sdOk()) {   // the card is out: the newest kept in RAM, marked (5.5)
-    const int k = gBoard.recent().copyNewest(rows, n);
-    EventsReply r(rows, k, nullptr, nullptr, true);
-    replyJson(fd, 200, pump(r));
-    return;
-  }
-  const std::vector<LogFileEntry> files = gBoard.files();
-  char path[48];
-  uint64_t end = 0;
-  bool after = false;
-  if (queryValue(rq.query.c_str(), "before", v, sizeof(v))) {
-    if (!parseCursor(v, path, sizeof(path), &end)) { replyError(fd, refuse(Refusal::BadQuery, "before")); return; }
-  } else if (queryValue(rq.query.c_str(), "after", v, sizeof(v))) {
-    if (!parseCursor(v, path, sizeof(path), &end)) { replyError(fd, refuse(Refusal::BadQuery, "after")); return; }
-    after = true;
-  } else {
-    if (!newestEventsFile(files.data(), (int)files.size(), path, sizeof(path))) {
-      EventsReply r(rows, 0, nullptr, nullptr);
-      replyJson(fd, 200, pump(r));
-      return;
-    }
-    end = gBoard.file(path)->size();
-  }
-  struct Ctx { EventRow* rows; int n, max; uint64_t oldest; };
-  Ctx c{rows, 0, n, 0};
-  char newest[80] = "";
-  const std::string* f = gBoard.file(path);
-  if (!f) { replyError(fd, refuse(Refusal::NotFound)); return; }
-  if (after) {
-    // new rows since the cursor, newest first
-    std::vector<EventRow> got;
-    LineReader lr;
-    struct A { std::vector<EventRow>* v; };
-    A a{&got};
-    lr.begin(end, [](const char* line, size_t len, uint64_t off, void* p) -> bool {
-      EventRow e;
-      if (parseEventRow(line, len, &e)) { e.offset = off; ((A*)p)->v->push_back(e); }
-      return true;
-    }, &a);
-    if (end < f->size()) lr.feed(f->data() + end, f->size() - end);
-    lr.finish();
-    int k = 0;
-    for (int i = (int)got.size() - 1; i >= 0 && k < n; i--) rows[k++] = got[(size_t)i];
-    formatCursor(newest, sizeof(newest), path, f->size());
-    EventsReply r(rows, k, nullptr, newest);
-    replyJson(fd, 200, pump(r));
-    return;
-  }
-  // newest first, back from `end`, in 4 KB pieces as the SD task reads them; into older files too
-  formatCursor(newest, sizeof(newest), path, f->size());
-  std::string cur = path;
-  uint64_t curEnd = end;
-  bool more = true;
-  while (c.n < n) {
-    const std::string* ff = gBoard.file(cur.c_str());
-    BackwardLineReader br;
-    br.begin([](const char* line, size_t len, uint64_t off, void* p) -> bool {
-      Ctx* x = (Ctx*)p;
-      EventRow e;
-      if (!parseEventRow(line, len, &e)) return true;
-      e.offset = off;
-      x->rows[x->n++] = e;
-      x->oldest = off;
-      return x->n < x->max;
-    }, &c);
-    uint64_t e2 = curEnd;
-    bool stopped = false;
-    while (e2 > 0 && !stopped) {
-      const uint64_t s2 = e2 > 4096 ? e2 - 4096 : 0;
-      stopped = !br.feed(ff->data() + s2, (size_t)(e2 - s2), s2);
-      e2 = s2;
-    }
-    if (!stopped) br.finish();
-    if (c.n >= n) break;
-    char older[48];
-    if (!olderEventsFile(files.data(), (int)files.size(), cur.c_str(), older, sizeof(older))) { more = false; break; }
-    cur = older;
-    curEnd = gBoard.file(older)->size();
-    c.oldest = curEnd;
-  }
-  char olderCursor[80] = "";
-  if (more && c.n > 0) formatCursor(olderCursor, sizeof(olderCursor), cur.c_str(), c.oldest);
-  EventsReply r(rows, c.n, olderCursor, newest);
-  replyJson(fd, 200, pump(r));
-}
-
-static void serveUpload(int fd, Request& rq) {
-  UpdateGateInputs g;
-  g.windowOpen = gBoard.windowOpen();
-  g.compressorRunning = gBoard.compressorRunning();
-  g.updating = gBoard.updating();
-  g.transferBusy = gTransfers.busy();
-  g.length = (uint32_t)rq.contentLength;
-  g.slotBytes = 3342336;
-  const Refusal r = checkUpdateStart(g);
-  if (r != Refusal::None) { replyError(fd, refuse(r)); return; }
-  if (rq.uploaded < rq.contentLength) { replyError(fd, refuse(Refusal::Stalled)); return; }
-  const ImageFacts facts = readImageFacts(rq.head.data(), rq.head.size());
-  const ImageVerdict v = judgeImage(facts);
-  if (v != ImageVerdict::Accept) { replyError(fd, refuseImage(v)); return; }
-  if (!gBoard.startUpdate(facts.version)) { replyError(fd, refuse(Refusal::WindowClosed)); return; }
-  char b[200];
-  formatInstalledReply(b, sizeof(b), facts.version);
-  replyJson(fd, 200, b);
-}
-
 static void handle(int fd) {
   Request rq;
-  if (!readRequest(fd, &rq)) return;
+  if (!readHead(fd, &rq)) return;
   const int64_t now = (int64_t)time(nullptr);
   gBoard.tick(now);
   // review-only pages
@@ -319,133 +287,29 @@ static void handle(int fd) {
     reply(fd, 200, "text/html; charset=utf-8", f, (size_t)n);
     return;
   }
-  // the dashboard
-  const Method m = rq.method == "POST" ? Method::Post : Method::Get;
-  bool known = false;
-  const Endpoint* ep = (rq.method == "GET" || rq.method == "POST") ? findEndpoint(m, rq.path.c_str(), &known) : nullptr;
-  if (!ep) {
-    if (!known) known = findEndpoint(Method::Get, rq.path.c_str()) || findEndpoint(Method::Post, rq.path.c_str());
-    replyError(fd, refuse(known ? Refusal::MethodNotAllowed : Refusal::NotFound));
+  // --page: the page from a file (working on web/), not the built-in one
+  if (rq.path == "/" && rq.method == "GET" && !gPageFile.empty()) {
+    FILE* f = fopen(gPageFile.c_str(), "rb");
+    if (!f) { reply(fd, 404, "text/plain", "page file not found", 19); return; }
+    std::string s;
+    char b[4096];
+    size_t k;
+    while ((k = fread(b, 1, sizeof(b), f)) > 0) s.append(b, k);
+    fclose(f);
+    reply(fd, 200, "text/html; charset=utf-8", s.data(), s.size());
     return;
   }
-  if (m == Method::Post && ep->route != Route::UpdateUpload && !isJsonContentType(rq.contentType.c_str())) {
-    replyError(fd, refuse(Refusal::NotJson));
-    return;
-  }
-  char b[1024];
-  switch (ep->route) {
-    case Route::Page: {
-      if (!gPageFile.empty()) {
-        FILE* f = fopen(gPageFile.c_str(), "rb");
-        if (!f) { reply(fd, 404, "text/plain", "page file not found", 19); return; }
-        std::string s;
-        size_t k;
-        while ((k = fread(b, 1, sizeof(b), f)) > 0) s.append(b, k);
-        fclose(f);
-        reply(fd, 200, "text/html; charset=utf-8", s.data(), s.size());
-      } else {
-        reply(fd, 200, "text/html; charset=utf-8", webui::kPageGz, webui::kPageGzLen, "Content-Encoding: gzip\r\n");
-      }
-      return;
-    }
-    case Route::Info: {
-      const int n = formatInfo(b, sizeof(b), gBoard.build(), 7200, "POWERON");
-      replyJson(fd, 200, std::string(b, (size_t)n));
-      return;
-    }
-    case Route::Status: {
-      static StatusSnapshot s;
-      gBoard.fillStatus(&s);
-      StatusReply r(s);
-      replyJson(fd, 200, pump(r));
-      return;
-    }
-    case Route::History: {
-      char v[32];
-      HistRange range;
-      if (!queryValue(rq.query.c_str(), "range", v, sizeof(v)) || !parseHistRange(v, &range)) {
-        replyError(fd, refuse(Refusal::BadQuery, "range", "range is hour, day, week or month."));
-        return;
-      }
-      int64_t since = 0;
-      if (queryValue(rq.query.c_str(), "since", v, sizeof(v))) since = strtoll(v, nullptr, 10);
-      HistoryReply r(gBoard.history(), range, gBoard.utcNow(), since);
-      replyJson(fd, 200, pump(r));
-      return;
-    }
-    case Route::Events: serveEvents(fd, rq); return;
-    case Route::Settings: {
-      SettingsReply r(gBoard.user(), gBoard.tuning());
-      replyJson(fd, 200, pump(r));
-      return;
-    }
-    case Route::Logs: {
-      if (!gBoard.sdOk()) { replyError(fd, refuse(Refusal::CardUnavailable)); return; }
-      std::vector<LogFileEntry> f = gBoard.files();
-      CardFacts c;
-      c.ok = true;
-      c.freeBytes = 59200000000ULL;
-      c.totalBytes = 59700000000ULL;
-      LogsReply r(c, f.data(), (int)f.size());
-      replyJson(fd, 200, pump(r));
-      return;
-    }
-    case Route::LogFile: {
-      char v[96];
-      LogName ln;
-      if (!queryValue(rq.query.c_str(), "path", v, sizeof(v)) || !parseLogPath(v, &ln)) {
-        replyError(fd, refuse(Refusal::BadPath));
-        return;
-      }
-      if (!gBoard.sdOk()) { replyError(fd, refuse(Refusal::CardUnavailable)); return; }
-      const std::string* f = gBoard.file(v);
-      if (!f) { replyError(fd, refuse(Refusal::NotFound)); return; }
-      const Refusal t = gTransfers.tryStart(TransferKind::Download, 200000, 0);
-      if (t != Refusal::None) { replyError(fd, refuse(t)); return; }
-      const char* name = strrchr(v, '/') + 1;
-      char extra[160];
-      snprintf(extra, sizeof(extra), "Content-Disposition: attachment; filename=\"%s\"\r\n", name);
-      reply(fd, 200, "text/csv; charset=utf-8", f->data(), f->size(), extra);
-      gTransfers.finish();
-      return;
-    }
-    case Route::UpdateState: {
-      const UpdateState u = gBoard.updateState();
-      const int n = formatUpdateState(b, sizeof(b), u);
-      replyJson(fd, 200, std::string(b, (size_t)n));
-      return;
-    }
-    case Route::SettingsWrite: {
-      UserSettings out;
-      const ApiResult r = checkSettingsWrite(rq.body.data(), rq.body.size(), gBoard.user(), gBoard.updating(), &out);
-      if (!r.ok()) { replyError(fd, r); return; }
-      gBoard.applyUser(out, "dashboard");
-      SettingsReply sr(gBoard.user(), gBoard.tuning());
-      replyJson(fd, 200, pump(sr));
-      return;
-    }
-    case Route::Exclude: {
-      UserSettings out;
-      int ch = -1;
-      const ApiResult r = checkExcludeWrite(rq.body.data(), rq.body.size(), gBoard.user(), gBoard.updating(), &ch, &out);
-      if (!r.ok()) { replyError(fd, r); return; }
-      gBoard.applyUser(out, "dashboard");
-      const int n = formatExcludeReply(b, sizeof(b), ch, (out.manualExcludeMask >> ch) & 1);
-      replyJson(fd, 200, std::string(b, (size_t)n));
-      return;
-    }
-    case Route::DoorTest: {
-      char note[160];
-      const ApiResult r = checkDoorTest(rq.body.data(), rq.body.size(), note, sizeof(note));
-      if (!r.ok()) { replyError(fd, r); return; }
-      gBoard.doorTest(note);
-      const int n = formatDoorTestReply(b, sizeof(b));
-      replyJson(fd, 200, std::string(b, (size_t)n));
-      return;
-    }
-    case Route::UpdateUpload: serveUpload(fd, rq); return;
-    default: replyError(fd, refuse(Refusal::NotFound)); return;
-  }
+  // the dashboard: the same request handling as the board (lib/core web_app)
+  WebRequest w;
+  w.known = rq.method == "GET" || rq.method == "POST";
+  w.method = rq.method == "POST" ? Method::Post : Method::Get;
+  w.path = rq.path.c_str();
+  w.query = rq.query.c_str();
+  w.contentType = rq.contentType.c_str();
+  w.contentLength = rq.contentLength;
+  SocketBody body(fd, rq);
+  BufferSink out(fd);
+  gApp.handle(w, body, out, gWork);
 }
 
 int main(int argc, char** argv) {

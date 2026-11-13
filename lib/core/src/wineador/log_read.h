@@ -31,7 +31,7 @@ const char* formatUkDateTime(char* out, size_t n, int64_t utcS);
 typedef bool (*LineFn)(const char* line, size_t len, uint64_t offset, void* ctx);   // false = stop
 
 // Forwards: feed pieces in file order; each complete line goes to fn with its start offset.
-class LineReader {
+class FileLineReader {
  public:
   void begin(uint64_t startOffset, LineFn fn, void* ctx);
   // Returns false once fn has asked to stop.
