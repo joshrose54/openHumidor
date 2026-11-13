@@ -173,18 +173,20 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 
 > The LCD on J20 with its 30 cm ribbon (test 10 passed). Nothing else needed.
 > At boot the LCD is cleared to black with the backlight OFF (as the firmware does at boot).
-> Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan;
-> the landscape check (UP arrow, four corners; a / b switch the landscape way).
+> Steps: bars at 13.3 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan
+> and the touch chip's ID; 40 s untouched, then a touch; the landscape check (UP arrow, four corners;
+> a / b switch the landscape way).
 
 | # | Step | Check now |
 |---|---|---|
-| 1 | 1. Colour bars at 15 MHz, backlight 100% | Eight bars, left to right: white, yellow, cyan, green, magenta, red, blue, black. No tearing, no noise. Note if the order is mirrored or the colours inverted (Claude adjusts the start-up commands) |
-| 2 | 2. Colour bars at 20 MHz (a TRIAL only: the cabinet runs 15 MHz) | The same bars, redrawn at 20 MHz: clean, or noise / wrong colours? Record it (trial only) |
+| 1 | 1. Colour bars at 13.3 MHz, backlight 100% | Eight bars, left to right: white, yellow, cyan, green, magenta, red, blue, black. No tearing, no noise. Note if the order is mirrored or the colours inverted (Claude adjusts the start-up commands) |
+| 2 | 2. Colour bars at 20 MHz (a TRIAL only: the cabinet runs 13.3 MHz) | The same bars, redrawn at 20 MHz: clean, or noise / wrong colours? Record it (trial only) |
 | 3 | 3. Touch: coordinates while a finger is down | Touch the screen: x,y print while touched. Top-left, top-right, bottom-left, bottom-right corners: record roughly what each prints. The numbers follow the finger |
 | 4 | 4. Backlight 100% -> 10% | The backlight steps down every second from 100% to 10% and stays there: it visibly dims |
 | 5 | 5. GPIO48 pulsed: LCD and touch reset together | Above: with GPIO48 held low the touch controller does NOT answer (it is in reset); the screen goes black and the bars come back; then 'touch answers again'. Touch the screen: coordinates print |
-| 6 | 6. I2C1 scan and RTC read; then everything idle | The scan finds 0x38 (touch) and 0x68 (RTC); the RTC time prints. Now idle: meter I2C1 SDA and SCL at R69 and R70 to GND (TP3): each about 3.3V - NOT 5V |
-| 7 | 7. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways) | Landscape A first. The arrow points to the top of the screen and the word UP is above it. Touch each corner target in turn: each prints 'corner: top left' etc. for the corner you touched, and its target turns green. Type b for landscape B (turned 180 degrees), a for A again; do the four corners in each. CHOOSE the way that is up as the LCD sits in the enclosure, and RECORD it (A or B) for the build log |
+| 6 | 6. I2C1 scan, the touch chip's ID and the RTC read; then everything idle | The scan finds 0x38 (touch) and 0x68 (RTC). The touch chip's ID prints: 0xA8 = 0x11, 0x9F = 0x26, 0xA3 = 0x64 and 'reads as an FT6336'. Record the three values. The RTC time prints. Now idle: meter I2C1 SDA and SCL at R69 and R70 to GND (TP3): each about 3.3V - NOT 5V |
+| 7 | 7. Idle check: 40 s untouched, failed touch reads counted, then a touch | DON'T touch the screen. Register 0x86 prints as 0x00 (monitor mode off). Every 5 s the count of touch reads and FAILED reads prints; after 40 s untouched it says so. Failed reads stay 0 all the way. Then touch the screen: 'coordinates came back' prints with x,y. Record the failed count at 40 s and the coordinates. (A touch before 40 s restarts the count) |
+| 8 | 8. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways) | Landscape A first. The arrow points to the top of the screen and the word UP is above it. Touch each corner target in turn: each prints 'corner: top left' etc. for the corner you touched, and its target turns green. Type b for landscape B (turned 180 degrees), a for A again; do the four corners in each. CHOOSE the way that is up as the LCD sits in the enclosure, and RECORD it (A or B) for the build log |
 
 ## `bp2_30_rtc` - 30 — the RTC cell (Rev Q), using the firmware's own I2C and WiFi/NTP drivers.
 

@@ -66,6 +66,7 @@
 #include "drivers/ion_store.h"
 #include "drivers/backlight.h"
 #include "drivers/lcd.h"
+#include "drivers/touch.h"
 #include "board.h"
 #include "app/console.h"
 #include "app/eventlog.h"
@@ -854,6 +855,9 @@ static void updateScreen(uint32_t now) {
   if (screen::takeLongStep(&us, &what, &count))
     eventlog::log("lcd", "LCD STEP OVER 50 ms: the screen's part of a pass took up to %lu ms (longest part: %s), "
                   "%lu time(s) - 3A.11", (unsigned long)(us / 1000), what, (unsigned long)count);
+  if (touch::takeSetupFailure())           // once after a reset; the write is tried again at each touch read
+    eventlog::log("lcd", "TOUCH SETUP FAILED: monitor mode off (0x00 to register 0x86) not written after the reset; "
+                  "tried again at each touch read - 3A.11");
 }
 
 // ---------------------------------------------------------------- the web dashboard (5.5, Rev Q)

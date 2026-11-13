@@ -31,6 +31,7 @@ bool begin(wineador::LcdOrientation o, size_t sendBytes);
 bool ready();                      // the boot clear has finished
 bool fitted();
 uint32_t resetReleasedMs();        // millis() when GPIO48 last went high (touch waits 300 ms from it)
+uint32_t resetCount();             // GPIO48 pulses so far (0 = none yet); the touch driver sets the chip up after each
 wineador::LcdOrientation orientation();
 size_t pieceBytes();               // one buffer's size
 
@@ -48,6 +49,6 @@ void setOrientation(wineador::LcdOrientation o);   // MADCTL; the next drawing u
 void fill(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t rgb565);
 void colourBars();                 // the test pattern (portrait)
 void pushFrame();                  // the whole picture from setFrame(), now
-void setSpiHz(uint32_t hz);        // 15 MHz normally; 20 MHz as test 29's trial
+void setSpiHz(uint32_t hz);        // kLcdSpiHz (13.3 MHz) normally; kLcdTrialSpiHz (20 MHz) as test 29's trial
 
 }  // namespace lcd

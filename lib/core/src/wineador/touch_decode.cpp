@@ -14,6 +14,22 @@ TouchPoint decodeTouch(const uint8_t b[kTouchReadLen]) {
   return t;
 }
 
+TouchSetup::Next TouchSetup::next(uint32_t resets, uint32_t releasedMs, uint32_t nowMs) const {
+  if (resets == 0 || nowMs - releasedMs < kLcdResetToTouchMs) return Next::Wait;
+  return doneFor_ == resets ? Next::Read : Next::WriteCtrl;
+}
+
+void TouchSetup::written(uint32_t resets, bool ok) {
+  if (ok) { doneFor_ = resets; return; }
+  if (failedFor_ != resets) { failedFor_ = resets; failPending_ = true; }
+}
+
+bool TouchSetup::takeFailure() {
+  const bool f = failPending_;
+  failPending_ = false;
+  return f;
+}
+
 void touchToScreen(LcdOrientation o, uint16_t px, uint16_t py, int* sx, int* sy) {
   const int x = px > kLcdWidth - 1 ? kLcdWidth - 1 : px;    // clamp to the panel
   const int y = py > kLcdHeight - 1 ? kLcdHeight - 1 : py;

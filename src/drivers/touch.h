@@ -10,8 +10,14 @@
 
 namespace touch {
 
+// After every GPIO48 reset (boot, and test 29's pulse), the first read also writes 0x00 to
+// register 0x86 - monitor mode off, so the chip keeps answering while idle (3A.11); the order is
+// lib/core's TouchSetup. A failed write is tried again at the next read.
 // False if not yet 300 ms since the reset, or the controller didn't answer.
 bool read(wineador::TouchPoint& t);
+bool readReg(uint8_t reg, uint8_t& val);   // one register (test 29: the ID and 0x86); false as read()
+bool setupDone();                          // 0x86 written since the last reset
+bool takeSetupFailure();                   // true once if the 0x86 write failed after a reset: log it
 bool fitted();
 
 }  // namespace touch

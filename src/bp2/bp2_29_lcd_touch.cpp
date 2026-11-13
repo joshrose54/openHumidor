@@ -3,11 +3,13 @@
 // I2C drivers. The LCD on J20 (test 10 passed).
 //
 // At boot the firmware's LCD start-up runs (reset, cleared to black) and the backlight is off.
-// g and each n:  1 colour bars at 15 MHz, backlight 100%  ·  2 the bars at 20 MHz (a trial)
+// g and each n:  1 colour bars at 13.3 MHz, backlight 100%  ·  2 the bars at 20 MHz (a trial)
 //   3 touch: coordinates print while a finger is down  ·  4 backlight 100% -> 10%
 //   5 GPIO48 pulsed: the LCD and touch both reset; touch reads fail, then work 300 ms on;
-//     the bars are drawn again  ·  6 I2C1 scanned (expect 0x38 touch, 0x68 RTC), RTC read;
-//     everything idle so you can meter I2C1  ·  7 the landscape check (spec 5.5, BP2 test 29):
+//     the bars are drawn again  ·  6 I2C1 scanned (expect 0x38 touch, 0x68 RTC), the touch
+//     chip's ID registers read, RTC read; everything idle so you can meter I2C1
+//   7 the idle check: the screen left untouched for over 40 s with the failed touch reads
+//     counted (monitor mode, 3A.11), then touched  ·  8 the landscape check (spec 5.5, BP2 test 29):
 //     an UP arrow and four corner targets, drawn by the firmware's own screen code; each touch
 //     is reported by the corner it landed in. a / b switch between the two landscape ways, so
 //     Josh can choose the one that is up in the enclosure (board.h kLcdOrientation; build log).
@@ -34,19 +36,21 @@ namespace {
 const char* const kBanner[] = {
   "The LCD on J20 with its 30 cm ribbon (test 10 passed). Nothing else needed.",
   "At boot the LCD is cleared to black with the backlight OFF (as the firmware does at boot).",
-  "Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan;",
-  "the landscape check (UP arrow, four corners; a / b switch the landscape way).",
+  "Steps: bars at 13.3 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan",
+  "and the touch chip's ID; 40 s untouched, then a touch; the landscape check (UP arrow, four corners;",
+  "a / b switch the landscape way).",
   nullptr,
 };
 
 const char* kTitles[] = {
-  "1. Colour bars at 15 MHz, backlight 100%",
-  "2. Colour bars at 20 MHz (a TRIAL only: the cabinet runs 15 MHz)",
+  "1. Colour bars at 13.3 MHz, backlight 100%",
+  "2. Colour bars at 20 MHz (a TRIAL only: the cabinet runs 13.3 MHz)",
   "3. Touch: coordinates while a finger is down",
   "4. Backlight 100% -> 10%",
   "5. GPIO48 pulsed: LCD and touch reset together",
-  "6. I2C1 scan and RTC read; then everything idle",
-  "7. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways)",
+  "6. I2C1 scan, the touch chip's ID and the RTC read; then everything idle",
+  "7. Idle check: 40 s untouched, failed touch reads counted, then a touch",
+  "8. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways)",
 };
 const char* kChecks[] = {
   "Eight bars, left to right: white, yellow, cyan, green, magenta, red, blue, black. No tearing, no noise. "
@@ -57,8 +61,13 @@ const char* kChecks[] = {
   "The backlight steps down every second from 100% to 10% and stays there: it visibly dims",
   "Above: with GPIO48 held low the touch controller does NOT answer (it is in reset); the screen goes black "
   "and the bars come back; then 'touch answers again'. Touch the screen: coordinates print",
-  "The scan finds 0x38 (touch) and 0x68 (RTC); the RTC time prints. Now idle: meter I2C1 SDA and SCL at R69 and "
-  "R70 to GND (TP3): each about 3.3V - NOT 5V",
+  "The scan finds 0x38 (touch) and 0x68 (RTC). The touch chip's ID prints: 0xA8 = 0x11, 0x9F = 0x26, 0xA3 = 0x64 "
+  "and 'reads as an FT6336'. Record the three values. The RTC time prints. Now idle: meter I2C1 SDA and SCL at "
+  "R69 and R70 to GND (TP3): each about 3.3V - NOT 5V",
+  "DON'T touch the screen. Register 0x86 prints as 0x00 (monitor mode off). Every 5 s the count of touch reads "
+  "and FAILED reads prints; after 40 s untouched it says so. Failed reads stay 0 all the way. Then touch the "
+  "screen: 'coordinates came back' prints with x,y. Record the failed count at 40 s and the coordinates. (A touch "
+  "before 40 s restarts the count)",
   "Landscape A first. The arrow points to the top of the screen and the word UP is above it. Touch each "
   "corner target in turn: each prints 'corner: top left' etc. for the corner you touched, and its target "
   "turns green. Type b for landscape B (turned 180 degrees), a for A again; do the four corners in each. "
@@ -71,7 +80,8 @@ int gDim = 100;
 bool gTouchOn = false, gTouchDown = false;
 bool gResetWatch = false, gScanPending = false;
 uint32_t gResetAtMs = 0;
-constexpr int kSteps = 7;
+constexpr int kSteps = 8;
+constexpr int kIdleStep = 6, kLandscapeStep = 7;
 
 // Step 7: the picture (PSRAM) and the firmware's own drawing code.
 uint16_t* gFrame = nullptr;
@@ -79,6 +89,12 @@ lcdgfx::Canvas* gCanvas = nullptr;
 wineador::LcdOrientation gWay = wineador::LcdOrientation::LandscapeA;
 uint8_t gCorners = 0;
 bool gLandscapeOn = false;
+
+// Step 7, the idle check (3A.11: monitor mode off, so the chip answers while idle).
+constexpr uint32_t kIdleMs = 40000, kIdleReportMs = 5000;
+bool gIdleOn = false, gIdlePassed = false, gIdleFinished = false;
+uint32_t gIdleStartMs = 0, gIdleReportMs = 0, gIdleReads = 0, gIdleFails = 0;
+uint32_t gSetupReported = 0;             // the reset whose 0x86 write was last reported
 
 void drawCheck() {
   if (!gCanvas) { Serial.println("  NO PSRAM for the picture: the landscape check can't be drawn - CHECK"); return; }
@@ -99,7 +115,8 @@ void live(int i) {
   bp2::Live l;
   l.showLoads = false;
   l.backlightPct = backlight::pct();
-  l.extra = i == 1 ? "LCD SPI ......... 20 MHz (trial)" : i == 6 ? "LCD ............. landscape, 15 MHz" : "LCD SPI ......... 15 MHz";
+  l.extra = i == 1 ? "LCD SPI ......... 20 MHz (trial)" : i == kLandscapeStep ? "LCD ............. landscape, 13.3 MHz"
+          : i == kIdleStep ? "Touch ........... read every 50 ms, failed reads counted" : "LCD SPI ......... 13.3 MHz";
   bp2::printStep(i, kSteps, kTitles[i], l, kChecks[i], i + 1 < kSteps ? kTitles[i + 1] : nullptr);
 }
 
@@ -111,6 +128,13 @@ void scan() {
     if (Wire1.endTransmission() == 0) { Serial.printf(" 0x%02X", a); n++; }
   }
   Serial.printf("%s  (expect 0x38 touch and 0x68 RTC)\n", n ? "" : " NOTHING");
+  uint8_t v = 0, m = 0, h = 0;
+  if (touch::readReg(wineador::kTouchRegVendorId, v) && touch::readReg(wineador::kTouchRegChipMid, m) &&
+      touch::readReg(wineador::kTouchRegChipHigh, h))
+    Serial.printf("  Touch chip ID: 0xA8 = 0x%02X, 0x9F = 0x%02X, 0xA3 = 0x%02X - %s\n", v, m, h,
+                  wineador::isFt6336(v, m, h) ? "reads as an FT6336 (0x11, 0x26, 0x64) - correct"
+                                              : "NOT what an FT6336 reads (0x11, 0x26, 0x64) - CHECK");
+  else Serial.println("  Touch chip ID: NOT READ (no answer at 0x38) - CHECK");
   wineador::DateTime dt;
   if (i2cbus::rtcOk() && i2cbus::rtcDateTime(dt))
     Serial.printf("  RTC on I2C1: %04d-%02d-%02d %02d:%02d:%02d UTC - read OK\n", dt.year, dt.month, dt.day, dt.hour, dt.minute,
@@ -118,12 +142,19 @@ void scan() {
   else Serial.println("  RTC on I2C1: NOT READ - check");
 }
 
+void startIdle(uint32_t now) {
+  gIdleStartMs = gIdleReportMs = now;
+  gIdleReads = gIdleFails = 0;
+  gIdlePassed = gIdleFinished = false;
+}
+
 void apply(int i, uint32_t now) {
   gTouchOn = false;
   gLandscapeOn = false;
+  gIdleOn = false;
   switch (i) {
     case 0: lcd::setSpiHz(wineador::kLcdSpiHz); backlight::set(100); lcd::colourBars(); break;
-    case 1: lcd::setSpiHz(20000000); lcd::colourBars(); lcd::setSpiHz(wineador::kLcdSpiHz); break;
+    case 1: lcd::setSpiHz(wineador::kLcdTrialSpiHz); lcd::colourBars(); lcd::setSpiHz(wineador::kLcdSpiHz); break;
     case 2: gTouchOn = true; break;
     case 3: gDim = 100; gDimMs = now; backlight::set(100); break;
     case 4: {
@@ -142,7 +173,20 @@ void apply(int i, uint32_t now) {
       break;
     }
     case 5: gScanPending = true; break;   // done in loop() as soon as I2C is free
-    case 6:
+    case kIdleStep: {
+      live(i);
+      uint8_t c = 0xFF;
+      if (touch::readReg(wineador::kTouchRegCtrl, c))
+        Serial.printf("  Touch register 0x86 = 0x%02X - %s\n", c,
+                      c == wineador::kTouchCtrlStayActive ? "monitor mode off (correct)" : "monitor mode NOT off - CHECK");
+      else Serial.println("  Touch register 0x86: NOT READ - CHECK");
+      Serial.println("  Don't touch the screen for 40 s.");
+      gTouchOn = true;
+      gIdleOn = true;
+      startIdle(now);
+      return;
+    }
+    case kLandscapeStep:
       live(i);
       gTouchOn = true;
       gLandscapeOn = true;
@@ -185,14 +229,57 @@ void loop() {
     gLastTouchMs = now;
     wineador::TouchPoint t;
     const bool ok = touch::read(t);
+    // After each GPIO48 reset the driver writes 0x00 to 0x86 (monitor mode off, 3A.11): say when it has.
+    if (touch::takeSetupFailure())
+      Serial.println("  Touch setup: writing 0x00 to register 0x86 (monitor mode off) FAILED after the reset - CHECK "
+                     "(tried again at each read)");
+    if (touch::setupDone() && lcd::resetCount() != gSetupReported) {
+      gSetupReported = lcd::resetCount();
+      Serial.println("  Touch setup: monitor mode off (0x00 written to register 0x86) after the reset");
+    }
+    const bool idleCounting = gIdleOn && !gIdleFinished;
+    if (idleCounting) {
+      gIdleReads++;
+      if (!ok) gIdleFails++;
+      const uint32_t s = (now - gIdleStartMs) / 1000;
+      if (ok && t.count > 0) {
+        if (!gIdlePassed) {
+          // Too soon: the 40 s start again once the finger is lifted.
+          if (!gTouchDown)
+            Serial.printf("  Touched after only %lu s - too soon. Leave it alone: counting again from 0.\n", (unsigned long)s);
+          gTouchDown = true;
+          startIdle(now);
+        } else {
+          Serial.printf("  Coordinates came back: touch x %u y %u (failed reads while untouched: %lu of %lu%s)\n",
+                        (unsigned)t.x, (unsigned)t.y, (unsigned long)gIdleFails, (unsigned long)gIdleReads,
+                        gIdleFails ? " - CHECK: expect 0" : ", as expected");
+          gIdleFinished = true;
+          gTouchDown = true;
+        }
+      } else if (ok && gTouchDown) {
+        gTouchDown = false;                // the too-soon finger lifted: the count starts here
+        startIdle(now);
+      } else if (!gIdlePassed && now - gIdleStartMs >= kIdleMs) {
+        gIdlePassed = true;
+        Serial.printf("  40 s untouched (the chip's monitor mode would have started at 30 s): %lu reads, %lu FAILED%s.\n"
+                      "  NOW touch the screen: the coordinates should print.\n",
+                      (unsigned long)gIdleReads, (unsigned long)gIdleFails, gIdleFails ? " - CHECK: expect 0" : " - correct");
+      } else if (!gIdlePassed && now - gIdleReportMs >= kIdleReportMs) {
+        gIdleReportMs = now;
+        Serial.printf("  untouched %2lu s: touch reads %lu, failed %lu\n", (unsigned long)s, (unsigned long)gIdleReads,
+                      (unsigned long)gIdleFails);
+      }
+    }
     if (gResetWatch) {
       if (ok) {
         Serial.printf("  %lu ms after GPIO48 was released: touch answers again\n", (unsigned long)(now - gResetAtMs));
         gResetWatch = false;
       }
     }
-    if (gLandscapeOn) {
-      // Step 7: each new touch reported by the corner it landed in (screen coordinates).
+    if (idleCounting) {
+      // step 7's own lines above
+    } else if (gLandscapeOn) {
+      // Step 8: each new touch reported by the corner it landed in (screen coordinates).
       if (ok && t.count > 0 && !gTouchDown) {
         int x, y;
         wineador::touchToScreen(gWay, t.x, t.y, &x, &y);
@@ -227,12 +314,14 @@ void loop() {
     case E::Abort:
       gTouchOn = false;
       gLandscapeOn = false;
+      gIdleOn = false;
       backlight::set(0);
       lcd::fill(0, 0, wineador::lcdWidth(lcd::orientation()), wineador::lcdHeight(lcd::orientation()), wineador::kBlack);
       if (gSeq.waiting() && w[0] == 'x') bp2::printAborted();
-      else bp2::printFinished("pattern OK at 15 MHz; 20 MHz result; the four corner coordinates; dimming OK; reset "
-                              "OK; the scan result; SDA and SCL volts at R69/R70; the landscape way chosen (A or B) and that "
-                              "every corner was reported at its corner in it");
+      else bp2::printFinished("pattern OK at 13.3 MHz; 20 MHz result; the four corner coordinates; dimming OK; reset "
+                              "OK; the scan result and the touch chip's three ID values; SDA and SCL volts at R69/R70; the "
+                              "failed touch reads after 40 s untouched and the coordinates after; the landscape way chosen "
+                              "(A or B) and that every corner was reported at its corner in it");
       break;
     case E::Unknown: Serial.printf("  '%s' - type %s (x = stop).\n", w, gSeq.waiting() ? "g" : "n"); break;
     case E::None: break;

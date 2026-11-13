@@ -23,6 +23,7 @@ static uint32_t gHz = kLcdSpiHz;
 static LcdOrientation gOrient = LcdOrientation::Portrait;
 static volatile bool gReady = false;
 static volatile uint32_t gReleasedMs = 0;
+static volatile uint32_t gResets = 0;      // GPIO48 pulses so far (the touch driver sets the chip up after each)
 static bool gBusUp = false;
 
 // Two DMA buffers in internal RAM (3A.11: the internal-heap floor; Josh: about 8 KB in all).
@@ -120,6 +121,7 @@ void resetAndInit() {
   vTaskDelay(pdMS_TO_TICKS(kLcdResetLowMs));
   digitalWrite(pins::kLcdTouchReset, HIGH);
   gReleasedMs = millis();
+  gResets = gResets + 1;
   vTaskDelay(pdMS_TO_TICKS(kLcdResetToSleepOutMs));
   for (size_t i = 0; i < kLcdInitSteps; i++) {
     cmd(kLcdInit[i].cmd, kLcdInit[i].args, kLcdInit[i].nArgs);
@@ -167,6 +169,7 @@ bool begin(LcdOrientation o, size_t sendBytes) {
 bool ready() { return gReady; }
 bool fitted() { return true; }
 uint32_t resetReleasedMs() { return gReleasedMs; }
+uint32_t resetCount() { return gResets; }
 LcdOrientation orientation() { return gOrient; }
 size_t pieceBytes() { return gBufBytes; }
 uint32_t piecesSent() { return gPieces; }
@@ -272,6 +275,7 @@ bool begin(LcdOrientation, size_t) { return false; }
 bool ready() { return false; }
 bool fitted() { return false; }
 uint32_t resetReleasedMs() { return 0; }
+uint32_t resetCount() { return 0; }
 LcdOrientation orientation() { return LcdOrientation::Portrait; }
 size_t pieceBytes() { return 0; }
 void setFrame(const uint16_t*, uint16_t, uint16_t) {}

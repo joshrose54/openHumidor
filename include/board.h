@@ -103,7 +103,7 @@ constexpr wineador::LcdOrientation kLcdOrientation = wineador::LcdOrientation::L
 constexpr uint8_t  kBacklightDimPct = 20;
 // Internal RAM for sending the picture to the LCD by DMA: two buffers, this many bytes in all
 // (Josh: about 8 KB, so WiFi and the Q5 web server keep their internal RAM; tuned at BP2).
-// 4,096 bytes a piece = 4 full-width rows, about 2.2 ms on the wire at 15 MHz.
+// 4,096 bytes a piece = 4 full-width rows, about 2.5 ms on the wire at 13.3 MHz.
 constexpr size_t   kLcdSendBytes = 8192;
 
 // The web dashboard and its JSON API (spec 5.5), Rev Q only.

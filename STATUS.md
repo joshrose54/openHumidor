@@ -2,6 +2,29 @@
 
 *Updated 2026-11-13.* **Stages Q1–Q6 done.** Next: BP2 on the bench when Rev Q arrives.
 
+## After Q6: the LCD and touch checked against the maker's documents (accepted 2026-11-13)
+
+Checked against lcdwiki's MSP4031 documents (kept in `.pio.nosync/lcd-docs/`, not in the repo);
+spec 3A.9 / 3A.11 / BP2 test 29 updated from the findings. Rev Q only. Not flashed.
+- **Start-up list:** `kLcdInit` (lib/core lcd_seq.h) now sends lcdwiki's ST7796_Init.txt register
+  list (unlock, B0–E8, both gammas, lock, 0x13) after Sleep Out and its 120 ms, then inversion off;
+  the file's slip fixed (C2 takes 0xA7 as its parameter). `LcdStep` holds up to 14 arguments.
+- **SPI clock:** `kLcdSpiHz = 13333333` (80 MHz ÷ 6). The S3 rounds to the NEAREST divider, so
+  15 MHz had given 16 MHz. `s3SpiClockHz()` repeats ESP-IDF's arithmetic; a static_assert and the
+  native test check the real clock (≤ 15 MHz; the 20 MHz trial `kLcdTrialSpiHz` exactly ÷4).
+- **Touch monitor mode off:** after every GPIO48 reset the touch driver writes 0x00 to the
+  FT6336U's 0x86 at its first read (lib/core `TouchSetup`: nothing before 350 ms, then the write,
+  retried at each read until it works; the first failure after each reset logged once, `lcd`
+  event "TOUCH SETUP FAILED"). `lcd::resetCount()` counts the resets.
+- **bp2_29_lcd_touch:** 13.3 MHz wording; the touch chip's ID (0xA8, 0x9F, 0xA3) printed by the
+  I²C1 scan, saying whether it reads as an FT6336; a new step 7 (40 s untouched with the touch
+  reads and failed reads counted, register 0x86 shown, then a touch); the landscape check is now
+  step 8. `docs/bp2-sketch-steps.md` regenerated.
+- **Sizes:** revq flash 1,399,246 bytes (+732 on Q6), static RAM 82,888 (+16). The 39 LCD
+  pictures are unchanged, byte for byte.
+
+Native tests **490/490**; 26 builds without warnings.
+
 ## Port to Rev Q: stage Q6 (accepted 2026-11-13)
 
 **The blower and ion generator rules** (spec 4.6b, 4.6c). Rev Q only. Not flashed.
