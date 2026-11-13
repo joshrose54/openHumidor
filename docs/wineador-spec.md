@@ -1885,6 +1885,9 @@ normal and the LCD still works.
     own log writes, within the 50ms rule (3A.11) and the 30 KB internal-heap floor (5.2). **A new
     transfer is refused when free internal RAM is near the floor**, the margin set from BP2 test 39.
     Downloads run at the card's normal clock: a month of readings takes a few minutes.
+  - **At most one saved dashboard change every 10s** (settings and the manual exclude): one that
+    comes too soon is refused with "try again in N s", so a faulty page or script can't keep writing
+    to flash or pausing the loop. The LCD and the serial console are not limited.
   - **Writes only as JSON** (an OTA image as a raw file), and the board grants no other website
     permission to send to it — so, with no password, a web page open elsewhere can't quietly change
     a setting.
