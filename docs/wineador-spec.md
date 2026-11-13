@@ -1699,7 +1699,7 @@ interlock change · harvest start and end · guard blocks · CRC failures and ti
 sensor excluded or recovered · fan tach stall · settings changed with old and new values and where from (LCD, dashboard or serial) · boot,
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
-disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
+disturbance detected with direction, magnitude, hold-off and cap · relay exercise · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
 time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
 (Rev Q). **12V dips and WiFi events:** up to 10 an hour each (a dip with its recovery, or an outage with its
@@ -1822,8 +1822,10 @@ normal and the LCD still works.
     back to full, and that first touch only wakes the screen.
   - **Icons and fonts** are drawn by the firmware or come from openly licensed sets, with the licence
     noted in the source.
-  - **Colours:** the palette Josh approves from the stage Q4 screen pictures, recorded here then;
-    the web dashboard uses the same.
+  - **Colours:** the palette approved at stage Q4 is `lib/lcdgfx/palette.h` in the firmware; the
+    web dashboard uses the same values.
+  - **Without PSRAM** (5.4's fallback) the screens stay off — cleared to black, backlight off —
+    and an event is logged; control is unaffected.
 - **Web dashboard** — everything else: graphs, events, log downloads, OTA updates. **It changes user
   settings only**; tuning settings are shown read-only (changed only on the B6 tuning dashboard);
   safety values are never shown.
@@ -2364,10 +2366,10 @@ on the top range unless stated; "open" means OL.
 | 23 | Blower overshoot | Peak-hold across the blowers (diode + 1µF + meter from TP6 to TP12). Blowers at 50%; reset with SW1 ten times — after each reset they come up at full speed, and `g` sets 50% again | Peak no higher than TP6 + 0.5V | Pending |
 | 24 | Hardware watchdog | Sketch toggling GPIO1 from its loop, with a `stall` command that stops the toggling. Stopwatch from `stall` | One reset 1.12–2.4s after `stall`, then a normal restart. With GPIO1 set to an input (both pulls off) instead: no reset | Pending |
 | 25 | Flashing with the watchdog fitted | R26 fitted. Flash the watchdog sketch over USB, while it runs, three times | All three complete | Pending |
-| 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V within about 5ms; remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
+| 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V (switch-on within about 5ms: scope only); remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
 | 27 | 12V sense | PSU at 12.0V, then 11.0V. Read GPIO8 against the meter on TP6 | Reading follows the meter; **record the scale factor** (build log); after it, within 0.1V at both | Pending |
 | 28 | Sensors and spare channels | All six sensors on J3–J8. Then one sensor moved to J17, then J18 | Every serial on its mux channel (3A.7); each read with CRC good; J17 and J18 read the moved sensor on channels 6 and 7 | Pending |
-| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. **Landscape check:** an UP arrow drawn and a touch in each corner; choose which landscape way is up for the enclosure Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC); **the arrow up and each corner touch reported at that corner in the chosen landscape way — record the choice** (build log) | Pending |
+| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. **Landscape check:** an UP arrow drawn and a touch in each corner; choose which landscape way is up for the enclosure. Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC); **the arrow up and each corner touch reported at that corner in the chosen landscape way — record the choice** (build log) | Pending |
 | 30 | RTC cell | Board powered 48 hours. Meter BT1 + to TP3. Then 12V off overnight; restore | Cell 2.8–3.2V (record with the date and TP8, build log; above 3.2V: 1MΩ across C49, 3A.8); time kept across the night, oscillator-stopped flag clear | Pending |
 
 ### D — System
