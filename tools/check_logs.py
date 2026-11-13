@@ -24,6 +24,12 @@ What it checks
   --stress    B4's SD stress run (events file): every write made, none lost, retries
               counted, no file the wrong size, the radio cycled through an NTP window,
               lowest free heap since boot at or above 30 KB.
+  --stress    on a Rev Q card (test 38): WiFi connected all through the run (no "WiFi lost"),
+              and the stress build's retry never power-cycled the card.
+  --outage    on a Rev Q card (test 38, the normal build): each card pull shows one power-cycle
+              event, then SD FAIL, then the card back.
+  --bulb      BP2 test 35: the bulb sketch's own log, /bp2/bulb.csv - every switch-on made, every
+              reset clean (a boot with its reason), and no freeze (the log never just stops).
   --soak      no reset (one boot); the scenario's own verdict; the guard audit again from the events file
               (min off, min on, max run, crossover, interlock side) using
               uptime_ms; the load counts; heap, SD write time and loop time not
@@ -231,6 +237,70 @@ def check_readings(path, table):
     return header, rows
 
 
+def check_bulb(card):
+    """BP2 test 35: the bulb sketch's log on the card, /bp2/bulb.csv.
+    Lines: uptime_ms,kind,cycle,reset_reason - kind boot / on / off / done / abort."""
+    path = os.path.join(card, "bp2", "bulb.csv")
+    print(f"\nwineador bulb surge check (BP2 test 35): {path}\n")
+    if not os.path.isfile(path):
+        report(False, "/bp2/bulb.csv exists", "no log: was the card in J22 during the test?")
+        return finish()
+    lines = []
+    with open(path, errors="replace") as f:
+        for raw in f:
+            p = raw.strip().split(",")
+            if len(p) >= 3 and p[0].isdigit() and p[2].lstrip("-").isdigit():
+                lines.append(dict(up=int(p[0]), kind=p[1], n=int(p[2]), reason=p[3] if len(p) > 3 else ""))
+    report(bool(lines), "the log has entries", f"{len(lines)} lines")
+    if not lines:
+        return finish()
+    # The log can hold several runs: each ends with 'done'. BP2 runs it twice: the hardware
+    # watchdog paused, then 'hwdog on'. Each run is checked.
+    runs, cur = [], []
+    for l in lines:
+        cur.append(l)
+        if l["kind"] == "done":
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    dog_on = False                     # the watchdog's state as the log goes: every boot starts it paused
+    states = []
+    for k, run in enumerate(runs, 1):
+        on_with_dog = False            # this run's switch-ons were made with the watchdog toggling
+        for l in run:
+            if l["kind"] == "boot":
+                dog_on = False
+            elif l["kind"] in ("hwdog_on", "hwdog_off"):
+                dog_on = l["kind"] == "hwdog_on"
+            elif l["kind"] == "on" and dog_on:
+                on_with_dog = True
+        label = f"run {k} (hardware watchdog {'ON' if on_with_dog else 'paused'})"
+        states.append(on_with_dog)
+        seq = [l for l in run if l["kind"] in ("boot", "on", "off", "done", "abort")]
+        if not seq:
+            continue
+        ons = sorted({l["n"] for l in seq if l["kind"] == "on"})
+        report(any(l["kind"] == "done" and l["n"] >= 50 for l in seq), f"{label}: all 50 switch-ons completed ('done')",
+               f"switch-ons logged: {len(ons)}")
+        resets = [l for i, l in enumerate(seq) if l["kind"] == "boot" and i > 0]
+        for l in resets:
+            report(None, f"{label}: reset after {l['n']} cycles, reason {l['reason'] or '?'} (the board restarted)")
+        report(all(l["reason"] for l in seq if l["kind"] == "boot"), f"{label}: every boot logged with its reset reason")
+        hung = [l for i, l in enumerate(seq) if l["kind"] == "on" and
+                (i + 1 >= len(seq) or seq[i + 1]["kind"] not in ("off", "boot", "abort"))]
+        last = seq[-1]
+        report(last["kind"] in ("done", "abort", "boot") and not hung,
+               f"{label}: no freeze (ends with 'done'; every switch-on followed by its switch-off or a reset)",
+               f"the log stops at '{last['kind']},{last['n']}' - a freeze, or the card pulled"
+               if last["kind"] not in ("done", "abort", "boot") else (f"{len(hung)} switch-ons with nothing after" if hung else ""))
+    done = [st for st, run in zip(states, runs) if any(l["kind"] == "done" for l in run)]
+    report((False in done) and (True in done),
+           "both runs done: one with the hardware watchdog paused, one with 'hwdog on' (BP2 test 35)",
+           f"{len(done)} complete run(s): " + ", ".join("ON" if d else "paused" for d in done))
+    return finish()
+
+
 def file_date_ok(path):
     """The file's date comes from the board's system clock. Real (2026 on), or - for a
     file written while the clock had lost time - the same year as its own name (5.4:
@@ -242,8 +312,9 @@ def file_date_ok(path):
 
 
 def load_events(paths):
+    """Every event, in the order of the files given (the caller lists them in time order)."""
     events = []
-    for p in sorted(paths):
+    for p in paths:
         comments, header, rows = read_csv(p)
         for r in rows:
             if len(r) >= 5:
@@ -302,15 +373,20 @@ def mean(xs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("card", help="the card's mount point, e.g. /Volumes/WINEADOR")
-    ap.add_argument("--profile", choices=["bench", "real"], required=True)
+    ap.add_argument("--profile", choices=["bench", "real"])
     ap.add_argument("--test24", action="store_true")
     ap.add_argument("--soak", action="store_true")
     ap.add_argument("--stress", action="store_true",
                     help="B4's SD stress run: no lost writes, retries counted, verify and size checks, heap floor")
     ap.add_argument("--outage", action="store_true",
                     help="the SD stress test's card pull: everything kept in RAM reached the card, in order")
+    ap.add_argument("--bulb", action="store_true", help="BP2 test 35: the bulb sketch's log, /bp2/bulb.csv")
     a = ap.parse_args()
 
+    if a.bulb:
+        return check_bulb(a.card)
+    if not a.profile:
+        ap.error("--profile is required (except with --bulb)")
     logs = os.path.join(a.card, "logs")
     print(f"\nwineador log check: {logs}  (profile {a.profile})\n")
     if not os.path.isdir(logs):
@@ -407,6 +483,8 @@ def main():
                        f"lowest {min(lows)} bytes")
 
     events = load_events(events_files)
+    # Which board wrote the card (schema 2's "# board" line; schema 1 cards are all Rev N).
+    revq = any(BOARD_LINES[1] in read_csv(p)[0] for p in events_files)
     types = {e["type"] for e in events}
     report(None, f"{len(events)} events; types seen: {', '.join(sorted(types))}")
 
@@ -419,6 +497,33 @@ def main():
         report(any(e["type"] == "sd" and "deleted" in e["detail"] for e in events), "retention: oldest month deleted at boot")
         report(any(e["type"] == "sd" and "FAILURE" in e["detail"] for e in events), "SD flush failure logged")
         report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
+        if revq:
+            # B3 test 24 on Rev Q (BP2, Rev Q exceptions): both Rev Q events are required.
+            # 12V dip: the PSU at 10.5V for ~5 s -> a dip, then its recovery, lowest near 10.5V, ~5 s long.
+            dips = [i for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V DIP")]
+            recs = [(i, e) for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V recovered")]
+            pair = next(((d, r) for d in dips for r in recs if r[0] > d), None)
+            report(pair is not None, "12V dip logged, then its recovery (test 24, Rev Q)",
+                   "" if pair else f"{len(dips)} dip and {len(recs)} recovered events")
+            if pair:
+                m = re.search(r"after (\d+) ms; lowest ([\d.]+) V", pair[1][1]["detail"])
+                if m:
+                    ms, low = int(m.group(1)), float(m.group(2))
+                    report(10.0 <= low <= 10.9 and 3000 <= ms <= 8000,
+                           "the recovery's lowest reading near 10.5V and duration near 5 s (10.0-10.9V, 3-8 s)",
+                           f"lowest {low:.2f} V, {ms / 1000:.1f} s")
+            # WiFi: the router off for ~1 minute -> "WiFi lost", then "WiFi back after N s", N about 60.
+            lost = [i for i, e in enumerate(events) if e["type"] == "wifi" and e["detail"].startswith("WiFi lost")]
+            backs = [(i, e) for i, e in enumerate(events) if e["type"] == "wifi" and e["detail"].startswith("WiFi back after")]
+            wp = next(((l, b) for l in lost for b in backs if b[0] > l), None)
+            report(wp is not None, "WiFi lost logged, then back (test 24, Rev Q)",
+                   "" if wp else f"{len(lost)} lost and {len(backs)} back events")
+            if wp:
+                m = re.search(r"back after (\d+) s", wp[1][1]["detail"])
+                if m:
+                    sec = int(m.group(1))
+                    report(30 <= sec <= 180, "WiFi back after about the time the router was off (30-180 s for ~1 minute)",
+                           f"back after {sec} s")
 
     if a.stress:
         done = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD STRESS DONE:")]
@@ -445,10 +550,25 @@ def main():
                 if mh:
                     report(int(mh.group(1)) >= HEAP_FLOOR, "lowest free heap since boot at or above 30 KB",
                            f"lowest {mh.group(1)} bytes")
-        wifi = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("WiFi ")]
-        report(any("WiFi on" in e["detail"] for e in wifi) and any("WiFi off" in e["detail"] for e in wifi),
-               "the radio cycled through an NTP window (WiFi on, then off)",
-               "; ".join(f"{e['ts']} {e['detail'][:40]}" for e in wifi[-4:]))
+        if revq and done:
+            # Rev Q (BP2 test 38): WiFi stays connected all the time; the stress build's retry
+            # never power-cycles the card, so the run is the card unaided.
+            di = events.index(done[-1])
+            # The run: from its "SD STRESS START" (firmware from Q3), else from the boot before it.
+            run_i = max((i for i, e in enumerate(events[:di]) if e["type"] == "sd" and e["detail"].startswith("SD STRESS START")),
+                        default=max((i for i, e in enumerate(events[:di]) if e["type"] == "boot"), default=0))
+            run = events[run_i:di + 1]
+            lost = [e for e in run if e["type"] == "wifi" and e["detail"].startswith("WiFi lost")]
+            report(not lost, "WiFi connected all through the stress run (no 'WiFi lost')",
+                   "; ".join(f"{e['ts']}" for e in lost[:5]))
+            cyc = [e for e in run if e["type"] == "sd" and "power-cycled" in e["detail"]]
+            report(not cyc, "the stress run never power-cycled the card (its retry doesn't; the card unaided)",
+                   "; ".join(f"{e['ts']} {e['detail'][:60]}" for e in cyc[:3]))
+        elif not revq:
+            wifi = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("WiFi ")]
+            report(any("WiFi on" in e["detail"] for e in wifi) and any("WiFi off" in e["detail"] for e in wifi),
+                   "the radio cycled through an NTP window (WiFi on, then off)",
+                   "; ".join(f"{e['ts']} {e['detail'][:40]}" for e in wifi[-4:]))
         # Only this run's boot counts: the last boot before the stress run's result.
         if done:
             di = events.index(done[-1])
@@ -474,6 +594,20 @@ def main():
         for e in notes:
             report(None, f"{e['ts']} {e['detail']}")
         report(bool(notes), "the card came back and wrote what was kept")
+        if revq:
+            # Rev Q, the normal build (BP2 test 38, 3A.11): a card pull shows ONE power-cycle event
+            # (the retry's remount failed), then SD FAIL, then the card back.
+            seq = [e for e in events if e["type"] == "sd" and ("power-cycled" in e["detail"] or
+                   e["detail"].startswith("SD FLUSH FAILURE") or "writing what was kept" in e["detail"])]
+            fails = [i for i, e in enumerate(seq) if e["detail"].startswith("SD FLUSH FAILURE")]
+            report(bool(fails), "a card pull: SD FAIL seen (normal build)", "" if fails else "no SD FLUSH FAILURE - was the card pulled?")
+            for n, i in enumerate(fails):
+                start = max([j + 1 for j in range(i) if "writing what was kept" in seq[j]["detail"]] + [0])
+                cycles = [e for e in seq[start:i] if "power-cycled" in e["detail"]]
+                back = any("writing what was kept" in e["detail"] for e in seq[i + 1:])
+                report(len(cycles) == 1 and back,
+                       f"card pull {n + 1} ({seq[i]['ts']}): one power-cycle event, then SD FAIL, then the card back",
+                       f"{len(cycles)} power-cycle events before it; card back: {'yes' if back else 'NO'}")
         # Readings in order and without gaps: consecutive rows no more than 2.5 x the slow log interval apart.
         if all_rows and header:
             ts = [dt.datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%SZ") for r in all_rows if len(r) == len(header)]

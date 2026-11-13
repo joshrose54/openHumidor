@@ -72,6 +72,15 @@ uint32_t rtcReadAtMs();                        // millis() when that read happen
 bool internalPullupsOff();                     // checked from the IO_MUX registers (Rev Q: both buses)
 uint32_t rtcBusRestarts();                     // Rev Q: times I2C1 was restarted after a failed RTC step
 
+// DS3231 control register (read with the status at boot). EOSC (bit 7) found set at boot is
+// cleared then (3A.11); takeEoscCleared() is true once afterwards, for the event.
+uint8_t rtcControl();
+bool takeEoscCleared();
+// TEST BUILDS (B3 tests 16, 24): set or clear EOSC between sweeps. Result: 0 none yet, 1 done, -1 failed
+// (also -1 if the control register was never read).
+void requestEosc(bool on);
+int takeEoscResult();
+
 #if defined(WINEADOR_TEST_BUILD)
 // TEST BUILDS ONLY (B3 test 24): the next measurement read of this sensor reports
 // a CRC failure (CrcFail) or a timeout (ShortRead). One read only.

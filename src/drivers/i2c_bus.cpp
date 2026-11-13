@@ -30,7 +30,7 @@ constexpr uint8_t kCmdSerial = 0x89;
 enum class St : uint8_t {
   ResetLow, ResetRecover, Idle, RtcPointer, RtcRead, StatusPointer, StatusRead, Select,
   SerialCmd, SerialWait, SerialRead, MeasCmd, MeasWait, MeasRead,
-  Probe, StuckResetLow, StuckRecover, Deselect, RtcWrite, StatusWrite,
+  Probe, StuckResetLow, StuckRecover, Deselect, RtcWrite, StatusWrite, EoscClear, EoscWrite,
 };
 
 static St gSt = St::ResetLow;
@@ -59,6 +59,10 @@ static int gLastStuck = -1;
 // DS3231 status register and writes
 static bool gStatusKnown = false;
 static uint8_t gStatus = 0;
+static uint8_t gControl = 0;          // the control register (0x0E), read with the status at boot
+static bool gEoscCleared = false;     // EOSC was found set at boot and cleared (3A.11): log it
+static bool gEoscPending = false, gEoscWant = false;   // TEST BUILDS: "rtc eosc on|off"
+static int gEoscResult = 0;
 static bool gWritePending = false, gWriteClearOsf = false;
 static wineador::DateTime gWriteTime;
 static int gWriteResult = 0;
@@ -120,19 +124,32 @@ static void rtcRead() {
   gRtcOk = true;
 }
 
+// Boot: the control register (0x0E) and the status register (0x0F) in one read.
 static bool rtcStatusPointer() {
   rtcWire().beginTransmission(i2caddr::kRtc);
-  rtcWire().write((uint8_t)0x0F);
+  rtcWire().write(wineador::kDs3231ControlReg);
   return rtcWire().endTransmission() == 0;
 }
 
 static void rtcStatusRead() {
-  if (rtcWire().requestFrom(i2caddr::kRtc, (size_t)1) != 1) {
+  if (rtcWire().requestFrom(i2caddr::kRtc, (size_t)2) != 2) {
     while (rtcWire().available()) rtcWire().read();
     return;
   }
+  gControl = (uint8_t)rtcWire().read();
   gStatus = (uint8_t)rtcWire().read();
   gStatusKnown = true;
+}
+
+// The control register with EOSC set or cleared, the other bits as read.
+static bool rtcWriteControl(bool eosc) {
+  const uint8_t v = wineador::ds3231WithEosc(gControl, eosc);
+  rtcWire().beginTransmission(i2caddr::kRtc);
+  rtcWire().write(wineador::kDs3231ControlReg);
+  rtcWire().write(v);
+  if (rtcWire().endTransmission() != 0) return false;
+  gControl = v;
+  return true;
 }
 
 // Registers 0x00-0x06 in one transaction.
@@ -230,6 +247,11 @@ bool internalPullupsOff() {
   return !sda && !scl;
 }
 
+uint8_t rtcControl() { return gControl; }
+bool takeEoscCleared() { bool c = gEoscCleared; gEoscCleared = false; return c; }
+void requestEosc(bool on) { gEoscWant = on; gEoscPending = true; gEoscResult = 0; }
+int takeEoscResult() { int r = gEoscResult; gEoscResult = 0; return r; }
+
 uint32_t rtcBusRestarts() {
 #if defined(WINEADOR_BOARD_REVQ)
   return gRtcRestarts;
@@ -326,6 +348,9 @@ static void step(uint32_t nowMs) {
       } else if (gWritePending) {
         gWritePending = false;
         gSt = St::RtcWrite;
+      } else if (gEoscPending) {
+        gEoscPending = false;
+        gSt = St::EoscWrite;
       }
       break;
 
@@ -352,6 +377,13 @@ static void step(uint32_t nowMs) {
     case St::StatusRead:
       rtcStatusRead();
       if (!gStatusKnown) rtcFailed();
+      // 3A.11: EOSC set at boot (a test left it) would stop the clock at every power cut: clear it.
+      gSt = (gStatusKnown && (gControl & wineador::kDs3231Eosc)) ? St::EoscClear : St::Select;
+      break;
+
+    case St::EoscClear:
+      if (rtcWriteControl(false)) gEoscCleared = true;
+      else rtcFailed();
       gSt = St::Select;
       break;
 
@@ -464,6 +496,13 @@ static void step(uint32_t nowMs) {
       if (!rtcWriteTime(gWriteTime)) { rtcFailed(); gWriteResult = -1; gSt = St::Idle; break; }
       if (gWriteClearOsf && gStatusKnown) { gSt = St::StatusWrite; break; }
       gWriteResult = 1;
+      gSt = St::Idle;
+      break;
+
+    case St::EoscWrite:                 // TEST BUILDS: "rtc eosc on|off"
+      rtcBusCheck();
+      gEoscResult = (gStatusKnown && rtcWriteControl(gEoscWant)) ? 1 : -1;
+      if (gEoscResult < 0) rtcFailed();
       gSt = St::Idle;
       break;
 

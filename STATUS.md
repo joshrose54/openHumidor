@@ -2,6 +2,29 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q3 (accepted 2026-11-13)
+
+**BP2 test sketches** (`src/bp2/`, one PlatformIO build each, `pio run -e <name> -t upload`; they use the
+firmware's own drivers, nothing copied; the firmware builds never compile them):
+`bp2_15_boot_state` (tests 15-17) · `bp2_18_outputs` · `bp2_19_interlock` · `bp2_20_full_load` ·
+`bp2_21_wifi_rails` · `bp2_22_blowers` · `bp2_23_blower_reset` · `bp2_24_watchdog` (24-25) · `bp2_26_sd_power` ·
+`bp2_27_12v` · `bp2_28_sensors` · `bp2_29_lcd_touch` · `bp2_30_rtc` · `bp2_35_bulb`.
+Each: g to start, n per step, x = all off; NOW LIVE then CHECK NOW, by printed labels and TP numbers.
+Every banner and step: `docs/bp2-sketch-steps.md` (generated from the sketches by `tools/bp2_steps.py`).
+Next: BP2 on the bench when Rev Q arrives (Josh says when).
+
+**Firmware:** every build clears DS3231 EOSC at boot if set, and logs it (3A.11). Test-build commands
+`hwdog off|on` (B3 test 11's second run) and `rtc`, `rtc eosc on|off` (B3 tests 16, 24). An
+`SD STRESS START` event marks where a stress run begins.
+
+**check_logs.py:** `--bulb` (test 35, the sketch's `/bp2/bulb.csv`: two runs, the hardware watchdog paused
+then `hwdog on`); `--test24` on a Rev Q card requires the 12V dip with its recovery and WiFi lost / back;
+on Rev Q cards `--stress` checks WiFi
+stayed connected and no power cycle in the run, `--outage` checks one power-cycle event, then SD FAIL,
+then the card back (test 38). Event files read in time order.
+
+Native tests **304/304**; 24 builds (10 firmware, 14 sketches) without warnings.
+
 ## Port to Rev Q: stage Q2 (accepted 2026-11-13)
 
 Q1 accepted and committed (`c18774d`); the channel names and labels (`e7f7924`); docs (`ffbef5f`).

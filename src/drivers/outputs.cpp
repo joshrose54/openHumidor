@@ -6,6 +6,7 @@ namespace outputs {
 
 static wineador::LoadOutputs gNow;   // all false
 static bool gHeaterGate = true;      // PWM cap: heater pin allowed high right now
+static bool gIon = false;            // Rev Q: the ion generator output (BP2 sketches only switch it on)
 
 void begin() {
   // Same order as the reference sketches: each pin set LOW as it becomes an output.
@@ -50,10 +51,23 @@ void allOff() {
 #if defined(WINEADOR_BOARD_REVQ)
   digitalWrite(pins::kIon, LOW);
 #endif
+  gIon = false;
   gNow = wineador::LoadOutputs{};
 }
 
+void setIon(bool on) {
+#if defined(WINEADOR_BOARD_REVQ)
+  digitalWrite(pins::kIon, on ? HIGH : LOW);
+  gIon = on;
+#else
+  (void)on;
+#endif
+}
+
+bool ionOn() { return gIon; }
+
 void ionOff() {
+  gIon = false;
 #if defined(WINEADOR_BOARD_REVQ)
   digitalWrite(pins::kIon, LOW);      // every pass: held off until its rules (4.6c) exist
 #endif

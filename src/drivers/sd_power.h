@@ -24,5 +24,6 @@ void requestOn();
 // Does whatever step is due. Returns true when it has just switched the card back on.
 bool update(uint32_t nowMs);
 bool powered();
+uint32_t onAllowedInMs(uint32_t nowMs);   // ms until a switch-on is allowed (100 ms after the cut)
 
 }  // namespace sdpower

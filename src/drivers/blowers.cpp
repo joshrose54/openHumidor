@@ -1,6 +1,7 @@
 #include "blowers.h"
 #include <Arduino.h>
 #include "pins.h"
+#include "wineador/bp2_calc.h"
 
 namespace blowers {
 
@@ -24,7 +25,7 @@ void setPct(uint8_t pct) {
     digitalWrite(pins::kBlowerPwm, HIGH);
   } else {
     if (!gPwm) gPwm = ledcAttach(pins::kBlowerPwm, kPwmHz, kPwmBits);
-    ledcWrite(pins::kBlowerPwm, (uint32_t)pct * (1u << kPwmBits) / 100u);
+    ledcWrite(pins::kBlowerPwm, wineador::blowerDuty(pct, kPwmBits));
   }
   gPct = pct;
 }

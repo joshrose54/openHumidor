@@ -41,7 +41,6 @@ volatile bool gBusy = false;
 volatile uint32_t gBusySince = 0;
 volatile uint32_t gWorstSinceTake = 0;
 bool gRetryNote = false;               // a write was recovered by a retry: log it (from the task loop)
-int gCycleNote = 0;                    // Rev Q power cycle: 1 saved the write, -1 remount failed, -2 retry failed
 int gYear = 0, gMonth = 0;
 
 // The card's settings, read at every mount: normally 1 MHz with the retry on. Only
@@ -282,6 +281,8 @@ void record(bool stress, uint32_t writeNo, bool retried, bool recovered, const A
 // The one place the card is written. A failed write is retried ONCE after a remount
 // (a single transfer error, B4 night 1, should lose nothing); only a second failure
 // marks the card failed. A recovered retry is counted and logged.
+void noteEvent(const char* type, const char* detail);   // below: an event pushed from inside a write
+
 bool appendFile(const char* path, const char* header, const Payload& data) {
   gBusySince = millis();
   gBusy = true;
@@ -302,7 +303,16 @@ bool appendFile(const char* path, const char* header, const Payload& data) {
     }
     if (retried) ok = appendOnce(path, header, data, first.grew, a);
     if (cycled == 1 && ok) withStats([&](Stats& s) { s.powerCycleSaves++; });
-    if (cycled != 0) gCycleNote = cycled == -1 ? -1 : ok ? 1 : -2;   // logged from the task loop
+    if (cycled != 0) {
+      // Logged NOW, before setError() below publishes the failure: so the events file reads
+      // "power-cycled", then "SD FLUSH FAILURE" (BP2 test 38), in the order they happened.
+      char d[200];
+      snprintf(d, sizeof(d), "SD remount for the retry failed: card power-cycled (off %lu ms, on, remount) - %s "
+               "(%lu power cycles since boot)", (unsigned long)wineador::SdPowerSeq::kCycleOffMs,
+               cycled == -1 ? "remount FAILED" : ok ? "remount OK, write retried OK" : "remount OK but the retried write failed",
+               (unsigned long)stats().powerCycles);
+      noteEvent("sd", d);
+    }
     record(false, 0, retried, ok, first, firstMs);
     if (ok) {
       withStats([&](Stats& s) {
@@ -412,6 +422,19 @@ void refreshSpace() {
 
 // An event the task writes itself (retention, recovery, retries): same format as
 // the loop's, into the same buffer, so it lands in order.
+// An event from inside a write (no flush: we may be in the middle of one). Its own buffer, so
+// it never disturbs gScratch. Pushed before the failure is published, so it is logged first.
+void noteEvent(const char* type, const char* detail) {
+  static char line[320];
+  char ts[24];
+  const time_t t = time(nullptr);
+  struct tm tmv;
+  gmtime_r(&t, &tmv);
+  strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &tmv);
+  wineador::formatEventRow(line, sizeof(line), ts, true, (uint64_t)(esp_timer_get_time() / 1000), type, detail);
+  gEvents.push(line, strlen(line));
+}
+
 void selfEvent(const char* type, const char* detail) {
   char ts[24];
   const time_t t = time(nullptr);
@@ -648,18 +671,6 @@ void task(void*) {
     if (!cardOk() && millis() - gLastRemount >= kRemountMs) tryRemount();
     if (cardOk() && !gRetentionDone) retention();
     if (cardOk() && millis() - gLastSpace >= kSpaceRefreshMs) refreshSpace();
-    if (gCycleNote != 0) {
-      const int n = gCycleNote;
-      gCycleNote = 0;
-      Stats st = stats();
-      char d[200];
-      snprintf(d, sizeof(d), "SD remount for the retry failed: card power-cycled (off %lu ms, on, remount) - %s "
-               "(%lu power cycles since boot)", (unsigned long)wineador::SdPowerSeq::kCycleOffMs,
-               n == 1 ? "remount OK, write retried OK" : n == -2 ? "remount OK but the retried write failed"
-                                                               : "remount FAILED",
-               (unsigned long)st.powerCycles);
-      selfEvent("sd", d);
-    }
     if (gRetryNote) {
       gRetryNote = false;
       Stats st = stats();

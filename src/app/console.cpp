@@ -9,27 +9,15 @@
 #include "drivers/sd_card.h"
 #include "board.h"
 #include "drivers/heap.h"
+#include "drivers/reset_reason.h"
 #include "drivers/sd_log.h"
 
 using namespace wineador;
 
 namespace console {
 
-const char* resetReasonName(int r) {
-  switch ((esp_reset_reason_t)r) {
-    case ESP_RST_POWERON:   return "POWERON";
-    case ESP_RST_SW:        return "SOFTWARE";
-    case ESP_RST_PANIC:     return "PANIC";
-    case ESP_RST_INT_WDT:   return "INT_WATCHDOG";
-    case ESP_RST_TASK_WDT:  return "TASK_WATCHDOG";
-    case ESP_RST_WDT:       return "WATCHDOG";
-    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
-    case ESP_RST_BROWNOUT:  return "BROWNOUT";
-    case ESP_RST_SDIO:      return "SDIO";
-    case ESP_RST_EXT:       return "EXTERNAL";
-    default:                return "OTHER";
-  }
-}
+// The names are in drivers/reset_reason.h, shared with the BP2 sketches.
+const char* resetReasonName(int r) { return resetreason::name(r); }
 
 static void secs(char* out, size_t n, uint32_t ms) {
   if (ms % 60000 == 0) snprintf(out, n, "%lu min", (unsigned long)(ms / 60000));
@@ -210,6 +198,9 @@ void printHelp(bool testBuild) {
     Serial.println("    crc <sensor> | timeout <sensor>  TEST BUILD ONLY: its next read fails its CRC / times out");
     Serial.println("    sdstress <kHz> retry|noretry <writes>  TEST BUILD ONLY: SD stress test ('sdstress stop' ends it)");
     Serial.println("    ntpsync   TEST BUILD ONLY: open the NTP-only radio window now (Rev N)");
+    Serial.println("    hwdog off|on  TEST BUILD ONLY: pause / resume Rev Q's hardware watchdog (B3 test 11, second run)");
+    Serial.println("    rtc       TEST BUILD ONLY: the DS3231's time, OSF and EOSC; 'rtc eosc on|off' sets / clears EOSC");
+    Serial.println("              (B3 tests 16, 24: the clock stops on its cell; every build clears EOSC at boot)");
   }
 }
 

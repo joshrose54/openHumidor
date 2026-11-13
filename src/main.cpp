@@ -395,6 +395,46 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
                       "/stress/. Progress every 100 writes.\n", a.arg3, arg, a.arg2 == 1 ? "ON" : "OFF");
       else Serial.println("  An SD stress test is already running. Nothing started.");
       break;
+    case Command::HwDog:
+      // TEST BUILDS ONLY (B3 test 11's second run on Rev Q): with the hardware watchdog paused,
+      // 'stall' is caught by the 5 s software watchdog instead.
+      if (!hwdog::fitted()) { Serial.println("  This board has no hardware watchdog. Nothing done."); break; }
+      if (arg < 0) { Serial.println("  hwdog off | hwdog on. Nothing done."); break; }
+      if (arg == 0) {
+        hwdog::pause();
+        Serial.println("  TEST: HARDWARE WATCHDOG PAUSED - GPIO1 an input, both pulls off. 'stall' now waits for the");
+        Serial.println("  5 s software watchdog. 'hwdog on' resumes it. (A reset resumes it too.)");
+        eventlog::log("hwdog", "TEST: hardware watchdog paused ('hwdog off')");
+      } else {
+        hwdog::resume(nowMs);
+        Serial.println("  TEST: hardware watchdog running again - GPIO1 toggled every pass.");
+        eventlog::log("hwdog", "TEST: hardware watchdog resumed ('hwdog on')");
+      }
+      break;
+    case Command::Rtc: {
+      // TEST BUILDS ONLY. 'rtc': the DS3231's state. 'rtc eosc on|off' (B3 tests 16, 24 on Rev Q):
+      // EOSC set stops the oscillator once the clock runs on its cell, so a power cut loses time.
+      const uint8_t ctl = i2cbus::rtcControl();
+      DateTime dt;
+      char t[32] = "--";
+      if (i2cbus::rtcOk() && i2cbus::rtcDateTime(dt))
+        snprintf(t, sizeof(t), "%04d-%02d-%02dT%02d:%02d:%02dZ", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+      if (arg == -1) {
+        Serial.printf("  RTC: %s %s | OSF %s | control 0x%02X, EOSC %s | I2C1 restarts %lu\n", t,
+                      i2cbus::rtcOk() ? "(read ok)" : "(NOT READ)",
+                      !i2cbus::rtcStatusKnown() ? "unknown" : i2cbus::rtcOsf() ? "SET (lost time)" : "clear", (unsigned)ctl,
+                      (ctl & kDs3231Eosc) ? "SET (the clock stops on the cell)" : "clear",
+                      (unsigned long)i2cbus::rtcBusRestarts());
+        break;
+      }
+      if (arg < 0) { Serial.println("  rtc | rtc eosc on | rtc eosc off. Nothing done."); break; }
+      i2cbus::requestEosc(arg == 1);
+      Serial.printf("  TEST: EOSC %s requested (control now 0x%02X); the result follows.\n", arg == 1 ? "SET" : "CLEAR",
+                    (unsigned)ctl);
+      if (arg == 1) Serial.println("  With EOSC set, cut the 12V for a minute: the clock stops on its cell (OSF at the next boot).\n"
+                                   "  Every build clears EOSC at boot (3A.11); 'rtc eosc off' clears it now.");
+      break;
+    }
     case Command::NtpSync:
       if (!board::kWifiOnlyForNtp) { Serial.println("  This board keeps WiFi on; NTP syncs by itself."); break; }
       if (timesync::radioOn()) { Serial.println("  The NTP radio window is already open."); break; }
@@ -479,6 +519,8 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::InjectTimeout:
     case Command::SdStress:
     case Command::NtpSync:
+    case Command::HwDog:
+    case Command::Rtc:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
     case Command::Run:
     case Command::Stop:
@@ -710,6 +752,8 @@ static void afterSweep(uint32_t now) {
                                   e.index, kSensors[e.index].position);
   }
 
+  if (i2cbus::takeEoscCleared())         // 3A.11: a test left EOSC set; cleared at boot
+    eventlog::log("rtc", "DS3231 EOSC was SET at boot (the clock would stop on its cell at every power cut): cleared");
   if (i2cbus::lastSweepWasBoot()) {       // (the OSF flag itself was read before logging started)
     if (!gClock.osfKnown)
       eventlog::log("rtc", "!! RTC status register not read: lost-time check (OSF) not done this boot");
@@ -998,7 +1042,11 @@ static void watchSd(uint32_t now) {
                     (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
                     (unsigned long)x.heapMinEver, (unsigned long)(x.pausedMs / 1000));
     }
-    if (!wasActive && x.active) shown = 0;
+    if (!wasActive && x.active) {
+      shown = 0;
+      eventlog::log("sd", "SD STRESS START: %lu batches at %lu kHz, retry %s", (unsigned long)x.target, (unsigned long)x.khz,
+                    x.retry ? "on" : "off");   // where the run begins, for check_logs.py --stress (BP2 test 38)
+    }
     wasActive = x.active;
   }
   // Every failed write attempt (stress test or logging), one event each.
@@ -1162,6 +1210,15 @@ void loop() {
   }
   checkHeapFloor();
   logBoardEvents(now);
+  {
+    const int er = i2cbus::takeEoscResult();   // TEST BUILDS: 'rtc eosc on|off' done between sweeps
+    if (er != 0) {
+      const bool set = (i2cbus::rtcControl() & kDs3231Eosc) != 0;
+      Serial.printf("  RTC: EOSC write %s - EOSC now %s (control 0x%02X)\n", er > 0 ? "OK" : "FAILED", set ? "SET" : "clear",
+                    (unsigned)i2cbus::rtcControl());
+      eventlog::log("rtc", "TEST: EOSC %s (%s)", set ? "set" : "cleared", er > 0 ? "written" : "write FAILED");
+    }
+  }
   if (afterNtp(now)) printNow = true;
   startLogging();                         // the 10 s fallback if the clock never came
   watchSd(now);

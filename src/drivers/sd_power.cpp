@@ -82,6 +82,7 @@ bool update(uint32_t nowMs) {
   return on;
 }
 bool powered() { return gSeq.powered(); }
+uint32_t onAllowedInMs(uint32_t nowMs) { return gSeq.onAllowedInMs(nowMs); }
 
 #else   // Rev N: no power switch
 
@@ -93,6 +94,7 @@ void requestOff(uint32_t) {}
 void requestOn() {}
 bool update(uint32_t) { return false; }
 bool powered() { return true; }
+uint32_t onAllowedInMs(uint32_t) { return 0; }
 
 #endif
 

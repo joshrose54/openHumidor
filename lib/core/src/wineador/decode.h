@@ -37,4 +37,13 @@ DateTime fromUnixSeconds(int64_t s);
 // Seven bytes for DS3231 registers 0x00-0x06 (24-hour mode), for writing the clock.
 void encodeDs3231(const DateTime& dt, uint8_t r[7]);
 
+// DS3231 control register (0x0E), bit 7 EOSC: set = the oscillator stops when the clock runs on
+// its cell (B3 test 16 on Rev Q). Every build clears it at boot if it finds it set (3A.11).
+constexpr uint8_t kDs3231ControlReg = 0x0E;
+constexpr uint8_t kDs3231Eosc = 0x80;
+// The control register with EOSC set or cleared and every other bit as it was.
+inline uint8_t ds3231WithEosc(uint8_t control, bool eosc) {
+  return eosc ? (uint8_t)(control | kDs3231Eosc) : (uint8_t)(control & (uint8_t)~kDs3231Eosc);
+}
+
 }  // namespace wineador

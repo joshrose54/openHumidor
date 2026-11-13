@@ -158,6 +158,17 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
   if (strcmp(c, "stop") == 0 && n == 1) return testBuild ? Command::Stop : Command::TestOnly;
   if (strcmp(c, "ntpsync") == 0 && n == 1) return testBuild ? Command::NtpSync : Command::TestOnly;
   if (strcmp(c, "stall") == 0 && n == 1) return testBuild ? Command::Stall : Command::StallNotAllowed;
+  if (strcmp(c, "hwdog") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    a.arg = (n == 2) ? onOff(w[1]) : -2;
+    return Command::HwDog;
+  }
+  if (strcmp(c, "rtc") == 0) {
+    if (!testBuild) return Command::TestOnly;
+    if (n == 1) { a.arg = -1; return Command::Rtc; }
+    a.arg = (n == 3 && strcmp(w[1], "eosc") == 0) ? onOff(w[2]) : -2;
+    return Command::Rtc;
+  }
 
   // ---- every build
   if (strcmp(c, "events") == 0) {

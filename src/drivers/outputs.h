@@ -21,6 +21,10 @@ void apply(const wineador::LoadOutputs& want);
 void heaterGate(bool pinOn);
 void allOff();                         // load signals low first, then the relay (Rev Q: and the ion output)
 void ionOff();                         // Rev Q: the ion generator held off, every pass (3A.11; Rev N: nothing)
+// BP2 SKETCHES ONLY (tests 18, 20): the ion generator on or off. The firmware never calls it
+// before the ion rules (4.6c) exist; its loop holds the output off every pass.
+void setIon(bool on);
+bool ionOn();
 wineador::LoadOutputs current();       // what is being driven right now
 
 }  // namespace outputs
