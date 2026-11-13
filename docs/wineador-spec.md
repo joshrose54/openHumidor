@@ -1001,8 +1001,10 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   the card once (off, at least 100ms, on, remount) before setting SD FAIL.
 - **32kHz crystal stays disabled** (GPIO15/16 are its pins; the default).
 - **SHT40 heaters: never used** (3A.7).
-- **12V sense (GPIO8, ADC1):** read every 100ms, averaged over 1s, logged (5.4). **A dip** — below
-  **11.0V for 1s or more** — is an event, followed by a recovered event with the lowest value seen. The scale factor is
+- **12V sense (GPIO8, ADC1):** read every 100ms, averaged over 1s, logged (5.4). **A dip** — ten 100ms
+  readings in a row below **11.0V** (exactly 11.0V is not below) — is an event; it has recovered after
+  ten in a row at or above 11.0V, and the recovered event gives the lowest 100ms reading and how long
+  it lasted. The hourly limit (5.4) counts a dip with its recovery as one. The scale factor is
   calibrated at BP2 (build log); nominal 12V = 1.57V. **ADC at 12dB attenuation** (at the next
   range down it clips at about 12.3V).
 - **Serial monitor: J23 only in the cabinet** (3A.5). The native USB is for flashing; never open a
@@ -1672,7 +1674,7 @@ Local to SD, CSV throughout. Nothing pushed off the device.
 |---|---|---|
 | Readings | Every sample at full resolution | Indefinitely |
 | Events | Starts, stops, faults, setting changes, boots | Forever |
-| Hourly | Min, max and mean per hour, each channel and derived value; each load's on-time; lowest-ever free heap | Forever — what the dashboard graphs from |
+| Hourly | Min, max and mean per hour, each channel and derived value; each load's on-time; lowest-ever free heap; on Rev Q also the 12V mean and lowest 1s average, and the lowest free PSRAM | Forever — what the dashboard graphs from |
 
 **Readings row:** timestamp · per-channel temperature, RH and raw RH (before calibration) · ambient temperature and RH · cabinet
 mean, min and max temperature · cabinet mean RH · active control value · fan
@@ -1691,7 +1693,8 @@ lost time at boot and the NTP correction · crossover · RH stripping start and 
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
 time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
-(Rev Q). **12V dips and WiFi events:** up to 10 an hour each, then one "N more this hour" line. **Guard blocks:** one event when
+(Rev Q). **12V dips and WiFi events:** up to 10 an hour each (a dip with its recovery, or an outage with its
+"back", counts as one), then one "N more this hour" line. **Guard blocks:** one event when
 an asked-for load becomes blocked, another when the reason changes or clears — not every pass.
 **CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
 
@@ -2309,7 +2312,7 @@ on the top range unless stated; "open" means OL.
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
 | 37 | B3 re-run | Every B3 test on Rev Q (every pin and bus moves), with the Rev Q exceptions below | As B3 | Pending |
-| 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures**; every buffered row and event written in order after the pull | Pending |
+| 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures** — the stress build's own retry never power-cycles the card, so this is the card unaided; every buffered row and event written in order after the pull. With the normal build, a card pull shows one power-cycle event, then SD FAIL, then recovery when the card is back | Pending |
 | 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice) | **Never below 30 KB** | Pending |
 | 40 | Soak | As B4 test 1, on Rev Q with WiFi always on | As B4 test 1 | Pending |
 
