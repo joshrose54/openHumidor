@@ -65,9 +65,7 @@ bump** and `tools/check_logs.py` updated to match.
 - pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5) for both boards.
   Keep the existing `esp32dev` environment (Rev N) building, and the `native` environment for the
   Mac-side tests.
-- **Rev Q environment: not yet defined in the spec** (5.1 says it is set when the port starts).
-  Propose one — ESP32-S3, 8MB flash, quad PSRAM, the console on UART0 (not USB CDC), a partition
-  table with OTA — and report it as a spec finding for Josh to take to the spec chat.
+- **Rev Q environment: spec 5.1** (`[revq_common]` and the builds on it).
 - Rev N: `monitor_rts = 1`, `monitor_dtr = 1`. Rev Q: the monitor is on J23 (no RTS/DTR wires), so
   it cannot reset the board.
 - `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
@@ -106,7 +104,8 @@ them.** It is in `.gitignore`. Never overwrite it.
 - **Ion generator, GPIO17:** high = on. Its rules are spec 4.6c; **in stages Q1–Q3 keep it off.**
 - **LCD on SPI2 (GPIO10–12, 9), 15MHz or less.** GPIO48 resets LCD and touch together: low at
   least 5ms, then 120ms before Sleep Out and 300ms before the first touch read. Backlight GPIO13.
-  The screens are in spec 5.5 but come later (B7): in this phase build only what BP2 test 29 needs.
+  **Screens: spec 5.5** (walk-past, settings, alerts), built in stage Q4. **Drawing never holds the
+  loop more than 50ms** (3A.11).
 - **12V sense, GPIO8, ADC1 at 12dB attenuation.**
 - I²C0 (GPIO35/36) mux only, 25kHz; I²C1 (GPIO21 SDA / GPIO14 SCL) RTC and touch, 100kHz. The
   DS3231 has no EEPROM on Rev Q.
@@ -120,11 +119,19 @@ them.** It is in `.gitignore`. Never overwrite it.
 | Q1 | Rev Q build environment and board files; pins per 3A.4; channels renumbered 0–5 everywhere, log schema bump, `check_logs.py`; Rev N still builds and behaves as before | Both builds; native tests; `check_logs.py` on the B4 card copies |
 | Q2 | Rev Q drivers: hardware watchdog, SD power switch and SPI3, both I²C buses, 12V sense, blower PWM (full speed), ion output (off), backlight, minimal LCD and touch for test 29, UART0 console, WiFi always on with PSRAM buffers | Native tests; builds |
 | Q3 | BP2 test sketches for tests 15–30, and the test-build commands BP2 needs (`stall`, the DS3231 EOSC lost-time command for B3 test 16) | Builds; Josh's review of each sketch's steps |
+| Q4 | The LCD screens (spec 5.5): walk-past, settings and alerts, touch, backlight dimming, the **Allow update** window. **What the screen shows** — modes, alerts and their order, the countdown, local time, settings steps and bounds, timeouts — **is plain C++ in lib/core with native tests**; drawing and touch are the driver side. Rev Q builds only | Native tests; builds; **every screen rendered to a PNG on the Mac by the same drawing code** for Josh's review; checked on the board at BP2 |
+| Q5 | The web dashboard and its JSON API (spec 5.5): the seven pages, the documented and versioned API, OTA from the browser inside the LCD's Allow update window, build-identity check on every image. **What the API accepts and refuses** (bounds, the window, the build check) **is plain C++ in lib/core with native tests**. Web pages designed with the **impeccable** skill, within the flash and no-internet limits | Native tests; builds; the pages served from a native or Mac-side build for Josh's review on his Mac and phone; checked on the board after BP2 |
 
 Then, when the board arrives: BP2 on the bench with Josh, test by test. **One stage at a time**:
-don't start the next until Josh says the current one is done. The blower and ion rules (4.6b, 4.6c),
-OTA behaviour (5.2), the LCD screens and the web dashboard (5.5) come after BP2 — not in this phase.
+don't start the next until Josh says the current one is done. The blower and ion rules (4.6b, 4.6c)
+come after BP2 (blower idle speed needs test 22). OTA behaviour (5.2) is built with Q5.
 Where the spec leaves something open, **don't invent it**: report it.
+
+## Web pages (Q5)
+
+Use the **Impeccable** plugin (installed by Josh; its design context is set with `/impeccable init`) for the dashboard's design. Its usual choices give way to
+the spec: **nothing loaded from the internet** (no web fonts, no CDN scripts), small compressed files
+served from flash, phone and computer, the LCD's colours and icons.
 
 ## Git
 

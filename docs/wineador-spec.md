@@ -998,7 +998,10 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
 - **LCD:** GPIO48 resets the LCD and the touch controller together: hold it low at least 5ms, then
   wait at least 120ms before Sleep Out and 300ms before the first touch read. SPI2 at 15MHz or less.
   Backlight on until the firmware drives GPIO13; PWM dims it.
-- **LCD before the B7 screens:** initialised at boot and cleared to black, backlight off.
+- **LCD before the 5.5 screens are built:** initialised at boot and cleared to black, backlight off.
+- **LCD drawing never holds up the loop:** screens are drawn in pieces across passes, and no drawing
+  step holds the loop for more than **50ms** (a full screen at 15MHz takes about 165ms, so redraw
+  only what changed, or send it by DMA in the background).
   **Backlight PWM 5kHz, 8-bit.**
 - **SD card recovery (Rev Q):** when the remount for a failed write's retry (5.4) fails, power-cycle
   the card once (off, at least 100ms, on, remount) before setting SD FAIL.
@@ -1604,7 +1607,7 @@ logged in the readings. On **Rev N** the floor applies outside NTP windows: whil
 own buffers dip it to ~29 KB, which is logged (card writes are paused). **Rev Q must meet
 it at all times.**
 
-**OTA updates** (from B6/B7): authenticated (5.5); a new image that fails to start properly rolls
+**OTA updates** (from B6/B7): on Rev Q only inside the LCD's Allow update window, and only a Rev Q cabinet build (5.5); a new image that fails to start properly rolls
 back to the previous one (two app slots: `min_spiffs` on Rev N, `default_8MB` on Rev Q); after any update the normal boot hold
 applies.
 - **Starts only when the compressor is not running** — otherwise it is refused with a message, so
@@ -1692,7 +1695,7 @@ are logged alongside the scripted ones.
 
 **Events row:** timestamp · uptime (ms, so timings survive a clock correction) · type · detail. Types: compressor on/off with reason · heater on/off ·
 interlock change · harvest start and end · guard blocks · CRC failures and timeouts per channel ·
-sensor excluded or recovered · fan tach stall · settings changed with old and new values · boot,
+sensor excluded or recovered · fan tach stall · settings changed with old and new values and where from (LCD, dashboard or serial) · boot,
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
@@ -1767,19 +1770,60 @@ from outside. **Control never depends on WiFi or the dashboard**: with WiFi down
 normal and the LCD still works.
 
 **Two interfaces** (Rev Q):
-- **LCD** on the enclosure:
-  - **Walk-past screen:** cabinet temperature and RH, large (the mean of the healthy cabinet
-    sensors); what it is doing — Cooling, Heating, Humidifying, Drying (RH stripping), Standby or
-    Fault; the two setpoints, small; the time; WiFi status; an alert line when something needs
-    attention.
+- **LCD** on the enclosure — **landscape, 480 × 320, fixed** (no rotation setting). Three screens:
+  - **Walk-past screen:**
+    - cabinet temperature and RH, large (the mean of the healthy cabinet sensors; "--" when too few
+      are healthy);
+    - **what it is doing, as icons** — one per active mode, so two can show at once (e.g. heating
+      and humidifying): **Cooling**, **Heating**, **Humidifying**, **Drying** (RH stripping; shown
+      instead of Cooling while it runs), **Standby** (nothing running), **Starting** (the boot hold,
+      with its countdown, m:ss), **Updating** (an OTA update, with its progress). **Fault**
+      replaces every other icon;
+    - the two setpoints, small; the time; a WiFi icon (connected or not);
+    - an **alert line**, only when an alert is active: the most serious one, plus "+N more" when
+      there are others. **Tapping it opens the alerts screen;**
+    - a **Settings button**.
   - **Settings:** target temperature (0.5°C steps) and RH setpoint (1-point steps), within the
-    user bounds below, with Save and Cancel. Nothing else. Returns to the walk-past screen after
-    60s without a touch; unsaved changes are dropped.
-  - **Backlight:** dims 60s after the last touch; a touch brings it back to full, and that first
-    touch only wakes the screen.
+    user bounds below, with Save and Cancel; and an **Allow update** button (below). Nothing else.
+    Not available while Updating.
+  - **Alerts:** every active alert, most serious first, each with when it started. **An alert
+    leaves the list by itself once resolved**; with none left the screen says "No active alerts".
+    A Back button.
+  - **Allow update:** opens a 5-minute window in which the dashboard may send one OTA update; the
+    walk-past screen shows the window and its countdown. It closes after one update, at 5 minutes,
+    or on a reboot. **An update sent outside the window is refused.**
+  - **Leaving a screen:** settings and alerts return to the walk-past screen after 60s without a
+    touch; unsaved settings are dropped.
+  - **Alerts, most serious first:** an active fault (5.6) · a 12V dip in progress (Rev Q) · heater,
+    cooling or humidifier ineffective · a sensor excluded, automatic or manual · the plenum fan
+    stalled · SD card failure · the clock lost or not yet set. WiFi is shown only by its icon, never
+    as an alert.
+  - **Time:** UK local time (Europe/London, summer time included), 24-hour; "--:--" while the
+    clock is not trusted. Logs stay in UTC.
+  - **Backlight:** dims to about **20%** 60s after the last touch — never off, so the walk-past
+    screen stays readable; the exact level is set at BP2 test 29 (build log). A touch brings it
+    back to full, and that first touch only wakes the screen.
+  - **Icons** are drawn by the firmware or come from an openly licensed set, with the licence noted
+    in the source.
 - **Web dashboard** — everything else: graphs, events, log downloads, OTA updates. **It changes user
   settings only**; tuning settings are shown read-only (changed only on the B6 tuning dashboard);
   safety values are never shown.
+  - **Pages:** Overview (now) · Graphs · Sensors (health per channel, and the manual exclude) ·
+    Events · Settings (user settings to change, tuning read-only) · Logs (downloads) · Update (OTA).
+  - **No password.** Anything on the home network can read and change user settings; every value
+    is clamped to its bounds and safety values are never exposed. **OTA only inside the LCD's
+    Allow update window** (above), and only per the OTA rules (5.2). Plain http — no https.
+  - **Refresh:** the page fetches new figures every **30s**.
+  - **Graphs:** hour and day from the readings; week and month from the hourly rows.
+  - **OTA accepts only a Rev Q cabinet build** (real profile, not a test build); a bench, test or
+    Rev N image is refused before anything is written. The image carries its build identity and
+    the firmware checks it.
+  - **Limits:** at most **2 browser connections** at once; log downloads sent in pieces, within
+    the 50ms drawing-and-loop rule (3A.11) and the 30 KB internal-heap floor (5.2).
+  - **Served from the ESP32's flash, working with no internet:** small and compressed; nothing
+    loaded from outside — no web fonts or chart libraries from the internet (system fonts, or
+    files stored on the board).
+  - **Works on a phone** as well as a computer. **Same colours and icons as the LCD.**
 
 **Display:** current temperature and RH, all six sensors · cabinet mean, min, max, spread · state:
 compressor, heater, humidifier, fan PWM and RPM, interlock · graphs over hour, day, week, month ·
@@ -1874,8 +1918,10 @@ for wide ranges.
 
 **The JSON endpoints are a documented API**, used by the dashboard and by tools on the Mac alike:
 - **Read** — status, readings, events, hourly data, and log file downloads. Open on the LAN.
-- **Write** — user settings, and a door-test marker; tuning settings only in the B6 tuning build; the same bounds as
-  everywhere else. **Writes and OTA need a password or token.**
+- **Write** — user settings (the manual exclude included), and a door-test marker; tuning settings only in the B6 tuning build; the same bounds as
+  everywhere else. **No password** (above); OTA only inside the LCD's Allow update window.
+- **Documented in the repo**, every endpoint and its JSON, with a **version number** that changes when
+  any endpoint does, so tools on the Mac fail clearly rather than silently.
 - **Safety settings are never exposed**, through the API or anywhere else.
 
 ## 5.6 Fault handling
