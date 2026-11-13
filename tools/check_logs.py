@@ -499,7 +499,8 @@ def main():
         report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
         if revq:
             # B3 test 24 on Rev Q (BP2, Rev Q exceptions): both Rev Q events are required.
-            # 12V dip: the PSU at 10.5V for ~5 s -> a dip, then its recovery, lowest near 10.5V, ~5 s long.
+            # 12V dip: the PSU at 10.5V for ~5 s, by hand -> a dip, then its recovery, lowest near 10.5V,
+            # lasting 2-20 s (wide: the PSU is turned by hand).
             dips = [i for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V DIP")]
             recs = [(i, e) for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V recovered")]
             pair = next(((d, r) for d in dips for r in recs if r[0] > d), None)
@@ -509,8 +510,8 @@ def main():
                 m = re.search(r"after (\d+) ms; lowest ([\d.]+) V", pair[1][1]["detail"])
                 if m:
                     ms, low = int(m.group(1)), float(m.group(2))
-                    report(10.0 <= low <= 10.9 and 3000 <= ms <= 8000,
-                           "the recovery's lowest reading near 10.5V and duration near 5 s (10.0-10.9V, 3-8 s)",
+                    report(10.0 <= low <= 10.9 and 2000 <= ms <= 20000,
+                           "the recovery's lowest reading near 10.5V and duration near 5 s (10.0-10.9V, 2-20 s: the PSU is turned by hand)",
                            f"lowest {low:.2f} V, {ms / 1000:.1f} s")
             # WiFi: the router off for ~1 minute -> "WiFi lost", then "WiFi back after N s", N about 60.
             lost = [i for i, e in enumerate(events) if e["type"] == "wifi" and e["detail"].startswith("WiFi lost")]
