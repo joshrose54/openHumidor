@@ -23,6 +23,22 @@
 namespace wineador {
 
 constexpr uint32_t kMailWaitMs = 3000;   // the server's wait for the loop's answer (no_answer after)
+constexpr uint32_t kDashboardSaveGapMs = 10000;   // 5.5: at most one saved dashboard change every 10 s
+
+// Spec 5.5: at most one saved dashboard change (settings or a manual exclude) every 10 s, so a
+// faulty page or script can't keep writing to flash or pausing the loop. Only changes from the
+// dashboard count and are limited; the LCD and the serial console are not. A write that changes
+// nothing saves nothing, so it is neither refused nor counted. The loop owns it (no locking).
+class SaveLimit {
+ public:
+  // 0 if a change may be saved now, else the whole seconds still to wait (1-10).
+  uint32_t waitS(uint32_t nowMs) const;
+  void saved(uint32_t nowMs) { any_ = true; lastMs_ = nowMs; }
+
+ private:
+  bool any_ = false;
+  uint32_t lastMs_ = 0;
+};
 
 enum class MailKind : uint8_t { None, Settings, Exclude, DoorTest, UpdateStart };
 
@@ -75,10 +91,14 @@ struct MailContext {
   bool windowOpen = false;          // the LCD's Allow update window
   bool compressorRunning = false;
   uint32_t slotBytes = 0;           // the OTA app slot
+  uint32_t nowMs = 0;               // for the save limit
+  const SaveLimit* limit = nullptr; // the dashboard's save limit (nullptr: none)
 };
 
 // The loop's decision: the answer to send back, with the new settings for Settings and Exclude
-// (equal to ctx.user when refused). The loop then applies an accepted change (and logs it); an
+// (equal to ctx.user when refused). A valid change less than 10 s after the last saved one is
+// refused too_soon, "Try again in N s." (checked after the values, so a wrong value is told as
+// such). The loop then applies an accepted change (logs it, and calls limit.saved()); an
 // accepted DoorTest is logged; an accepted UpdateStart means the upload may be read (the server
 // then checks the image).
 MailAnswer decideMail(const MailRequest& r, const MailContext& ctx);

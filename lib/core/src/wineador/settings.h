@@ -29,6 +29,9 @@ struct UserSettings {
   uint8_t manualExcludeMask = 0;   // bit i set = sensor index i force-excluded for maintenance
 };
 
+// The same user settings (every field compared): no change to save or log.
+bool sameUserSettings(const UserSettings& a, const UserSettings& b);
+
 // Bounds for the user settings (spec 5.5). Out-of-range input is rejected.
 constexpr float kTargetTempMinC = 15.0f;
 constexpr float kTargetTempMaxC = 22.0f;

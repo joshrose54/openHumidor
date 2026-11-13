@@ -4,8 +4,9 @@ API version 2
 
 **Changes in version 2** (stage Q5b): `ion_enable` in the user settings (read and write); the
 `board` object in `GET /api/status`; `source`, `note` and `sentence` in `GET /api/events`.
-Stage Q5c (the board's server) added two error codes, `no_answer` and `not_built`, with the usual
-error body; no reply changed, so the version stays 2. `not_built` goes again in stage Q5d.
+Stage Q5c (the board's server) added two error codes, `no_answer` and `not_built`, and the save
+limit added `too_soon`, each with the usual error body; no reply changed, so the version stays 2.
+`not_built` goes again in stage Q5d.
 
 The JSON endpoints the board serves for the web dashboard and for tools on the Mac (spec 5.5).
 Every endpoint and every field is listed here. The firmware's own constant (`kApiVersion` in
@@ -39,6 +40,11 @@ only: Rev N has no dashboard.
   web page open elsewhere can't change a setting: browsers won't send a JSON body to another site
   without that permission. There is no password (spec 5.5).
 - **All or nothing:** a write with any refused field changes nothing.
+- **At most one saved change every 10 s** (spec 5.5): a settings change or manual exclude that
+  comes sooner after the last one saved from the dashboard is refused with `too_soon` (the wait
+  in its message and in a `Retry-After` header, whole seconds). The values
+  are checked first (a wrong value is told as such); a write that changes nothing isn't refused
+  or counted. The door test isn't limited, nor are the LCD and the serial console.
 - **Connections:** at most **2** browser connections at once; every reply closes its connection.
   A third connection is closed at once by the board: try again a few seconds later.
 - **One long transfer at a time:** a log download or a firmware upload. Another is refused with
@@ -104,6 +110,7 @@ A refused request gets an HTTP status and this body:
 | `stalled` | 408 | No upload data for 60 s: the half-written image is discarded (spec 5.2) |
 | `card_unavailable` | 503 | The SD card is failed or out (logs and downloads; events are then served from RAM) |
 | `no_answer` | 503 | The control loop didn't answer a write within 3 s (it answers on its next pass, a few ms; not expected) |
+| `too_soon` | 429 | A settings change or manual exclude less than 10 s after the last change saved from the dashboard (spec 5.5); `message` says how long to wait ("Try again in 7 s."), and the reply carries the same wait as a `Retry-After` header in whole seconds (`Retry-After: 7`) for tools |
 | `not_built` | 501 | Stage Q5c only: an upload that passed every check is refused, nothing written: updates come with stage Q5d |
 
 ## Reads
@@ -373,7 +380,8 @@ Changes user settings (spec 5.5). Any of these, all or nothing:
 Accepted: the reply is the whole settings, as `GET /api/settings`. The change is applied by the
 control loop on its next pass and logged as a settings event with the old and new values, "from
 dashboard" (spec 5.4). Refused: `out_of_bounds`, `off_step`, `wrong_type`, `unknown_field`,
-`read_only` (a tuning name), `empty`, `bad_json`, `not_json`, `updating`.
+`read_only` (a tuning name), `empty`, `bad_json`, `not_json`, `updating`, `too_soon` (within 10 s
+of the last change saved from the dashboard).
 
 ### `POST /api/sensors/exclude`
 
@@ -390,7 +398,8 @@ setting).
   `{"api":2,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
 - Excluding enough sensors to leave fewer than 3 cabinet sensors causes a Fault (spec 4.3): the
   page asks first; the board doesn't refuse it.
-- Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`.
+- Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`, `too_soon` (it
+  counts as a saved change: one every 10 s with the settings).
 
 ### `POST /api/door-test`
 

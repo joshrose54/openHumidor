@@ -2,6 +2,14 @@
 
 *Updated 2026-11-13.*
 
+## After Q5c: the dashboard save limit (accepted 2026-11-13)
+
+Spec 5.5: at most one saved dashboard change (settings or a manual exclude) every 10 s; sooner is
+refused `too_soon` (HTTP 429), "Try again in N s." and a `Retry-After: N` header. The LCD and the
+serial console aren't limited; a write that changes nothing isn't refused or counted; values are
+checked first; the door test isn't limited. lib/core `SaveLimit` (web_mail.h), decided by the loop.
+Native tests 433/433; 25 builds without warnings.
+
 ## Port to Rev Q: stage Q5c (accepted 2026-11-13)
 
 **The web server on the board** (spec 5.5, 5.2, 3A.11). Rev Q only; no OTA writes yet (Q5d).

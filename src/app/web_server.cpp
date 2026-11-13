@@ -160,7 +160,7 @@ const char* reasonOf(int code) {
     case 200: return "200 OK"; case 400: return "400 Bad Request"; case 403: return "403 Forbidden";
     case 404: return "404 Not Found"; case 405: return "405 Method Not Allowed"; case 408: return "408 Request Timeout";
     case 409: return "409 Conflict"; case 413: return "413 Payload Too Large"; case 415: return "415 Unsupported Media Type";
-    case 422: return "422 Unprocessable Entity"; case 501: return "501 Not Implemented";
+    case 422: return "422 Unprocessable Entity"; case 429: return "429 Too Many Requests"; case 501: return "501 Not Implemented";
     case 503: return "503 Service Unavailable";
   }
   return "500 Internal Server Error";

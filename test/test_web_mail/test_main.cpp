@@ -148,6 +148,69 @@ void test_the_upload_gate_is_the_loops() {
   TEST_ASSERT_TRUE(decideMail(r, c).result.ok());
 }
 
+// Spec 5.5: at most one saved dashboard change every 10 s (settings and the manual exclude).
+void test_one_saved_dashboard_change_every_ten_seconds() {
+  SaveLimit limit;
+  MailContext c;
+  c.limit = &limit;
+  c.nowMs = 50000;
+  FlatJson t = parsed("{\"target_temp_c\": 20.5}");
+  MailRequest r;
+  r.kind = MailKind::Settings;
+  r.json = &t;
+  MailAnswer a = decideMail(r, c);
+  TEST_ASSERT_TRUE(a.result.ok());                          // the first: saved
+  c.user = a.user;
+  limit.saved(c.nowMs);
+  // 3 s later, another change: refused, with how long to wait, settings unchanged
+  c.nowMs = 53000;
+  FlatJson t2 = parsed("{\"target_temp_c\": 21}");
+  r.json = &t2;
+  a = decideMail(r, c);
+  TEST_ASSERT_TRUE(a.result.refusal == Refusal::TooSoon);
+  TEST_ASSERT_EQUAL_INT(429, httpStatus(a.result.refusal));
+  TEST_ASSERT_EQUAL_STRING("Changes from the dashboard are saved at most once every 10 s. Try again in 7 s.", a.result.message);
+  TEST_ASSERT_EQUAL_UINT32(7, a.result.retryS);           // the Retry-After header's number
+  TEST_ASSERT_EQUAL_FLOAT(20.5f, a.user.targetTempC);
+  // the manual exclude is limited too
+  FlatJson e = parsed("{\"channel\": 1, \"excluded\": true}");
+  MailRequest x;
+  x.kind = MailKind::Exclude;
+  x.json = &e;
+  MailAnswer ax = decideMail(x, c);
+  TEST_ASSERT_TRUE(ax.result.refusal == Refusal::TooSoon);
+  TEST_ASSERT_EQUAL_HEX8(0, ax.user.manualExcludeMask);
+  // a wrong value is told as such, not "too soon"
+  FlatJson bad = parsed("{\"target_temp_c\": 30}");
+  r.json = &bad;
+  TEST_ASSERT_TRUE(decideMail(r, c).result.refusal == Refusal::OutOfBounds);
+  // sending what is already set changes nothing: neither refused nor counted
+  r.json = &t;
+  TEST_ASSERT_TRUE(decideMail(r, c).result.ok());
+  // the door test isn't limited
+  FlatJson d = parsed("{}");
+  MailRequest dr;
+  dr.kind = MailKind::DoorTest;
+  dr.json = &d;
+  TEST_ASSERT_TRUE(decideMail(dr, c).result.ok());
+  // the wait rounds up, and at 10 s it is allowed again
+  c.nowMs = 59999;
+  r.json = &t2;
+  TEST_ASSERT_EQUAL_STRING("Changes from the dashboard are saved at most once every 10 s. Try again in 1 s.",
+                           decideMail(r, c).result.message);
+  c.nowMs = 60000;
+  TEST_ASSERT_TRUE(decideMail(r, c).result.ok());
+  // millis() wrapping past 49 days doesn't stop it
+  SaveLimit w;
+  w.saved(0xFFFFF000u);
+  TEST_ASSERT_TRUE(w.waitS(0x00001000u) > 0);               // 8 s later, across the wrap
+  TEST_ASSERT_EQUAL_UINT32(0, w.waitS(0x00002000u + 10000));
+  // no limit given (nothing else counts): never refused
+  c.limit = nullptr;
+  c.nowMs = 60001;
+  TEST_ASSERT_TRUE(decideMail(r, c).result.ok());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_one_request_at_a_time_and_answers_by_number);
@@ -155,5 +218,6 @@ int main() {
   RUN_TEST(test_settings_decided_against_the_loops_own_settings);
   RUN_TEST(test_exclude_and_door_test);
   RUN_TEST(test_the_upload_gate_is_the_loops);
+  RUN_TEST(test_one_saved_dashboard_change_every_ten_seconds);
   return UNITY_END();
 }

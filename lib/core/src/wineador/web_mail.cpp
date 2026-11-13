@@ -1,4 +1,5 @@
 #include "wineador/web_mail.h"
+#include <stdio.h>
 #include <string.h>
 
 namespace wineador {
@@ -41,6 +42,28 @@ bool Mailbox::withdraw(uint32_t id) {
   return false;
 }
 
+uint32_t SaveLimit::waitS(uint32_t nowMs) const {
+  if (!any_) return 0;
+  const uint32_t since = nowMs - lastMs_;
+  if (since >= kDashboardSaveGapMs) return 0;
+  return (kDashboardSaveGapMs - since + 999) / 1000;
+}
+
+// A valid change that would be saved: refused if it comes too soon after the last.
+static void applyLimit(MailAnswer* a, const MailContext& ctx) {
+  if (!a->result.ok() || !ctx.limit || sameUserSettings(a->user, ctx.user)) return;
+  const uint32_t w = ctx.limit->waitS(ctx.nowMs);
+  if (w == 0) return;
+  char m[120];
+  snprintf(m, sizeof(m), "Changes from the dashboard are saved at most once every 10 s. Try again in %lu s.",
+           (unsigned long)w);
+  a->result = refuse(Refusal::TooSoon, nullptr, m);
+  a->result.retryS = w;
+  a->user = ctx.user;
+  a->channel = -1;
+  a->excluded = false;
+}
+
 MailAnswer decideMail(const MailRequest& r, const MailContext& ctx) {
   MailAnswer a;
   a.id = r.id;
@@ -50,12 +73,14 @@ MailAnswer decideMail(const MailRequest& r, const MailContext& ctx) {
       if (!r.json) { a.result = refuse(Refusal::BadJson); break; }
       a.result = checkSettingsFields(*r.json, ctx.user, ctx.updating, &a.user);
       if (!a.result.ok()) a.user = ctx.user;
+      applyLimit(&a, ctx);
       break;
     case MailKind::Exclude:
       if (!r.json) { a.result = refuse(Refusal::BadJson); break; }
       a.result = checkExcludeFields(*r.json, ctx.user, ctx.updating, &a.channel, &a.user);
       if (a.result.ok()) a.excluded = (a.user.manualExcludeMask >> a.channel) & 1;
       else a.user = ctx.user;
+      applyLimit(&a, ctx);
       break;
     case MailKind::DoorTest:
       if (!r.json) { a.result = refuse(Refusal::BadJson); break; }

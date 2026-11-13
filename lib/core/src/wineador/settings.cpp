@@ -114,4 +114,9 @@ const char* validateSettings(const Settings& s) {
   return nullptr;
 }
 
+bool sameUserSettings(const UserSettings& a, const UserSettings& b) {
+  return a.targetTempC == b.targetTempC && a.rhSetpointPct == b.rhSetpointPct && a.heaterEnable == b.heaterEnable &&
+         a.humidifierEnable == b.humidifierEnable && a.ionEnable == b.ionEnable && a.manualExcludeMask == b.manualExcludeMask;
+}
+
 }  // namespace wineador

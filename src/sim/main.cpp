@@ -65,7 +65,7 @@ static const char* statusText(int code) {
     case 200: return "OK"; case 302: return "Found"; case 400: return "Bad Request"; case 403: return "Forbidden";
     case 404: return "Not Found"; case 405: return "Method Not Allowed"; case 408: return "Request Timeout";
     case 409: return "Conflict"; case 413: return "Payload Too Large"; case 415: return "Unsupported Media Type";
-    case 422: return "Unprocessable Entity"; case 501: return "Not Implemented"; case 503: return "Service Unavailable";
+    case 422: return "Unprocessable Entity"; case 429: return "Too Many Requests"; case 501: return "Not Implemented"; case 503: return "Service Unavailable";
   }
   return "Error";
 }
@@ -206,9 +206,14 @@ class SimBackend : public WebBackend {
     c.windowOpen = gBoard.windowOpen();
     c.compressorRunning = gBoard.compressorRunning();
     c.slotBytes = 3342336;
+    c.nowMs = (uint32_t)(time(nullptr) * 1000);
+    c.limit = &limit_;
     const MailAnswer ans = decideMail(taken, c);
     if (ans.result.ok()) {
-      if (taken.kind == MailKind::Settings || taken.kind == MailKind::Exclude) gBoard.applyUser(ans.user, "dashboard");
+      if ((taken.kind == MailKind::Settings || taken.kind == MailKind::Exclude) && !sameUserSettings(ans.user, gBoard.user())) {
+        gBoard.applyUser(ans.user, "dashboard");
+        limit_.saved(c.nowMs);
+      }
       if (taken.kind == MailKind::DoorTest) gBoard.doorTest(ans.note);
     }
     box_.answer(ans);
@@ -231,6 +236,7 @@ class SimBackend : public WebBackend {
  private:
   Mailbox box_;
   TransferGate gate_;
+  SaveLimit limit_;
 };
 
 static SimBackend gBackend;

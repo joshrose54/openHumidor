@@ -301,10 +301,7 @@ static void applyUser(const UserSettings& was, const char* what) {
   eventlog::log("settings", "%s", d);
 }
 
-static bool sameUser(const UserSettings& a, const UserSettings& b) {
-  return a.targetTempC == b.targetTempC && a.rhSetpointPct == b.rhSetpointPct && a.heaterEnable == b.heaterEnable &&
-         a.humidifierEnable == b.humidifierEnable && a.ionEnable == b.ionEnable && a.manualExcludeMask == b.manualExcludeMask;
-}
+static bool sameUser(const UserSettings& a, const UserSettings& b) { return sameUserSettings(a, b); }
 
 static serialui::View uiView() {
   static char ts[24];
@@ -790,6 +787,7 @@ static void updateScreen(uint32_t now) {
 static uint32_t gLastWebStateMs = 0;
 static bool gWebStateDue = true;
 static DayLow gV12Low;                   // the Board section's lowest 12V today
+static SaveLimit gSaveLimit;             // 5.5: one saved dashboard change every 10 s
 static uint32_t gLastV12Ms = 0;
 static bool gCoolWas = false;
 static uint64_t gCoolSinceMs = 0;
@@ -911,12 +909,17 @@ static void serveWeb(uint32_t now) {
     c.windowOpen = screen::window().active(now);
     c.compressorRunning = outputs::current().cool;
     c.slotBytes = gSlotBytes;
+    c.nowMs = now;
+    c.limit = &gSaveLimit;
     const MailAnswer a = decideMail(r, c);
     if (a.result.ok()) {
       if (r.kind == MailKind::Settings || r.kind == MailKind::Exclude) {
         const UserSettings was = gSettings.user;
         gSettings.user = a.user;
-        if (!sameUser(was, gSettings.user)) applyUser(was, "dashboard");
+        if (!sameUser(was, gSettings.user)) {
+          applyUser(was, "dashboard");
+          gSaveLimit.saved(now);
+        }
       } else if (r.kind == MailKind::DoorTest) {
         if (a.note[0]) eventlog::log(kEvTypeDoor, "%s: %s", kEvDoorTest, a.note);
         else eventlog::log(kEvTypeDoor, "%s", kEvDoorTest);

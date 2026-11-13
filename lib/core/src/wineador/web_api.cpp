@@ -71,6 +71,7 @@ static const RefusalInfo kRefusals[(int)Refusal::Count] = {
   {503, "card_unavailable",   "The SD card isn't available just now."},
   {503, "no_answer",          "The controller didn't answer in time. Try again."},
   {501, "not_built",          "Updates from the dashboard aren't built yet (they come with stage Q5d)."},
+  {429, "too_soon",           "Changes from the dashboard are saved at most once every 10 s. Try again shortly."},
 };
 
 int httpStatus(Refusal r) { return r < Refusal::Count ? kRefusals[(int)r].status : 500; }

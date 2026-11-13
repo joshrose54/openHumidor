@@ -70,6 +70,7 @@ enum class Refusal : uint8_t {
   CardUnavailable,   // 503 the SD card is failed or out
   NoAnswer,          // 503 the control loop didn't answer in time (it answers within a pass; never expected)
   NotBuilt,          // 501 stage Q5c: updates from the dashboard come with stage Q5d
+  TooSoon,           // 429 a saved dashboard change less than 10 s after the last (5.5)
   Count
 };
 int httpStatus(Refusal r);
@@ -84,6 +85,7 @@ struct ApiResult {
   bool hasLimits = false;    // OutOfBounds / OffStep: the bounds and step
   float min = 0, max = 0, step = 0;
   const char* image = nullptr;   // WrongImage: why (imageVerdictCode(), docs/api.md)
+  uint32_t retryS = 0;           // TooSoon: seconds to wait, also sent as a Retry-After header
   bool ok() const { return refusal == Refusal::None; }
 };
 ApiResult refuse(Refusal r, const char* field = nullptr, const char* message = nullptr);

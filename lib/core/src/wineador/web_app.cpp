@@ -23,7 +23,13 @@ void WebApp::json(ReplySink& out, const char* text, int n) {
 
 void WebApp::error(ReplySink& out, WebWork& w, const ApiResult& r) {
   const int n = formatError(w.text, sizeof(w.text), r);
-  out.begin(httpStatus(r.refusal), kJson);
+  if (r.retryS) {                       // the wait as a number too, for tools (Retry-After, RFC 9110)
+    char s[12];
+    snprintf(s, sizeof(s), "%lu", (unsigned long)r.retryS);
+    out.begin(httpStatus(r.refusal), kJson, "Retry-After", s);
+  } else {
+    out.begin(httpStatus(r.refusal), kJson);
+  }
   if (n > 0) out.write(w.text, (size_t)n);
   out.end();
 }

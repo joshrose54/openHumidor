@@ -225,6 +225,21 @@ static std::string field(const std::string& body, const char* key) {
   return body.substr(s, body.find('"', s) - s);
 }
 
+// The save limit's wait goes out as a Retry-After header too (5.5), for tools on the Mac.
+void test_too_soon_carries_retry_after() {
+  Fake f;
+  SaveLimit limit;
+  f.ctx.limit = &limit;
+  f.ctx.nowMs = 1000;
+  limit.saved(0);
+  Sink s = run(f, Method::Post, "/api/settings", "", "{\"target_temp_c\":21}");
+  TEST_ASSERT_EQUAL_INT(429, s.status);
+  TEST_ASSERT_TRUE(has(s.body, "\"error\":\"too_soon\""));
+  TEST_ASSERT_EQUAL_STRING("Retry-After", s.extraName.c_str());
+  TEST_ASSERT_EQUAL_STRING("9", s.extraValue.c_str());
+  TEST_ASSERT_EQUAL_INT(0, f.applied);
+}
+
 void test_events_page_back_through_the_files_in_pieces() {
   Fake f;
   f.files["/logs/2026/2026-10-events-s2.csv"] = eventsFile(T0 - 40 * 86400, 70, "oct");
@@ -404,6 +419,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_errors_are_json_with_the_documented_codes);
   RUN_TEST(test_writes_go_through_the_loop);
+  RUN_TEST(test_too_soon_carries_retry_after);
   RUN_TEST(test_events_page_back_through_the_files_in_pieces);
   RUN_TEST(test_new_events_after_a_cursor_and_into_a_new_month);
   RUN_TEST(test_events_from_ram_while_the_card_is_out);
