@@ -1325,11 +1325,18 @@ The four blowers run **24/7** (2.2). Rev Q sets their speed (3A.6); Rev P runs t
 | Normal | **Idle speed** |
 | Cabinet sensors disagree: spread (highest minus lowest of the healthy cabinet sensors, ch 0–3) above **1.0°C** or above **3 points RH** | **Boost: full speed** |
 | Back to idle | Spread below **0.5°C and 2 points RH**, held for **10 minutes** |
-| Fewer than 2 healthy cabinet sensors, or any fault state | Full speed |
+| **Fault** (5.5's meaning), or no fresh reading for twice the sensor read rate | Full speed |
+| During an OTA update (5.2) — a fault included, as every load is off | Idle |
 | Reset, boot, flashing (GPIO15 undriven) | Full speed (hardware) |
 
+**The rule runs normally during the boot hold.** After any spell at full speed (boot, a fault
+ending, an update ending) it starts in **boost**, so it needs its 10 minutes of low spread before
+idle. "Above" is strict; between the thresholds the blowers stay as they are. The hold is timed by
+uptime.
+
 The idle speed is a duty setting chosen by ear and airflow from BP2 test 22's duty-to-voltage
-table, confirmed in B6. The spread thresholds sit below the divergence check (4.3), so mixing acts
+table, confirmed in B6; never 0 — the blowers run 24/7. Its floor is the lowest duty at which all
+four start and run cleanly (BP2 test 22). The spread thresholds sit below the divergence check (4.3), so mixing acts
 before a sensor is judged faulty.
 
 ## 4.6c Ion generator (Rev Q)
@@ -1339,11 +1346,12 @@ little ozone, which cigars must not be exposed to for long.
 
 | Rule | Value |
 |---|---|
-| Runs per day | **2**, evenly spaced (12 hours apart), from the clock; if the time is not trusted, every 12 hours from boot |
-| Minutes per run | **2** |
-| Hard cap | **10 minutes in any 24 hours** — never exceeded, whatever the settings |
-| Not during | The boot hold, an OTA update, or any fault state |
-| Switched off | **Ion generator enable** (user setting, 5.5) off: no runs at all; the run settings keep their values for when it is switched back on |
+| Runs per day | **2**, evenly spaced: **24/N hours apart in fixed UTC slots from 00:00** (2 a day: 00:00 and 12:00 UTC). If the time is not trusted, every 24/N hours from boot, the first one 24/N hours after boot; once the clock is trusted, the next run follows the clock. A run missed while the board was off is not caught up; each slot runs once |
+| Minutes per run | **2**, timed by uptime |
+| Settings over 10 minutes a day | **Refused**: runs × minutes must be 10 or less ("at most 10 minutes a day in total") |
+| Hard cap | **10 minutes in any 24 hours** of actual on-time — never exceeded, whatever the settings; a backstop. **Kept across reboots** in NVS (each run's start and on-time); with the time not trusted, every stored run counts as recent; a reboot during a run counts its whole planned length |
+| Not during | The boot hold, an OTA update, or a **Fault** (5.5). A run due then is **skipped**, not moved, and logged; one cut short is not resumed, and its on-time counts towards the cap |
+| Switched off | **Ion generator enable** (user setting, 5.5) off: no runs at all; the run settings keep their values for when it is switched back on. Off mid-run (or runs or minutes set to 0): off at once, logged; switching back on waits for the next slot. A settings change mid-run leaves that run's length as it started |
 
 A sharp, chlorine-like smell when the door is opened means too much: reduce the runs.
 
@@ -1724,7 +1732,7 @@ interlock change · harvest start and end · guard blocks · CRC failures and ti
 sensor excluded or recovered · fan tach stall · settings changed with old and new values and where from (LCD, dashboard or serial) · boot,
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
-disturbance detected with direction, magnitude, hold-off and cap · relay exercise · door test, with its note · OTA update started, done, refused (with the reason), abandoned, rolled back · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · humidifier
+disturbance detected with direction, magnitude, hold-off and cap · relay exercise · door test, with its note · OTA update started, done, refused (with the reason), abandoned, rolled back · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · blowers: boost (with the spread), back to idle, full speed (with the reason) and its end · ion generator: run started (minutes), ended (on-time), cut short or skipped (with the reason), switched off mid-run · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
 time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
 (Rev Q). **12V dips, WiFi events and refused OTA uploads:** up to 10 an hour each (a dip with its recovery, or an outage with its
@@ -1943,7 +1951,7 @@ refused, and a stored value off the step is rounded to the nearest step at boot,
 | Ion generator enable (Rev Q, 4.6c) — off stops every run | On | — | — |
 | Manual sensor override — force-excludes a channel for maintenance | None | — | — |
 | Ion generator runs per day (Rev Q, 4.6c) | 2 | 0 | 4 |
-| Ion generator minutes per run (Rev Q) | 2 | 0 | 5 |
+| Ion generator minutes per run (Rev Q) — runs × minutes ≤ 10 | 2 | 0 | 5 |
 
 **Tuning settings** — exposed on the B6 dashboard, then fixed; read-only at most in production. Starting
 values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces them**:
@@ -1974,7 +1982,7 @@ values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces 
 | Humidifier ineffective | Cabinet mean **vapour pressure** rise ≥ the equivalent of 0.5 points at setpoint conditions (~0.012 kPa at 62%/20°C) within 20 min; retry after 2 h | B6 step 8 |
 | Disturbance detection | **Off** (4.7a) | B6 |
 | Disturbance rate threshold, exclusion after load switch, hold-off, hold-off cap | — (detection off) | B6 |
-| Blower PWM, idle (Rev Q, 4.6b) | Full speed until chosen at BP2 test 22 | From BP2 test 22's table; B6 |
+| Blower PWM, idle (Rev Q, 4.6b) | Full speed until chosen at BP2 test 22 | BP2 test 22's floor to 100%, never 0; B6 |
 | Blower boost on / off spread | Above 1.0°C or 3 points / below 0.5°C and 2 points for 10 min | B6 |
 | Log rate, steady / active | 60s / 15s | 30–600s / 10–120s |
 | Sensor read rate | 15s | 5–60s, ≤ active log rate |
@@ -2284,6 +2292,8 @@ never a literal. B3–B5 fill it from compile-time constants, B6–B7 from NVS.
 | Ineffective windows — heater, cooling, humidifier | 15 / 15 / 20 min | 1 min each |
 | Ineffective retry — heater, humidifier | 30 min / 2 h | 2 min / 2 min |
 | Harvest backstop | 30 min | 2 min |
+| Blower back-to-idle hold (Rev Q) | 10 min | 1 min |
+| Ion generator runs (Rev Q) | 24/N hours apart, 2 min | Every 30 min, 1 min (cap unchanged: 10 min in 24 h, so the bench exercises it) |
 
 **The bench profile must never reach the cabinet.** The active profile is printed on every boot and
 status line; the bench profile logs an unmissable warning banner; a bench build is identified in
@@ -2464,6 +2474,7 @@ on the top range unless stated; "open" means OL.
 | 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures** — the stress build's own retry never power-cycles the card, so this is the card unaided; every buffered row and event written in order after the pull. With the normal build, a card pull shows one power-cycle event, then SD FAIL, then recovery when the card is back | Pending |
 | 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice); with a month's log download and a second browser polling; and with an OTA upload on its own (5.5 allows one long transfer at a time). Also the server, long-transfer and SD task stack margins, the loop's worst pass time during a download against idle, and the "third closed" count in normal use. **Set the margin** for refusing a new transfer near the floor (5.5; build log) | **Never below 30 KB** | Pending |
 | 40 | Soak | As B4 test 1, on Rev Q with WiFi always on | As B4 test 1 | Pending |
+| 41 | Blower and ion rules (4.6b, 4.6c) | Test build, bench profile. Blowers on J12–J15, ion generator on J16; other loads unplugged. A cabinet-model scenario forces a cabinet spread above 1.0°C, then below 0.5°C; meter TP6 to TP12 throughout (needs test 22's idle set). Then leave it running through several ion runs, metering J16 | Boost at once on the wide spread; idle again after the 1-minute hold of low spread; full speed in a forced fault. Ion runs at its bench times, ~12V on J16 while on; after 10 minutes of on-time in 24 hours no further run starts (the cap), logged as skipped | Pending |
 
 **Rev Q exceptions to the B3 tests:**
 - **Test 11 (watchdog):** with GPIO1 toggling, `stall` is caught by the **hardware watchdog**
