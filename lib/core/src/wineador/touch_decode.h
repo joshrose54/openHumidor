@@ -5,9 +5,11 @@
 //   TD_STATUS bits 3-0: number of touch points (0, 1 or 2; anything else is not a valid read)
 //   P1_XH bits 7-6: event flag; bits 3-0: X bits 11-8.   P1_XL: X bits 7-0
 //   P1_YH bits 7-4: touch ID;   bits 3-0: Y bits 11-8.   P1_YL: Y bits 7-0
-// Coordinates are the panel's own (320 x 480 portrait); the screen's orientation is B7's.
+// Coordinates are the panel's own (320 x 480 portrait). touchToScreen() turns them into the
+// screen's coordinates for each orientation (lcd_seq.h).
 
 #include <stdint.h>
+#include "wineador/lcd_seq.h"
 
 namespace wineador {
 
@@ -22,5 +24,11 @@ struct TouchPoint {
 };
 
 TouchPoint decodeTouch(const uint8_t b[kTouchReadLen]);
+
+// Panel coordinates -> screen coordinates for an orientation (lcd_seq.h). Assumes the touch
+// panel's x,y are the portrait pixel x,y (MADCTL 0x48); BP2 test 29's corner check proves it.
+//   portrait: unchanged · landscape A (MADCTL 0x28): X = y, Y = 319 - x
+//   landscape B (0xE8, turned 180 degrees from A): X = 479 - y, Y = x
+void touchToScreen(LcdOrientation o, uint16_t px, uint16_t py, int* sx, int* sy);
 
 }  // namespace wineador

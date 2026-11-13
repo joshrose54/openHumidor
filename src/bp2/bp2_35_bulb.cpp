@@ -1,7 +1,7 @@
 // =====================================================================
 // BP2 test 35 — the bulb surge (Rev Q). USB OUT; the J23 monitor may stay on.
 //
-// The 21 W 12V bulb on J10 pins 3-4. After g: K1 energised, then the bulb ON 2 s, OFF 3 s,
+// The 21 W 12V bulb on J10 pins 3-4 (the KSD9700 in series is optional for the bulb). After g: K1 energised, then the bulb ON 2 s, OFF 3 s,
 // 50 times. BP2 runs it TWICE: first with the hardware watchdog paused (the default), so a
 // freeze stays a freeze and shows in the log (the log just stops); then after 'hwdog on', as
 // the firmware runs (GPIO1 toggled every pass), when a freeze ends in a U5 reset instead.
@@ -26,7 +26,7 @@ const char* kLog = "/bp2/bulb.csv";
 
 const char* const kBanner[] = {
   "USB-C OUT (the native USB unplugged). The J23 monitor cable may stay on (GND, TX, RX only).",
-  "The 21W 12V bulb on J10 pins 3-4 (no KSD needed for this test). An SD card in J22 for the log.",
+  "The 21W 12V bulb on J10 pins 3-4 (KSD in series optional for the bulb). An SD card in J22 for the log.",
   "After g: K1 energised; the bulb ON 2 s, OFF 3 s, 50 times. Watch for a freeze or a reset.",
   "RUN IT TWICE (BP2 test 35):",
   "  Run 1: as it starts - hardware watchdog PAUSED (GPIO1 an input), so a freeze shows as a freeze. Type g.",

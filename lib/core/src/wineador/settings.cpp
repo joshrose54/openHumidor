@@ -1,17 +1,50 @@
 #include "wineador/settings.h"
+#include <math.h>
 
 namespace wineador {
 
+bool onStep(float v, float step) {
+  const float n = v / step;
+  return fabsf(n - roundf(n)) < 1e-3f;
+}
+
+float roundToStep(float v, float step) { return roundf(v / step) * step; }
+
 bool setTargetTemp(UserSettings& u, float c) {
   if (!(c >= kTargetTempMinC && c <= kTargetTempMaxC)) return false;   // also rejects NaN
-  u.targetTempC = c;
+  if (!onStep(c, kTargetTempStepC)) return false;
+  u.targetTempC = roundToStep(c, kTargetTempStepC);                    // exactly on the step
   return true;
 }
 
 bool setRhSetpoint(UserSettings& u, float pct) {
   if (!(pct >= kRhSetpointMinPct && pct <= kRhSetpointMaxPct)) return false;
+  if (!onStep(pct, kRhSetpointStepPct)) return false;
+  u.rhSetpointPct = roundToStep(pct, kRhSetpointStepPct);
+  return true;
+}
+
+bool loadTargetTemp(UserSettings& u, float c) {
+  if (!(c >= kTargetTempMinC && c <= kTargetTempMaxC)) return false;
+  u.targetTempC = c;
+  return true;
+}
+
+bool loadRhSetpoint(UserSettings& u, float pct) {
+  if (!(pct >= kRhSetpointMinPct && pct <= kRhSetpointMaxPct)) return false;
   u.rhSetpointPct = pct;
   return true;
+}
+
+bool roundSetpointsToSteps(UserSettings& u, float* wasTemp, float* wasRh) {
+  if (wasTemp) *wasTemp = u.targetTempC;
+  if (wasRh) *wasRh = u.rhSetpointPct;
+  const float t = roundToStep(u.targetTempC, kTargetTempStepC);
+  const float r = roundToStep(u.rhSetpointPct, kRhSetpointStepPct);
+  const bool changed = t != u.targetTempC || r != u.rhSetpointPct;
+  u.targetTempC = t;
+  u.rhSetpointPct = r;
+  return changed;
 }
 
 Settings settingsFor(Profile p) {

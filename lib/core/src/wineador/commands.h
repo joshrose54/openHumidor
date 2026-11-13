@@ -52,6 +52,9 @@ enum class Command : uint8_t {
                      //   (B3 test 11's second run). arg = 1 on, 0 off, -2 neither
   Rtc,               // TEST BUILDS ONLY: "rtc" — the DS3231's time, OSF and EOSC (arg -1);
                      //   "rtc eosc on|off" — set / clear EOSC (B3 tests 16, 24): arg = 1 on, 0 off, -2 neither
+  Lcd,               // "lcd": the LCD's timings (every build). "lcd stress on|off" TEST BUILDS ONLY:
+                     //   redraw the whole screen every second (3A.11's 50 ms check). arg = -1 plain,
+                     //   1 on, 0 off, -2 bad
   TestOnly,          // a test-build command typed in a cabinet build
   Unknown,
 };

@@ -2,6 +2,33 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q4 (accepted 2026-11-13)
+
+**The LCD screens (spec 5.5), Rev Q builds.** Three layers:
+- **lib/core (plain logic, native tests):** `lcd_ui` (what the screen shows and what a touch does:
+  mode icons from the running loads, Fault > Updating > Starting > modes > Standby; the readings and
+  "--"; the 60 s timeouts and dimming; the first touch only waking; settings steps and bounds; the
+  Allow update window), `alerts` (order, start times, "+N more", pages), `uk_time` (Europe/London
+  with summer time, pure arithmetic), `lcd_layout` (every place on the screen), landscape in
+  `lcd_seq` / `touch_decode`. Setpoint steps everywhere (0.5 C, 1 point; off-step refused; a stored
+  value off its step rounded at boot, with an event). Settings events say where from ("LCD", "serial: ...").
+- **lib/lcdgfx (drawing, no hardware; the same code on the board and the Mac):** canvas (RGB565,
+  anti-aliased text and icons), the screens as elements redrawn only when they change (one element
+  a step, each at most 40,000 pixels), the palette (approved; spec 5.5 points to palette.h). Fonts Inter (SIL OFL 1.1) and icons
+  Material Symbols Rounded (Apache 2.0), made by `tools/make_lcd_assets.py`; licences in lib/lcdgfx/LICENSES.
+- **Drivers / app:** `drivers/lcd` now esp_lcd SPI by DMA, never waiting; two send buffers of
+  4,096 bytes (8 KB internal RAM, `board::kLcdSendBytes`); the picture in PSRAM (307,200 bytes).
+  `app/screen` runs one touch read (50 ms), the logic (100 ms), one draw step and one send step a
+  pass; timings in the status line and `lcd`; an event if the screen's part of a pass passes 50 ms.
+  Test builds: `lcd stress on|off`. Landscape way: `board::kLcdOrientation` (A until BP2 test 29).
+- **BP2:** `bp2_29_lcd_touch` step 7, the landscape check (UP arrow, corners reported, a / b).
+  Sketch wording: bp2_26 step 3 (5 ms is scope-only), bp2_19 / bp2_35 KSD optional for the bulb;
+  `tools/bp2_steps.py` no longer takes comments in step lists for steps (bp2_18's "?" rows).
+- **Screen pictures:** `pio test -e native -f test_lcd_screens` writes 39 PNGs and an index page to
+  `.pio.nosync/lcd-screens/`.
+
+Native tests **330/330**; 24 builds without warnings.
+
 ## Port to Rev Q: stage Q3 (accepted 2026-11-13)
 
 **BP2 test sketches** (`src/bp2/`, one PlatformIO build each, `pio run -e <name> -t upload`; they use the

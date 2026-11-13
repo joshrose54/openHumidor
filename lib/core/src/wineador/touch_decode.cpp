@@ -14,4 +14,14 @@ TouchPoint decodeTouch(const uint8_t b[kTouchReadLen]) {
   return t;
 }
 
+void touchToScreen(LcdOrientation o, uint16_t px, uint16_t py, int* sx, int* sy) {
+  const int x = px > kLcdWidth - 1 ? kLcdWidth - 1 : px;    // clamp to the panel
+  const int y = py > kLcdHeight - 1 ? kLcdHeight - 1 : py;
+  switch (o) {
+    case LcdOrientation::Portrait: *sx = x; *sy = y; break;
+    case LcdOrientation::LandscapeA: *sx = y; *sy = (kLcdWidth - 1) - x; break;
+    case LcdOrientation::LandscapeB: *sx = (kLcdHeight - 1) - y; *sy = x; break;
+  }
+}
+
 }  // namespace wineador

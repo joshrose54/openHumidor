@@ -7,7 +7,10 @@
 //   3 touch: coordinates print while a finger is down  ·  4 backlight 100% -> 10%
 //   5 GPIO48 pulsed: the LCD and touch both reset; touch reads fail, then work 300 ms on;
 //     the bars are drawn again  ·  6 I2C1 scanned (expect 0x38 touch, 0x68 RTC), RTC read;
-//     everything idle so you can meter I2C1.
+//     everything idle so you can meter I2C1  ·  7 the landscape check (spec 5.5, BP2 test 29):
+//     an UP arrow and four corner targets, drawn by the firmware's own screen code; each touch
+//     is reported by the corner it landed in. a / b switch between the two landscape ways, so
+//     Josh can choose the one that is up in the enclosure (board.h kLcdOrientation; build log).
 // x = backlight off, screen black.
 // =====================================================================
 #include <Arduino.h>
@@ -20,14 +23,19 @@
 #include "drivers/touch.h"
 #include "drivers/backlight.h"
 #include "drivers/i2c_bus.h"
+#include <string.h>
+#include "board.h"
+#include "lcdgfx/screens.h"
+#include "esp_heap_caps.h"
 #include "pins.h"
 
 namespace {
 
 const char* const kBanner[] = {
   "The LCD on J20 with its 30 cm ribbon (test 10 passed). Nothing else needed.",
-  "At boot the LCD is cleared to black with the backlight OFF (as the firmware does before B7).",
-  "Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan.",
+  "At boot the LCD is cleared to black with the backlight OFF (as the firmware does at boot).",
+  "Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan;",
+  "the landscape check (UP arrow, four corners; a / b switch the landscape way).",
   nullptr,
 };
 
@@ -38,6 +46,7 @@ const char* kTitles[] = {
   "4. Backlight 100% -> 10%",
   "5. GPIO48 pulsed: LCD and touch reset together",
   "6. I2C1 scan and RTC read; then everything idle",
+  "7. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways)",
 };
 const char* kChecks[] = {
   "Eight bars, left to right: white, yellow, cyan, green, magenta, red, blue, black. No tearing, no noise. "
@@ -50,6 +59,10 @@ const char* kChecks[] = {
   "and the bars come back; then 'touch answers again'. Touch the screen: coordinates print",
   "The scan finds 0x38 (touch) and 0x68 (RTC); the RTC time prints. Now idle: meter I2C1 SDA and SCL at R69 and "
   "R70 to GND (TP3): each about 3.3V - NOT 5V",
+  "Landscape A first. The arrow points to the top of the screen and the word UP is above it. Touch each "
+  "corner target in turn: each prints 'corner: top left' etc. for the corner you touched, and its target "
+  "turns green. Type b for landscape B (turned 180 degrees), a for A again; do the four corners in each. "
+  "CHOOSE the way that is up as the LCD sits in the enclosure, and RECORD it (A or B) for the build log",
 };
 
 wineador::StepSequencer gSeq;
@@ -58,13 +71,36 @@ int gDim = 100;
 bool gTouchOn = false, gTouchDown = false;
 bool gResetWatch = false, gScanPending = false;
 uint32_t gResetAtMs = 0;
+constexpr int kSteps = 7;
+
+// Step 7: the picture (PSRAM) and the firmware's own drawing code.
+uint16_t* gFrame = nullptr;
+lcdgfx::Canvas* gCanvas = nullptr;
+wineador::LcdOrientation gWay = wineador::LcdOrientation::LandscapeA;
+uint8_t gCorners = 0;
+bool gLandscapeOn = false;
+
+void drawCheck() {
+  if (!gCanvas) { Serial.println("  NO PSRAM for the picture: the landscape check can't be drawn - CHECK"); return; }
+  lcd::setOrientation(gWay);
+  const char* name = gWay == wineador::LcdOrientation::LandscapeA ? "Landscape A" : "Landscape B";
+  lcdgfx::paintLandscapeCheck(*gCanvas, name, gCorners);
+  lcd::pushFrame();
+}
+
+void startWay(wineador::LcdOrientation w) {
+  gWay = w;
+  gCorners = 0;
+  drawCheck();
+  Serial.printf("  NOW: %s (MADCTL 0x%02X). Touch each corner.\n", wineador::lcdOrientationName(w), wineador::lcdMadctl(w));
+}
 
 void live(int i) {
   bp2::Live l;
   l.showLoads = false;
   l.backlightPct = backlight::pct();
-  l.extra = i == 1 ? "LCD SPI ......... 20 MHz (trial)" : "LCD SPI ......... 15 MHz";
-  bp2::printStep(i, 6, kTitles[i], l, kChecks[i], i + 1 < 6 ? kTitles[i + 1] : nullptr);
+  l.extra = i == 1 ? "LCD SPI ......... 20 MHz (trial)" : i == 6 ? "LCD ............. landscape, 15 MHz" : "LCD SPI ......... 15 MHz";
+  bp2::printStep(i, kSteps, kTitles[i], l, kChecks[i], i + 1 < kSteps ? kTitles[i + 1] : nullptr);
 }
 
 void scan() {
@@ -84,6 +120,7 @@ void scan() {
 
 void apply(int i, uint32_t now) {
   gTouchOn = false;
+  gLandscapeOn = false;
   switch (i) {
     case 0: lcd::setSpiHz(wineador::kLcdSpiHz); backlight::set(100); lcd::colourBars(); break;
     case 1: lcd::setSpiHz(20000000); lcd::colourBars(); lcd::setSpiHz(wineador::kLcdSpiHz); break;
@@ -105,6 +142,12 @@ void apply(int i, uint32_t now) {
       break;
     }
     case 5: gScanPending = true; break;   // done in loop() as soon as I2C is free
+    case 6:
+      live(i);
+      gTouchOn = true;
+      gLandscapeOn = true;
+      startWay(wineador::LcdOrientation::LandscapeA);
+      return;
   }
   live(i);
 }
@@ -115,8 +158,15 @@ void setup() {
   backlight::begin();                     // 5 kHz PWM, OFF
   bp2::begin("BP2 TEST 29: LCD AND TOUCH", kBanner);
   i2cbus::begin(millis());                // I2C0 (mux) and I2C1 (RTC, touch), as the firmware
-  lcd::begin();                           // the firmware's start-up: reset, cleared to black
-  gSeq.begin(6);
+  // The firmware's start-up (reset, cleared to black), portrait for steps 1-6.
+  lcd::begin(wineador::LcdOrientation::Portrait, board::kLcdSendBytes);
+  gFrame = (uint16_t*)heap_caps_malloc((size_t)wineador::kScreenW * wineador::kScreenH * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (gFrame) {
+    static lcdgfx::Canvas canvas(gFrame, wineador::kScreenW, wineador::kScreenH);
+    gCanvas = &canvas;
+    lcd::setFrame(gFrame, wineador::kScreenW, wineador::kScreenH);
+  }
+  gSeq.begin(kSteps);
   Serial.println("  Type  g  for step 1 (after the LCD start-up has finished, ~0.5 s).");
 }
 
@@ -141,26 +191,48 @@ void loop() {
         gResetWatch = false;
       }
     }
-    if (ok && t.count > 0) { Serial.printf("  touch x %u y %u\n", (unsigned)t.x, (unsigned)t.y); gTouchDown = true; }
+    if (gLandscapeOn) {
+      // Step 7: each new touch reported by the corner it landed in (screen coordinates).
+      if (ok && t.count > 0 && !gTouchDown) {
+        int x, y;
+        wineador::touchToScreen(gWay, t.x, t.y, &x, &y);
+        const int c = lcdgfx::cornerOf(x, y);
+        static const char* const names[4] = {"top left", "top right", "bottom left", "bottom right"};
+        Serial.printf("  corner: %s   (screen x %d y %d; panel x %u y %u; %s)\n", c < 0 ? "none - not near a corner" : names[c],
+                      x, y, (unsigned)t.x, (unsigned)t.y, wineador::lcdOrientationName(gWay));
+        if (c >= 0 && !(gCorners & (1u << c))) {
+          gCorners |= (uint8_t)(1u << c);
+          drawCheck();
+          if (gCorners == 0x0F) Serial.printf("  All four corners touched in %s.\n", wineador::lcdOrientationName(gWay));
+        }
+      }
+      if (ok) gTouchDown = t.count > 0;
+    } else if (ok && t.count > 0) { Serial.printf("  touch x %u y %u\n", (unsigned)t.x, (unsigned)t.y); gTouchDown = true; }
     else if (ok && gTouchDown) { Serial.println("  (finger up)"); gTouchDown = false; }
   }
   char w[32];
   if (!bp2::readLine(w, sizeof(w))) return;
+  if (gLandscapeOn && (strcmp(w, "a") == 0 || strcmp(w, "b") == 0)) {
+    startWay(w[0] == 'a' ? wineador::LcdOrientation::LandscapeA : wineador::LcdOrientation::LandscapeB);
+    return;
+  }
   using E = wineador::StepSequencer::Event;
   switch (gSeq.handle(w)) {
     case E::Start:
-      if (!lcd::ready()) { Serial.println("  The LCD start-up hasn't finished - type g again."); gSeq.begin(6); break; }
+      if (!lcd::ready()) { Serial.println("  The LCD start-up hasn't finished - type g again."); gSeq.begin(kSteps); break; }
       apply(0, now);
       break;
     case E::Step: apply(gSeq.step(), now); break;
     case E::Finish:
     case E::Abort:
       gTouchOn = false;
+      gLandscapeOn = false;
       backlight::set(0);
-      lcd::fill(0, 0, wineador::kLcdWidth, wineador::kLcdHeight, wineador::kBlack);
+      lcd::fill(0, 0, wineador::lcdWidth(lcd::orientation()), wineador::lcdHeight(lcd::orientation()), wineador::kBlack);
       if (gSeq.waiting() && w[0] == 'x') bp2::printAborted();
       else bp2::printFinished("pattern OK at 15 MHz; 20 MHz result; the four corner coordinates; dimming OK; reset "
-                              "OK; the scan result; SDA and SCL volts at R69/R70");
+                              "OK; the scan result; SDA and SCL volts at R69/R70; the landscape way chosen (A or B) and that "
+                              "every corner was reported at its corner in it");
       break;
     case E::Unknown: Serial.printf("  '%s' - type %s (x = stop).\n", w, gSeq.waiting() ? "g" : "n"); break;
     case E::None: break;

@@ -16,8 +16,9 @@ const char* load(UserSettings& u) {
   if (!p.begin(nvsNamespace(), true)) return "none saved (defaults)";   // read-only; fails if never written
   if (!p.isKey("temp")) { p.end(); return "none saved (defaults)"; }
   UserSettings v = u;
-  wineador::setTargetTemp(v, p.getFloat("temp", u.targetTempC));        // out of bounds: rejected, default kept
-  wineador::setRhSetpoint(v, p.getFloat("rh", u.rhSetpointPct));
+  // Out of bounds: rejected, default kept. In bounds but off its step: kept, then rounded at boot (5.5).
+  wineador::loadTargetTemp(v, p.getFloat("temp", u.targetTempC));
+  wineador::loadRhSetpoint(v, p.getFloat("rh", u.rhSetpointPct));
   v.heaterEnable = p.getBool("heater", u.heaterEnable);
   v.humidifierEnable = p.getBool("humid", u.humidifierEnable);
   v.manualExcludeMask = p.getUChar("excl", 0) & 0x3F;                    // six sensors

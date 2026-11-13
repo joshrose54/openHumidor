@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "wineador/lcd_seq.h"   // LcdOrientation (Rev Q's LCD)
 
 // ======================================================================== Rev N
 namespace board_revn {
@@ -48,6 +49,11 @@ constexpr bool     kOutageInPsram  = false;
 constexpr bool     kHasSupplySense = false;
 constexpr float    k12vScale       = 0.0f;
 
+// No LCD on Rev N (the names exist so shared code builds; nothing uses them).
+constexpr wineador::LcdOrientation kLcdOrientation = wineador::LcdOrientation::Portrait;
+constexpr uint8_t  kBacklightDimPct = 20;
+constexpr size_t   kLcdSendBytes = 0;
+
 }  // namespace board_revn
 
 // ======================================================================== Rev Q
@@ -78,6 +84,17 @@ constexpr float    k12vScale       = 115.0f / 15.0f;
 // (The always-connected WiFi itself is stage Q2.)
 constexpr bool     kWifiOnlyForNtp = false;
 constexpr bool     kSdPauseWhileWifi = false;
+
+// The LCD screens (spec 5.5, 3A.11).
+// Which landscape way is up in the enclosure: ONE FIXED CONSTANT, chosen at BP2 test 29 and
+// recorded in the build log (5.5) - not a setting. Landscape A until test 29 says otherwise.
+constexpr wineador::LcdOrientation kLcdOrientation = wineador::LcdOrientation::LandscapeA;
+// The backlight when dimmed, 60 s after the last touch (5.5: about 20%; set at test 29).
+constexpr uint8_t  kBacklightDimPct = 20;
+// Internal RAM for sending the picture to the LCD by DMA: two buffers, this many bytes in all
+// (Josh: about 8 KB, so WiFi and the Q5 web server keep their internal RAM; tuned at BP2).
+// 4,096 bytes a piece = 4 full-width rows, about 2.2 ms on the wire at 15 MHz.
+constexpr size_t   kLcdSendBytes = 8192;
 
 }  // namespace board_revq
 

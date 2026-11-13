@@ -9,6 +9,10 @@ uint16_t colourBarAt(uint16_t x, uint16_t y) {
   return bars[(uint32_t)x * 8 / kLcdWidth];
 }
 
+const char* lcdOrientationName(LcdOrientation o) {
+  return o == LcdOrientation::Portrait ? "portrait" : o == LcdOrientation::LandscapeA ? "landscape A" : "landscape B";
+}
+
 void lcdWindowArgs(uint16_t first, uint16_t last, uint8_t out[4]) {
   out[0] = (uint8_t)(first >> 8);
   out[1] = (uint8_t)(first & 0xFF);

@@ -28,37 +28,33 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 
 | # | Step | Check now |
 |---|---|---|
-| 1 | ? |  |
-| 2 | a1. All off, relay de-energised | Meter J10 pin 1 and pin 3 to GND (TP7): pin 1 ~12V, pin 3 ~0V. Heater pad off, fan off |
-| 3 | a2. Relay ENERGISED (nothing else on) | K1 CLICKS. J10 pin 1 ~0V, pin 3 ~12V. Pad stays off (Q3/Q11 off) |
-| 4 | a3. Relay de-energised again | K1 clicks back. J10 pin 1 ~12V, pin 3 ~0V |
-| 5 | ? |  |
-| 6 | b1. Relay energised, heater signal OFF | Meter across the pad (J10 pin 3 to pin 4): ~0V |
-| 7 | b2. Heater PWM 1Hz | Across the pad: ~12V and ~0V, changing once a second |
-| 8 | b3. Heater PWM 5Hz | Across the pad: a reading between 0 and 12V that flickers (5 Hz) |
-| 9 | b4. Heater PWM 10Hz | Across the pad: a steady part-voltage (10 Hz is faster than the meter) |
-| 10 | b5. Heater steady ON | Across the pad: ~12V; the pad warms |
-| 11 | b6. Relay DE-ENERGISED with the heater signal still ON | K1 clicks. Across the pad: ~0V - no heater feed with the relay off (the interlock) |
-| 12 | b7. Heater signal off | Across the pad: ~0V |
-| 13 | ? |  |
-| 14 | c1. Relay de-energised, SSR signal OFF | Red on +A1 (J10 pin 1), black on -A2 (J10 pin 2): ~0V |
-| 15 | c2. SSR signal ON | +A1 to -A2: ~12V (the SSR's LED lights, if it has one) |
-| 16 | c3. Relay ENERGISED with the SSR signal still ON | K1 clicks. +A1 to -A2: ~0V - no SSR feed on the heating side (the interlock) |
-| 17 | c4. SSR signal off, relay de-energised | +A1 to -A2: ~0V |
-| 18 | ? |  |
-| 19 | d1. Humidifier fan ON | Fan starts cleanly. Across the fan (J11 pin 1 to pin 2): 11.8V or more |
-| 20 | d2. Humidifier fan OFF | Fan stops. Across the fan: ~0V |
-| 21 | d3. Humidifier fan ON again | Starts cleanly again |
-| 22 | d4. Humidifier fan OFF | Fan stops. Across the fan: ~0V |
-| 23 | ? |  |
-| 24 | e1. Ion generator OFF | Across J16 (pin 1 to pin 2): ~0V. Nothing from the generator |
-| 25 | e2. Ion generator ON | Across J16: ~12V. The generator runs (a faint hiss; ozone smell close to the needles - don't touch them) |
-| 26 | e3. Ion generator OFF | Across J16: ~0V. It stops |
+| 1 | a1. All off, relay de-energised | Meter J10 pin 1 and pin 3 to GND (TP7): pin 1 ~12V, pin 3 ~0V. Heater pad off, fan off |
+| 2 | a2. Relay ENERGISED (nothing else on) | K1 CLICKS. J10 pin 1 ~0V, pin 3 ~12V. Pad stays off (Q3/Q11 off) |
+| 3 | a3. Relay de-energised again | K1 clicks back. J10 pin 1 ~12V, pin 3 ~0V |
+| 4 | b1. Relay energised, heater signal OFF | Meter across the pad (J10 pin 3 to pin 4): ~0V |
+| 5 | b2. Heater PWM 1Hz | Across the pad: ~12V and ~0V, changing once a second |
+| 6 | b3. Heater PWM 5Hz | Across the pad: a reading between 0 and 12V that flickers (5 Hz) |
+| 7 | b4. Heater PWM 10Hz | Across the pad: a steady part-voltage (10 Hz is faster than the meter) |
+| 8 | b5. Heater steady ON | Across the pad: ~12V; the pad warms |
+| 9 | b6. Relay DE-ENERGISED with the heater signal still ON | K1 clicks. Across the pad: ~0V - no heater feed with the relay off (the interlock) |
+| 10 | b7. Heater signal off | Across the pad: ~0V |
+| 11 | c1. Relay de-energised, SSR signal OFF | Red on +A1 (J10 pin 1), black on -A2 (J10 pin 2): ~0V |
+| 12 | c2. SSR signal ON | +A1 to -A2: ~12V (the SSR's LED lights, if it has one) |
+| 13 | c3. Relay ENERGISED with the SSR signal still ON | K1 clicks. +A1 to -A2: ~0V - no SSR feed on the heating side (the interlock) |
+| 14 | c4. SSR signal off, relay de-energised | +A1 to -A2: ~0V |
+| 15 | d1. Humidifier fan ON | Fan starts cleanly. Across the fan (J11 pin 1 to pin 2): 11.8V or more |
+| 16 | d2. Humidifier fan OFF | Fan stops. Across the fan: ~0V |
+| 17 | d3. Humidifier fan ON again | Starts cleanly again |
+| 18 | d4. Humidifier fan OFF | Fan stops. Across the fan: ~0V |
+| 19 | e1. Ion generator OFF | Across J16 (pin 1 to pin 2): ~0V. Nothing from the generator |
+| 20 | e2. Ion generator ON | Across J16: ~12V. The generator runs (a faint hiss; ozone smell close to the needles - don't touch them) |
+| 21 | e3. Ion generator OFF | Across J16: ~0V. It stops |
 
 ## `bp2_19_interlock` - 19 — the interlock with real loads (Rev Q). BP test 13 on the Rev Q pins.
 
-> Loads (power off while wiring): the 12V bulb + KSD on J10 3-4; the mains lamp in the switched
-> extension socket, with its SSR on J10 1-2 (as BP test 13; mains wiring per spec 4.10).
+> Loads (power off while wiring): the 12V bulb on J10 3-4 (KSD in series optional for the bulb);
+> the mains lamp in the switched extension socket, with its SSR on J10 1-2 (as BP test 13;
+> mains wiring per spec 4.10).
 > In steps 2-5 BOTH load signals are ON: K1 alone decides which load has a feed.
 
 | # | Step | Check now |
@@ -152,7 +148,7 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 |---|---|---|
 | 1 | 1. Card ON: mounted and written | C53 (J22 VDD) to GND (TP3): 3.23-3.37V. The write above says OK. Now set the meter to MIN-HOLD on 3V3Q (TP8) ready for step 3 (or keep it on C53 for step 2 first) |
 | 2 | 2. Card OFF: SD lines released (inputs), GPIO39 driven HIGH | C53 (J22 VDD) to GND (TP3): UNDER 0.1V. No reset |
-| 3 | 3. Card ON again: GPIO39 an input, pull-up off (soft start); remounted and written | C53 to GND (TP3): 3.23-3.37V again (on within about 5 ms). Remount and write say OK above. No reset. 3V3Q (TP8) min-hold: less than 0.1V below its idle reading |
+| 3 | 3. Card ON again: GPIO39 an input, pull-up off (soft start); remounted and written | C53 to GND (TP3): 3.23-3.37V again. ("On within about 5 ms" is a SCOPE check only - a meter can't see it; on the meter just check 3.23-3.37V.) Remount and write say OK above. No reset. 3V3Q (TP8) min-hold: less than 0.1V below its idle reading |
 
 ## `bp2_27_12v` - 27 — the 12V sense (Rev Q), using the firmware's own driver (GPIO8, ADC1, 12 dB,
 
@@ -176,8 +172,9 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 ## `bp2_29_lcd_touch` - 29 — the LCD and touch (Rev Q), using the firmware's own LCD, touch, backlight and
 
 > The LCD on J20 with its 30 cm ribbon (test 10 passed). Nothing else needed.
-> At boot the LCD is cleared to black with the backlight OFF (as the firmware does before B7).
-> Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan.
+> At boot the LCD is cleared to black with the backlight OFF (as the firmware does at boot).
+> Steps: bars at 15 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan;
+> the landscape check (UP arrow, four corners; a / b switch the landscape way).
 
 | # | Step | Check now |
 |---|---|---|
@@ -187,6 +184,7 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 | 4 | 4. Backlight 100% -> 10% | The backlight steps down every second from 100% to 10% and stays there: it visibly dims |
 | 5 | 5. GPIO48 pulsed: LCD and touch reset together | Above: with GPIO48 held low the touch controller does NOT answer (it is in reset); the screen goes black and the bars come back; then 'touch answers again'. Touch the screen: coordinates print |
 | 6 | 6. I2C1 scan and RTC read; then everything idle | The scan finds 0x38 (touch) and 0x68 (RTC); the RTC time prints. Now idle: meter I2C1 SDA and SCL at R69 and R70 to GND (TP3): each about 3.3V - NOT 5V |
+| 7 | 7. Landscape check: UP arrow, a touch in each corner (a / b = the two landscape ways) | Landscape A first. The arrow points to the top of the screen and the word UP is above it. Touch each corner target in turn: each prints 'corner: top left' etc. for the corner you touched, and its target turns green. Type b for landscape B (turned 180 degrees), a for A again; do the four corners in each. CHOOSE the way that is up as the LCD sits in the enclosure, and RECORD it (A or B) for the build log |
 
 ## `bp2_30_rtc` - 30 — the RTC cell (Rev Q), using the firmware's own I2C and WiFi/NTP drivers.
 
@@ -203,7 +201,7 @@ Every sketch: **g** starts (nothing switches before it), **n** applies the next 
 ## `bp2_35_bulb` - 35 — the bulb surge (Rev Q). USB OUT; the J23 monitor may stay on.
 
 > USB-C OUT (the native USB unplugged). The J23 monitor cable may stay on (GND, TX, RX only).
-> The 21W 12V bulb on J10 pins 3-4 (no KSD needed for this test). An SD card in J22 for the log.
+> The 21W 12V bulb on J10 pins 3-4 (KSD in series optional for the bulb). An SD card in J22 for the log.
 > After g: K1 energised; the bulb ON 2 s, OFF 3 s, 50 times. Watch for a freeze or a reset.
 > RUN IT TWICE (BP2 test 35):
 >   Run 1: as it starts - hardware watchdog PAUSED (GPIO1 an input), so a freeze shows as a freeze. Type g.

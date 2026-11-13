@@ -30,6 +30,13 @@ def strings(text):
     return out
 
 
+def strip_comments(src):
+    """src with // and /* */ comments removed (string literals kept as they are), so a comment
+    such as `// ---- (a) the relay alone` inside a step list is never taken for a step."""
+    return re.sub(r'"(?:[^"\\]|\\.)*"|//[^\n]*|/\*.*?\*/',
+                  lambda m: m.group(0) if m.group(0).startswith('"') else "", src, flags=re.S)
+
+
 def block(src, name):
     """The text inside `name[] = { ... };`, or None."""
     m = re.search(re.escape(name) + r"\[\]\s*=\s*\{", src)
@@ -74,8 +81,9 @@ def main():
              "(5V TP1, 3V3RF TP2, GND TP3/TP7, TACH TP4, PWM TP5, 12V TP6, 3V3Q TP8, 3V3S TP9, EN TP10, IO0 TP11, "
              "BLW- TP12).", ""]
     for f in files:
-        src = open(os.path.join(SRC, f)).read()
-        head = re.search(r"//\s*BP2 tests? ([^\n]*)", src)
+        raw = open(os.path.join(SRC, f)).read()
+        head = re.search(r"//\s*BP2 tests? ([^\n]*)", raw)
+        src = strip_comments(raw)
         lines += [f"## `{f[:-4]}`" + (f" - {head.group(1).strip()}" if head else ""), ""]
         ban = block(src, "kBanner")
         if ban:

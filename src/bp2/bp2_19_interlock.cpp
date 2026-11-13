@@ -1,7 +1,7 @@
 // =====================================================================
 // BP2 test 19 — the interlock with real loads (Rev Q). BP test 13 on the Rev Q pins.
 //
-// Loads: the 12V bulb (KSD9700 in series) on J10 pins 3-4; the mains lamp in the switched
+// Loads: the 12V bulb on J10 pins 3-4 (the KSD9700 in series is optional for the bulb); the mains lamp in the switched
 // extension socket, its SSR on J10 pins 1-2. Both load signals ON and the relay flipped both
 // ways twice: K1 alone must keep the unselected load off.
 // Nothing switches until g. Each n applies the next step. x = everything off.
@@ -36,8 +36,9 @@ const LoadStep kSteps[] = {
 };
 
 const char* const kBanner[] = {
-  "Loads (power off while wiring): the 12V bulb + KSD on J10 3-4; the mains lamp in the switched",
-  "extension socket, with its SSR on J10 1-2 (as BP test 13; mains wiring per spec 4.10).",
+  "Loads (power off while wiring): the 12V bulb on J10 3-4 (KSD in series optional for the bulb);",
+  "the mains lamp in the switched extension socket, with its SSR on J10 1-2 (as BP test 13;",
+  "mains wiring per spec 4.10).",
   "In steps 2-5 BOTH load signals are ON: K1 alone decides which load has a feed.",
   nullptr,
 };

@@ -68,6 +68,8 @@
 #include "app/console.h"
 #include "app/eventlog.h"
 #include "app/serial_ui.h"
+#include "app/screen.h"
+#include "wineador/lcd_ui.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
 #include "wineador/scenario.h"
@@ -122,6 +124,9 @@ static uint32_t gHeapLast = 0;
 static bool gSdFailedShown = false;
 static uint32_t gLastSdCheckMs = 0;
 static uint64_t gLastCompressorStopMs = 0;
+static bool gFirstSweepDone = false;     // the LCD judges sensor alerts only after it (5.5)
+static bool gStepRounded = false;        // a stored setpoint was off its step: rounded at boot (5.5)
+static float gWasTemp = 0, gWasRh = 0;
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -210,7 +215,7 @@ static void printStatus() {
     else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
   }
   s.sdText = sd;
-  char brd[96] = "";
+  char brd[220] = "";
   {
     int k = 0;
     auto add = [&](const char* fmt, auto... a) { if (k >= 0 && (size_t)k < sizeof(brd)) k += snprintf(brd + k, sizeof(brd) - k, fmt, a...); };
@@ -222,6 +227,12 @@ static void printStatus() {
     if (heap::psramTotal() > 0) add("%spsram min %lu", k ? " | " : "", (unsigned long)heap::psramLowest());
     if (hwdog::fitted()) add("%shwdog %s max %lums", k ? " | " : "", hwdog::running() ? "on" : "OFF",
                              (unsigned long)hwdog::longestGapMs());
+    if (lcd::fitted()) {
+      char l[100];
+      screen::formatStatus(l, sizeof(l));
+      add("%s%s", k ? " | " : "", l);
+      screen::resetMax();                 // the worst figures are per status line
+    }
   }
   s.boardText = brd;
   s.loopMaxUs = gLoopMax.take();
@@ -263,7 +274,7 @@ static void applyUser(const UserSettings& was, const char* what) {
   gHealth.setUser(u);
   const bool saved = userstore::save(u);
   char d[200];
-  int k = snprintf(d, sizeof(d), "settings changed (%s): ", what);
+  int k = snprintf(d, sizeof(d), "settings changed (%s): ", what);   // where from (5.4): "LCD" or "serial: ..."
   auto add = [&](const char* fmt, auto... a) { if (k > 0 && (size_t)k < sizeof(d)) k += snprintf(d + k, sizeof(d) - k, fmt, a...); };
   if (was.targetTempC != u.targetTempC) add("target %.1f -> %.1f C; ", was.targetTempC, u.targetTempC);
   if (was.rhSetpointPct != u.rhSetpointPct) add("RH setpoint %.0f -> %.0f%%; ", was.rhSetpointPct, u.rhSetpointPct);
@@ -324,6 +335,29 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::Help:
       console::printHelp(kTestBuild);
       break;
+    case Command::Lcd: {
+      if (a.arg == -2) { Serial.println("  lcd, or (test builds) lcd stress on|off. Nothing done."); break; }
+      if (a.arg >= 0) {
+        screen::stress(a.arg == 1);
+        Serial.printf("  TEST: LCD stress %s - %s\n", a.arg == 1 ? "ON" : "OFF",
+                      a.arg == 1 ? "the whole screen redrawn every second; watch 'lcd' and the loop time"
+                                 : "back to redrawing only what changes");
+        eventlog::log("lcd", "TEST: LCD stress %s", a.arg == 1 ? "on (whole screen every second)" : "off");
+        break;
+      }
+      if (!screen::running()) { Serial.printf("  LCD: not running (%s)\n", screen::problem()); break; }
+      const screen::Stats st = screen::stats();
+      Serial.printf("  LCD %s, pieces of %u bytes (two send buffers, %u bytes of internal RAM)\n",
+                    lcdOrientationName(lcd::orientation()), (unsigned)lcd::pieceBytes(), (unsigned)board::kLcdSendBytes);
+      Serial.printf("  worst since the last status line: drawing %.2f ms, sending %.2f ms, touch read %.2f ms, logic %.2f ms, "
+                    "the whole screen part of a pass %.2f ms (limit 50 ms)\n",
+                    st.drawMaxUs / 1000.0, st.sendMaxUs / 1000.0, st.touchMaxUs / 1000.0, st.logicMaxUs / 1000.0,
+                    st.passMaxUs / 1000.0);
+      Serial.printf("  last frame %lu ms, worst %lu ms; %lu frames, %lu pieces sent; touch reads failed %lu%s\n",
+                    (unsigned long)st.lastFrameMs, (unsigned long)st.maxFrameMs, (unsigned long)st.frames,
+                    (unsigned long)lcd::piecesSent(), (unsigned long)st.touchFails, screen::stressing() ? " | STRESS ON" : "");
+      break;
+    }
     case Command::Exercise:
       if (gCtl.requestExercise(nowMs))
         Serial.println("  Relay exercise requested: compressor and heater held off, 3 cycles of K1, ends on the cooling side.");
@@ -345,10 +379,12 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       const bool temp = c == Command::SetTemp;
       const bool ok = arg != -2 && (temp ? setTargetTemp(gSettings.user, a.f) : setRhSetpoint(gSettings.user, a.f));
       if (!ok) {
-        if (temp) Serial.printf("  REFUSED: target temperature must be %.0f-%.0f C. Still %.1f C.\n", kTargetTempMinC, kTargetTempMaxC, was.targetTempC);
-        else      Serial.printf("  REFUSED: RH setpoint must be %.0f-%.0f%%. Still %.0f%%.\n", kRhSetpointMinPct, kRhSetpointMaxPct, was.rhSetpointPct);
+        if (temp) Serial.printf("  REFUSED: target temperature must be %.0f-%.0f C in steps of %.1f C. Still %.1f C.\n",
+                                kTargetTempMinC, kTargetTempMaxC, kTargetTempStepC, was.targetTempC);
+        else      Serial.printf("  REFUSED: RH setpoint must be %.0f-%.0f%% in steps of %.0f point. Still %.0f%%.\n",
+                                kRhSetpointMinPct, kRhSetpointMaxPct, kRhSetpointStepPct, was.rhSetpointPct);
       } else if (sameUser(was, gSettings.user)) Serial.println("  No change.");
-      else applyUser(was, temp ? "set temp" : "set rh");
+      else applyUser(was, temp ? "serial: set temp" : "serial: set rh");
       break;
     }
     case Command::SetHeater:
@@ -357,14 +393,14 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       const UserSettings was = gSettings.user;
       (c == Command::SetHeater ? gSettings.user.heaterEnable : gSettings.user.humidifierEnable) = (arg == 1);
       if (sameUser(was, gSettings.user)) Serial.println("  No change.");
-      else applyUser(was, c == Command::SetHeater ? "set heater" : "set humid");
+      else applyUser(was, c == Command::SetHeater ? "serial: set heater" : "serial: set humid");
       break;
     }
     case Command::SetDefaults: {
       const UserSettings was = gSettings.user;
       gSettings.user = UserSettings{};
       if (sameUser(was, gSettings.user)) Serial.println("  Already at the defaults.");
-      else applyUser(was, "set defaults");
+      else applyUser(was, "serial: set defaults");
       break;
     }
     case Command::Exclude: {
@@ -383,7 +419,7 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       formatChannelEcho(e, sizeof(e), arg, a.arg2 == 1 ? (same ? "already excluded, no change" : "excluded")
                                                         : (same ? "already in use, no change" : "back in use"));
       Serial.printf("  %s\n", e);
-      if (!same) applyUser(was, a.arg2 == 1 ? "exclude on" : "exclude off");
+      if (!same) applyUser(was, a.arg2 == 1 ? "serial: exclude on" : "serial: exclude off");
       break;
     }
 #if defined(WINEADOR_TEST_BUILD)
@@ -542,7 +578,6 @@ void setup() {
   outputs::begin();
   hwdog::begin();          // Rev Q: GPIO1 an input, both pulls off - the hardware watchdog disabled until the loop runs
   blowers::begin();        // Rev Q: GPIO15 high - full speed, as undriven (stages Q1-Q3)
-  backlight::begin();      // Rev Q: 5 kHz PWM, backlight off (before the B7 screens, 3A.11)
   fan::begin();
   gFan.command(gSettings.tuning.fanIdlePct, millis());
   fan::setDuty(gFan.output(millis()));
@@ -563,7 +598,12 @@ void setup() {
 #endif
   gBoot.version = makeVersionString(gVersion, sizeof(gVersion), kFirmwareStage, kBuildProfile, kTestBuild);
   // BOOT ONLY: the saved user settings (NVS, 5.5) — before anything takes a copy of the settings.
+  backlight::begin();      // Rev Q: 5 kHz PWM, backlight OFF at once (the LCD pulls it on until driven; 3A.11)
   gBoot.userNote = userstore::load(gSettings.user);
+  // 5.5: a stored setpoint off its step (saved before the steps held) is rounded to the nearest
+  // step, saved, and logged as soon as logging starts.
+  gStepRounded = roundSetpointsToSteps(gSettings.user, &gWasTemp, &gWasRh);
+  if (gStepRounded) userstore::save(gSettings.user);
   gBoot.nvsSpace = userstore::nvsNamespace();
   gBoot.settingsProblem = validateSettings(gSettings);
 
@@ -579,7 +619,10 @@ void setup() {
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
   supplysense::begin();    // Rev Q: 12V sense on GPIO8, ADC1 at 12 dB
-  lcd::begin();            // Rev Q: its own task resets the LCD and clears it to black
+  // Rev Q: the LCD screens (5.5). The picture in PSRAM and the send buffers, now (before the heap
+  // baseline); its own task resets the LCD and clears it to black; backlight off until the first
+  // screen has been sent (3A.11).
+  screen::begin(millis());
 
   // SLOW, BOOT ONLY: mounting the SD card. Timed, and shown in the banner.
   watchdog::feed();
@@ -622,6 +665,80 @@ void setup() {
   gLastSweepStartMs = millis();           // the boot sweep starts itself after the mux reset
   gLastSweepDoneMs = millis();
   gLastStatusMs = millis();
+}
+
+// ---------------------------------------------------------------- the LCD (5.5, Rev Q)
+// What the screen shows, from the state the firmware already has; then one small screen step
+// (src/app/screen). Then what a touch asked for: Save (applied as any settings change, "LCD"),
+// the Allow update window opened. Rev N: screen::update does nothing.
+static BuildTag buildTag() {
+  if (kBuildProfile == Profile::Bench) return kTestBuild ? BuildTag::BenchTest : BuildTag::Bench;
+  return kTestBuild ? BuildTag::Test : BuildTag::None;
+}
+
+static void updateScreen(uint32_t now) {
+  if (!screen::running()) return;
+  UiInputs in;
+  in.nowMs = now;
+  in.uptimeMs = uptimeMs();
+  in.cabinetOk = gHealth.healthyCabinet();
+  in.fresh = elapsedMs(now, gLastSweepDoneMs) <= 2 * gSettings.tuning.sensorReadMs;
+  const CabinetSummary cab = gHealth.summary();
+  in.meanC = cab.meanC;
+  in.meanRhPct = cab.meanRhPct;
+  in.targetC = gSettings.user.targetTempC;
+  in.rhSetPct = gSettings.user.rhSetpointPct;
+  const LoadOutputs l = outputs::current();   // what is running, not what is asked for (5.5)
+  in.cool = l.cool;
+  in.heat = l.heat;                           // the load, not the PWM pin: on through its off-phase
+  in.humid = l.humid;
+  in.stripping = gTc.stripping();
+  in.bootHold = gCtl.hold().active();
+  in.bootHoldLeftMs = gCtl.hold().remainingMs();
+  in.updating = false;                        // OTA arrives with stage Q5
+  AlertInputs& a = in.alerts;
+  a.sensorsKnown = gFirstSweepDone;
+  a.sensorFault = sensorFaultFrom(gHealth.chamberHealthy(), in.cabinetOk, gSettings.safety.minHealthyCabinet,
+                                  gGate.tempHolding() || gGate.humidHolding());
+  a.fanStalled = gFanMon.stalled();
+  a.settingsBad = gBoot.settingsProblem != nullptr;
+  a.dip12v = supplysense::fitted() && supplysense::logic().inDip();
+  a.heaterIneffective = gTc.heaterIneffective();
+  a.coolingIneffective = gTc.coolingIneffective();
+  a.humidIneffective = gHc.ineffective();
+  for (int i = 0; i < kNumSensors; i++) {
+    if (gHealth.healthy(i)) continue;
+    a.excludedMask |= (uint8_t)(1u << i);
+    if (gHealth.reason(i) == Exclusion::Manual) a.manualMask |= (uint8_t)(1u << i);
+  }
+  a.sdFailed = sdlog::stats().failed;
+  ClockFacts cf;                              // 5.5: lib/core alerts.h
+  cf.firstSweepDone = gFirstSweepDone;
+  cf.clockSet = gClockSet;
+  cf.trusted = gClock.trusted();
+  cf.rtcOk = i2cbus::rtcOk();
+  cf.ntpSynced = gClock.ntpSynced;
+  a.clockBad = clockAlert(cf);
+  in.clockOk = !clockBad(cf);
+  in.utcNowS = (int64_t)time(nullptr);
+  in.wifi = timesync::wifiUp();
+  in.tag = buildTag();
+  screen::update(in);
+
+  float t, rh;
+  if (screen::takeSave(&t, &rh)) {
+    const UserSettings was = gSettings.user;
+    const bool ok = setTargetTemp(gSettings.user, t) && setRhSetpoint(gSettings.user, rh);
+    if (!ok) { gSettings.user = was; eventlog::log("settings", "LCD: settings refused (%.1f C, %.0f%%)", (double)t, (double)rh); }
+    else if (!sameUser(was, gSettings.user)) applyUser(was, "LCD");
+  }
+  if (screen::takeWindowOpened())
+    eventlog::log("lcd", "LCD: Allow update pressed - an update may be sent in the next 5 minutes (5.5)");
+  uint32_t us, count;
+  const char* what;
+  if (screen::takeLongStep(&us, &what, &count))
+    eventlog::log("lcd", "LCD STEP OVER 50 ms: the screen's part of a pass took up to %lu ms (longest part: %s), "
+                  "%lu time(s) - 3A.11", (unsigned long)(us / 1000), what, (unsigned long)count);
 }
 
 // ---------------------------------------------------------------- loop
@@ -896,6 +1013,12 @@ static void startLogging() {
                 gVersion, board::kName,
                 kBuildProfile == Profile::Bench ? "BENCH" : "REAL", kTestBuild ? " TEST-BUILD" : "", gBoot.userNote,
                 !gClockSet ? "NOT SET (RTC unreadable)" : gClock.trusted() ? "set from the RTC" : "set from the RTC, LOST TIME");
+  if (gStepRounded)
+    eventlog::log("settings", "settings changed (boot): stored setpoints off their steps rounded (5.5): target %.2f -> %.1f C; "
+                  "RH setpoint %.2f -> %.0f%%; saved", (double)gWasTemp, (double)gSettings.user.targetTempC, (double)gWasRh,
+                  (double)gSettings.user.rhSetpointPct);
+  if (!screen::running() && lcd::fitted())
+    eventlog::log("lcd", "LCD SCREENS OFF: %s. Control is unaffected.", screen::problem());
   if (sdlog::stats().psramMissing)
     eventlog::log("psram", "NO PSRAM FOUND at boot: the SD outage buffers are Rev N's sizes in internal RAM "
                   "(%u events, %u readings rows, %u hourly rows) instead of Rev Q's",
@@ -1180,6 +1303,7 @@ void loop() {
   bool sweptThisPass = false;
   if (i2cbus::takeSweepDone()) {
     sweptThisPass = true;
+    gFirstSweepDone = true;
     gBusReadings = i2cbus::readings();
     gLastSweepDoneMs = now;
     if (i2cbus::lastSweepWasBoot()) {
@@ -1298,6 +1422,8 @@ void loop() {
 #if !defined(WINEADOR_TEST_BUILD)
   (void)sweptThisPass;
 #endif
+  // 7. The LCD (Rev Q): one small step; never waits (3A.11).
+  updateScreen(now);
   if (printNow) printStatus();
   const uint32_t passUs = micros() - t0;
   gLoopMax.add(passUs);

@@ -34,7 +34,8 @@ const char* kChecks[] = {
   "C53 (J22 VDD) to GND (TP3): 3.23-3.37V. The write above says OK. Now set the meter to MIN-HOLD on 3V3Q (TP8) "
   "ready for step 3 (or keep it on C53 for step 2 first)",
   "C53 (J22 VDD) to GND (TP3): UNDER 0.1V. No reset",
-  "C53 to GND (TP3): 3.23-3.37V again (on within about 5 ms). Remount and write say OK above. No reset. "
+  "C53 to GND (TP3): 3.23-3.37V again. (\"On within about 5 ms\" is a SCOPE check only - a meter can't "
+  "see it; on the meter just check 3.23-3.37V.) Remount and write say OK above. No reset. "
   "3V3Q (TP8) min-hold: less than 0.1V below its idle reading",
 };
 

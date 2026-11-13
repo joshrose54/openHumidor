@@ -187,6 +187,7 @@ void printHelp(bool testBuild) {
   Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set defaults  (saved)");
   Serial.println("    exclude <sensor> on|off   take a sensor out for maintenance, or put it back (saved)");
   Serial.println("              <sensor> = 0-5, a position (top_front ...) or a probe label (09ED ...)");
+  Serial.println("    lcd       the LCD's drawing, sending and touch times (Rev Q)");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
     Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24; 'run soak' = B4)");
@@ -198,6 +199,7 @@ void printHelp(bool testBuild) {
     Serial.println("    crc <sensor> | timeout <sensor>  TEST BUILD ONLY: its next read fails its CRC / times out");
     Serial.println("    sdstress <kHz> retry|noretry <writes>  TEST BUILD ONLY: SD stress test ('sdstress stop' ends it)");
     Serial.println("    ntpsync   TEST BUILD ONLY: open the NTP-only radio window now (Rev N)");
+    Serial.println("    lcd stress on|off  TEST BUILD ONLY: redraw the whole LCD every second (3A.11 50 ms check)");
     Serial.println("    hwdog off|on  TEST BUILD ONLY: pause / resume Rev Q's hardware watchdog (B3 test 11, second run)");
     Serial.println("    rtc       TEST BUILD ONLY: the DS3231's time, OSF and EOSC; 'rtc eosc on|off' sets / clears EOSC");
     Serial.println("              (B3 tests 16, 24: the clock stops on its cell; every build clears EOSC at boot)");

@@ -33,8 +33,25 @@ constexpr float kTargetTempMaxC = 22.0f;
 constexpr float kRhSetpointMinPct = 55.0f;
 constexpr float kRhSetpointMaxPct = 70.0f;
 
-bool setTargetTemp(UserSettings& u, float c);    // false = rejected, value unchanged
-bool setRhSetpoint(UserSettings& u, float pct);  // false = rejected, value unchanged
+// The setpoints' steps (spec 5.5), the same everywhere: LCD, dashboard, API, serial.
+constexpr float kTargetTempStepC = 0.5f;
+constexpr float kRhSetpointStepPct = 1.0f;
+
+bool onStep(float v, float step);                // v is a whole number of steps (within float rounding)
+float roundToStep(float v, float step);          // the nearest step (halves away from zero)
+
+// False = rejected (out of bounds, off its step, or not a number); the value is unchanged.
+bool setTargetTemp(UserSettings& u, float c);
+bool setRhSetpoint(UserSettings& u, float pct);
+
+// For a value read back from NVS: in bounds is enough here; one off its step is then rounded at
+// boot by roundSetpointsToSteps (5.5). False = out of bounds or not a number (the value unchanged).
+bool loadTargetTemp(UserSettings& u, float c);
+bool loadRhSetpoint(UserSettings& u, float pct);
+
+// A stored setpoint off its step (5.5) is rounded to the nearest step at boot. True if either
+// changed; `wasTemp` / `wasRh` get the values before.
+bool roundSetpointsToSteps(UserSettings& u, float* wasTemp, float* wasRh);
 
 // ---------------------------------------------------------------- tuning
 struct TuningSettings {

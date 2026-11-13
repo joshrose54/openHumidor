@@ -158,6 +158,12 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
   if (strcmp(c, "stop") == 0 && n == 1) return testBuild ? Command::Stop : Command::TestOnly;
   if (strcmp(c, "ntpsync") == 0 && n == 1) return testBuild ? Command::NtpSync : Command::TestOnly;
   if (strcmp(c, "stall") == 0 && n == 1) return testBuild ? Command::Stall : Command::StallNotAllowed;
+  if (strcmp(c, "lcd") == 0) {
+    if (n == 1) { a.arg = -1; return Command::Lcd; }
+    if (!testBuild) return Command::TestOnly;
+    a.arg = (n == 3 && strcmp(w[1], "stress") == 0) ? onOff(w[2]) : -2;
+    return Command::Lcd;
+  }
   if (strcmp(c, "hwdog") == 0) {
     if (!testBuild) return Command::TestOnly;
     a.arg = (n == 2) ? onOff(w[1]) : -2;

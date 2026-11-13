@@ -39,11 +39,24 @@ struct LcdStep {
 // 16 bits a pixel. Display On comes after the screen is cleared (so nothing shows first).
 constexpr LcdStep kLcdInit[] = {
   {kLcdSleepOut, 0, {0}, 120},                    // ST7796S: 120 ms after Sleep Out before Sleep In; 5 ms before commands
-  {kLcdMadctl, 1, {0x48}, 0},                     // MX | BGR: portrait, the ribbon at the bottom (checked at test 29)
+  {kLcdMadctl, 1, {0x48}, 0},                     // MX | BGR: portrait (the driver then sends its own orientation)
   {kLcdPixelFormat, 1, {0x55}, 0},                // 16 bits a pixel (RGB565)
   {kLcdInvOff, 0, {0}, 0},                        // colour inversion off (test 29 checks the colours)
 };
 constexpr size_t kLcdInitSteps = sizeof(kLcdInit) / sizeof(kLcdInit[0]);
+
+// Orientation (spec 5.5: landscape 480 x 320, fixed). The panel is 320 x 480 portrait; MADCTL
+// (0x36) turns it. The firmware runs one of the two landscape ways (180 degrees apart), chosen
+// at BP2 test 29 to suit the enclosure and fixed in board.h (build log). Portrait is the BP2
+// test 29 sketch's own (its colour bars and coordinates steps).
+//   value: MY 0x80, MX 0x40, MV 0x20 (rows and columns exchanged), BGR 0x08.
+enum class LcdOrientation : uint8_t { Portrait, LandscapeA, LandscapeB };
+constexpr uint8_t lcdMadctl(LcdOrientation o) {
+  return o == LcdOrientation::Portrait ? 0x48 : o == LcdOrientation::LandscapeA ? 0x28 : 0xE8;
+}
+constexpr uint16_t lcdWidth(LcdOrientation o) { return o == LcdOrientation::Portrait ? kLcdWidth : kLcdHeight; }
+constexpr uint16_t lcdHeight(LcdOrientation o) { return o == LcdOrientation::Portrait ? kLcdHeight : kLcdWidth; }
+const char* lcdOrientationName(LcdOrientation o);   // "portrait", "landscape A", "landscape B"
 
 // RGB565 colours
 constexpr uint16_t kBlack = 0x0000, kWhite = 0xFFFF, kRed = 0xF800, kGreen = 0x07E0, kBlue = 0x001F,

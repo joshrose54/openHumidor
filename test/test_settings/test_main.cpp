@@ -128,6 +128,48 @@ void test_user_bounds_rejected_not_clamped() {
   TEST_ASSERT_EQUAL_FLOAT(65.0f, u.rhSetpointPct);
 }
 
+// Spec 5.5: the setpoints keep their steps everywhere (0.5 C, 1 point); off the step is refused.
+void test_setpoint_steps_refused_off_step() {
+  UserSettings u;
+  TEST_ASSERT_FALSE(setTargetTemp(u, 20.3f));
+  TEST_ASSERT_EQUAL_FLOAT(20.0f, u.targetTempC);
+  TEST_ASSERT_TRUE(setTargetTemp(u, 20.5f));
+  TEST_ASSERT_EQUAL_FLOAT(20.5f, u.targetTempC);
+  TEST_ASSERT_TRUE(setTargetTemp(u, 19.0f));
+  TEST_ASSERT_FALSE(setRhSetpoint(u, 62.5f));
+  TEST_ASSERT_EQUAL_FLOAT(62.0f, u.rhSetpointPct);
+  TEST_ASSERT_TRUE(setRhSetpoint(u, 63.0f));
+}
+
+// A stored value off its step is rounded to the nearest step at boot (5.5), and says so.
+void test_stored_setpoints_rounded_at_boot() {
+  UserSettings u;
+  float t, r;
+  // read back from NVS: in bounds is kept (so the rounding sees it); out of bounds is refused
+  TEST_ASSERT_TRUE(loadTargetTemp(u, 20.3f));
+  TEST_ASSERT_TRUE(loadRhSetpoint(u, 62.6f));
+  TEST_ASSERT_FALSE(loadTargetTemp(u, 23.0f));
+  TEST_ASSERT_EQUAL_FLOAT(20.3f, u.targetTempC);
+  TEST_ASSERT_TRUE(roundSetpointsToSteps(u, &t, &r));
+  TEST_ASSERT_EQUAL_FLOAT(20.5f, u.targetTempC);
+  TEST_ASSERT_EQUAL_FLOAT(63.0f, u.rhSetpointPct);
+  u = UserSettings{};
+  TEST_ASSERT_FALSE(roundSetpointsToSteps(u, &t, &r));    // the defaults are on their steps
+  u.targetTempC = 20.3f;
+  u.rhSetpointPct = 62.6f;
+  TEST_ASSERT_TRUE(roundSetpointsToSteps(u, &t, &r));
+  TEST_ASSERT_EQUAL_FLOAT(20.5f, u.targetTempC);
+  TEST_ASSERT_EQUAL_FLOAT(63.0f, u.rhSetpointPct);
+  TEST_ASSERT_EQUAL_FLOAT(20.3f, t);
+  TEST_ASSERT_EQUAL_FLOAT(62.6f, r);
+  u.targetTempC = 20.2f;
+  roundSetpointsToSteps(u, nullptr, nullptr);
+  TEST_ASSERT_EQUAL_FLOAT(20.0f, u.targetTempC);
+  u.targetTempC = 21.9f;                                   // rounding never leaves the bounds
+  roundSetpointsToSteps(u, nullptr, nullptr);
+  TEST_ASSERT_EQUAL_FLOAT(22.0f, u.targetTempC);
+}
+
 void test_version_strings() {
   char v[40];
   TEST_ASSERT_EQUAL_STRING("0.1.0-stage1", makeVersionString(v, sizeof(v), 1, Profile::Real, false));
@@ -147,6 +189,8 @@ int main() {
   RUN_TEST(test_validation_catches_bad_fan_duty);
   RUN_TEST(test_validation_catches_harvest_profile_rising);
   RUN_TEST(test_user_bounds_rejected_not_clamped);
+  RUN_TEST(test_setpoint_steps_refused_off_step);
+  RUN_TEST(test_stored_setpoints_rounded_at_boot);
   RUN_TEST(test_version_strings);
   return UNITY_END();
 }
