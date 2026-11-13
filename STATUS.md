@@ -2,6 +2,31 @@
 
 *Updated 2026-11-13.* **Stages Q1–Q6 done.** Next: BP2 on the bench when Rev Q arrives.
 
+## After Q6: the boot splash and the walk-past wordmark (accepted 2026-11-13)
+
+Spec 5.5 (boot splash, wordmark, the logo) and 3A.11 (LCD at boot). Rev Q only. Not flashed.
+- **The logo:** `tools/make_lcd_logo.py` rasterises `docs/brand/openhumidor-logo.svg` as supplied
+  (its paths and circle, 16 × 16 samples a pixel, 4-bit coverage, cropped to the ink) into
+  `lib/lcdgfx/src/lcdgfx/logo.cpp` (the SVG's SHA-256 recorded). It stops on anything in the SVG
+  it doesn't handle. Splash ×1.27 of the artwork (361 × 66 px, 11,946 bytes); wordmark ×0.45
+  (129 × 24 px, 1,560 bytes). `Bitmap` / `Canvas::bitmap()` for pictures over 255 px.
+- **The splash:** lib/core `BootSplash` (lcd_ui.h) decides each pass: the splash painted and sent
+  (backlight off, touches ignored); once it is all on the panel the backlight comes on and the
+  walk-past screen is painted behind it unsent; from 2 s once that is ready, or at 5 s, the whole
+  picture is sent. `splashView()`: logo centred on true black, the version (makeVersionString)
+  beneath. `screen.cpp` carries it out; `screen::begin(now, version)`. Every boot runs it.
+- **The wordmark:** the Tag element (top-centre) on the cabinet build, in the muted text colour;
+  the BENCH / TEST tag in its place otherwise. Not on settings or alerts.
+- **Tests:** `test_boot_splash` (the 2 s / 5 s, and the whole sequence with the real Controller,
+  LcdUi, Painter and a fake LCD at 13.3 MHz: control identical pass by pass to control with no
+  screen, the boot hold and guards from pass 1, the panel unchanged while held, a stuck LCD);
+  `test_lcd_screens`: the wordmark clear of the time, WiFi and the row below, the splash layout,
+  three new pictures (40 splash, 41 bench splash, 42 the top bar 3 ×) - 42 in all.
+- **Sizes:** revq flash 1,414,274 bytes (+15,028), static RAM 83,600 (+712). The wordmark stays
+  129 px until Josh sees it on the panel (bp2_29 banner asks; its size is `SIZES` in the tool).
+
+Native tests **500/500**; 26 builds without warnings.
+
 ## After Q6: the LCD and touch checked against the maker's documents (accepted 2026-11-13)
 
 Checked against lcdwiki's MSP4031 documents (kept in `.pio.nosync/lcd-docs/`, not in the repo);
@@ -214,7 +239,7 @@ Native tests **404/404**; 24 builds without warnings.
 - **BP2:** `bp2_29_lcd_touch` step 7, the landscape check (UP arrow, corners reported, a / b).
   Sketch wording: bp2_26 step 3 (5 ms is scope-only), bp2_19 / bp2_35 KSD optional for the bulb;
   `tools/bp2_steps.py` no longer takes comments in step lists for steps (bp2_18's "?" rows).
-- **Screen pictures:** `pio test -e native -f test_lcd_screens` writes 39 PNGs and an index page to
+- **Screen pictures:** `pio test -e native -f test_lcd_screens` writes the PNGs (42 since the splash) and an index page to
   `.pio.nosync/lcd-screens/`.
 
 Native tests **330/330**; 24 builds without warnings.

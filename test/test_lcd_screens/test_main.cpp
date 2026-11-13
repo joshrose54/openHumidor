@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include "lcdgfx/screens.h"
 #include "wineador/uk_time.h"
+#include "wineador/build_info.h"
+#include "lcdgfx/palette.h"
 
 using namespace wineador;
 using namespace lcdgfx;
@@ -359,6 +361,35 @@ void test_render_every_screen() {
     gShots.push_back({"39-test29-two-corners.png", "Test 29: two corners touched", "Top left and bottom left done."});
   }
 
+  // ---- the boot splash (5.5): the version from the same makeVersionString() the firmware uses
+  {
+    char ver[40];
+    makeVersionString(ver, sizeof(ver), "2.0.0", Profile::Real, false, false);
+    shoot("40-splash", "Boot splash (cabinet build)", "Logo centred on black, the version beneath. 2-5 s at every boot.",
+          splashView(ver));
+    makeVersionString(ver, sizeof(ver), "2.0.0", Profile::Bench, false, false);
+    shoot("41-splash-bench", "Boot splash (bench build)", "revq_bench: the version says so.", splashView(ver));
+  }
+  // ---- the top bar, 3 x: the wordmark between the widest time and the WiFi icon
+  {
+    in = base();
+    in.utcNowS = daysFromCivil(2026, 11, 13) * 86400 + 23 * 3600 + 58 * 60;    // 23:58 GMT
+    LcdUi ui;
+    ui.begin(in.nowMs, 20);
+    ui.update(in);
+    Canvas c(gFrame, kScreenW, kScreenH);
+    paintScreen(c, ui.view());
+    constexpr int kZ = 3, zw = kScreenW * kZ, zh = 56 * kZ;          // the top bar and the row below's start
+    static uint16_t zoom[zw * zh];
+    for (int y = 0; y < zh; y++)
+      for (int x = 0; x < zw; x++) zoom[y * zw + x] = gFrame[(y / kZ) * kScreenW + x / kZ];
+    char path[160];
+    snprintf(path, sizeof(path), "%s/42-top-bar-3x.png", kDir);
+    writePng(path, zoom, zw, zh);
+    gShots.push_back({"42-top-bar-3x.png", "Top bar, 3 x (wordmark)",
+                      "The wordmark between the widest time (23:58) and the WiFi icon, and the caption below. Pixels 3 x."});
+  }
+
   writeIndex();
   struct stat st;
   TEST_ASSERT_EQUAL_INT(0, stat(".pio.nosync/lcd-screens/index.html", &st));
@@ -377,21 +408,26 @@ void test_partial_redraw_equals_full_redraw() {
   ui.begin(in.nowMs, 20);
   int maxSteps = 0;
   uint32_t maxWrites = 0;
+  const UiView splash = splashView("2.0.0-BENCH-TEST");
+  bool onSplash = true;                             // at boot: the splash first (5.5)
   auto settle = [&]() {
     int steps = 0;
     Rect r;
+    const UiView& v = onSplash ? splash : ui.view();
     for (;;) {
       ca.resetWrites();
-      if (!p.step(ca, ui.view(), &r)) break;
+      if (!p.step(ca, v, &r)) break;
       TEST_ASSERT_TRUE(r.area() <= kMaxStepPixels);
       if (ca.writes() > maxWrites) maxWrites = ca.writes();
       steps++;
       TEST_ASSERT_TRUE(steps < 100);
     }
     if (steps > maxSteps) maxSteps = steps;
-    paintScreen(cb, ui.view());
+    paintScreen(cb, v);
     TEST_ASSERT_EQUAL_MEMORY(b, a, sizeof(a));
   };
+  settle();
+  onSplash = false;
   ui.update(in); settle();
   in.heat = true; in.meanC = 19.8f; ui.update(in); settle();
   in.humid = true; in.alerts.humidIneffective = true; ui.update(in); settle();
@@ -413,7 +449,7 @@ void test_partial_redraw_equals_full_redraw() {
 // one never spoils another).
 void test_elements_bounded_and_apart() {
   for (int e = 0; e < kElements; e++) TEST_ASSERT_TRUE(elementRect((Element)e).area() <= kMaxStepPixels);
-  const LcdScreen screens[] = {LcdScreen::WalkPast, LcdScreen::Settings, LcdScreen::Alerts};
+  const LcdScreen screens[] = {LcdScreen::WalkPast, LcdScreen::Settings, LcdScreen::Alerts, LcdScreen::Splash};
   for (LcdScreen s : screens) {
     Element list[kElements];
     const int n = elementsOf(s, list, kElements);
@@ -443,9 +479,86 @@ void test_fit_text() {
   TEST_ASSERT_NOT_NULL(strstr(out, "..."));
 }
 
+// The walk-past wordmark (5.5) sits in the Tag element, clear of the widest time, the WiFi icon
+// and the row below; nothing of it is drawn outside its own box; and no other screen has it.
+void test_wordmark_clear() {
+  const Rect m = wordmarkRect();
+  const Rect tag = layout::kTag;
+  TEST_ASSERT_TRUE(m.x >= tag.x && m.y >= tag.y && m.x + m.w <= tag.x + tag.w && m.y + m.h <= tag.y + tag.h);
+  // the time is drawn from x 16 in kFontMedium; tabular digits, so "00:00" is as wide as any
+  int16_t timeRight = 0;
+  for (const char* t : {"00:00", "23:58", "--:--"}) {
+    const int16_t r = (int16_t)(16 + Canvas::measure(kFontMedium, t));
+    if (r > timeRight) timeRight = r;
+  }
+  const int16_t wifiLeft = (int16_t)(layout::kWifi.x + layout::kWifi.w - 16 - kIconWifi.w);
+  printf("  wordmark %d x %d at x %d-%d, y %d-%d; time ends at x %d, WiFi starts at x %d\n", m.w, m.h, m.x, m.x + m.w, m.y,
+         m.y + m.h, timeRight, wifiLeft);
+  TEST_ASSERT_TRUE_MESSAGE(m.x - timeRight >= 24, "wordmark crowds the time");
+  TEST_ASSERT_TRUE_MESSAGE(wifiLeft - (m.x + m.w) >= 24, "wordmark crowds the WiFi icon");
+  TEST_ASSERT_TRUE_MESSAGE(layout::kTemp.y - (m.y + m.h) >= 6, "wordmark crowds the row below");
+  // In the drawn screen: the wordmark's ink is inside its box, and the rest of the Tag element is
+  // plain background; the time, WiFi and the row below are drawn as without it.
+  UiInputs in = base();
+  in.utcNowS = daysFromCivil(2026, 11, 13) * 86400 + 23 * 3600 + 58 * 60;
+  LcdUi ui;
+  ui.begin(in.nowMs, 20);
+  ui.update(in);
+  static uint16_t a[kScreenW * kScreenH];
+  Canvas c(a, kScreenW, kScreenH);
+  paintScreen(c, ui.view());
+  int ink = 0;
+  for (int y = tag.y; y < tag.y + tag.h; y++)
+    for (int x = tag.x; x < tag.x + tag.w; x++) {
+      const bool inside = m.contains(x, y);
+      if (a[y * kScreenW + x] != pal::kBg) {
+        TEST_ASSERT_TRUE_MESSAGE(inside, "wordmark ink outside its box");
+        ink++;
+      }
+    }
+  TEST_ASSERT_TRUE_MESSAGE(ink > 200, "no wordmark drawn");
+  // the same screen with a tag instead: identical outside the Tag element
+  static uint16_t b[kScreenW * kScreenH];
+  in.tag = BuildTag::Bench;
+  LcdUi ub;
+  ub.begin(in.nowMs, 20);
+  ub.update(in);
+  Canvas cb(b, kScreenW, kScreenH);
+  paintScreen(cb, ub.view());
+  for (int y = 0; y < kScreenH; y++)
+    for (int x = 0; x < kScreenW; x++)
+      if (!tag.contains(x, y)) TEST_ASSERT_EQUAL_HEX16(a[y * kScreenW + x], b[y * kScreenW + x]);
+  // not on the settings, alerts or splash screens
+  const LcdScreen others[] = {LcdScreen::Settings, LcdScreen::Alerts, LcdScreen::Splash};
+  for (LcdScreen sc : others) {
+    Element list[kElements];
+    const int n = elementsOf(sc, list, kElements);
+    for (int i = 0; i < n; i++) TEST_ASSERT_TRUE(list[i] != Element::Tag);
+  }
+}
+
+// The splash: its logo is centred, about 3/4 of the screen wide, inside its element; the
+// version beneath; on true black.
+void test_splash_layout() {
+  const Rect m = splashLogoRect();
+  const Rect e = layout::kSplashLogo;
+  TEST_ASSERT_TRUE(m.x >= e.x && m.y >= e.y && m.x + m.w <= e.x + e.w && m.y + m.h <= e.y + e.h);
+  TEST_ASSERT_INT_WITHIN(1, kScreenW / 2, m.x + m.w / 2);
+  TEST_ASSERT_TRUE(m.w >= kScreenW * 70 / 100 && m.w <= kScreenW * 80 / 100);
+  TEST_ASSERT_TRUE(kLogoSplash.w > 302);                    // larger than the artwork's 302 x 84
+  TEST_ASSERT_TRUE(layout::kSplashVersion.y >= e.y + e.h);
+  static uint16_t a[kScreenW * kScreenH];
+  Canvas c(a, kScreenW, kScreenH);
+  paintScreen(c, splashView("2.0.0"));
+  TEST_ASSERT_EQUAL_HEX16(0x0000, a[0]);
+  TEST_ASSERT_EQUAL_HEX16(0x0000, a[kScreenW * kScreenH - 1]);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_elements_bounded_and_apart);
+  RUN_TEST(test_wordmark_clear);
+  RUN_TEST(test_splash_layout);
   RUN_TEST(test_corner_of);
   RUN_TEST(test_fit_text);
   RUN_TEST(test_partial_redraw_equals_full_redraw);

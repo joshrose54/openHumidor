@@ -34,7 +34,8 @@ static bool gRunning = false;
 static const char* gProblem = "not started";
 static uint32_t gLastTouchMs = 0, gLastLogicMs = 0;
 static bool gTouched = false;
-static bool gFirstFrameSent = false;
+static BootSplash gSplash;              // 5.5: the boot splash, before the walk-past screen
+static UiView gSplashView;
 static uint8_t gBacklight = 255;
 static bool gFrameBusy = false;
 static uint32_t gFrameStartMs = 0;
@@ -48,7 +49,8 @@ static const char* gLongWhat = "";
 
 static bool gLogic = false;
 
-bool begin(uint32_t nowMs) {
+bool begin(uint32_t nowMs, const char* version) {
+  gSplashView = splashView(version);
   // The screen's logic first: the dashboard shows it even if the LCD itself fails (5.5).
   gUi.begin(nowMs, board::kBacklightDimPct);
   gLogic = true;
@@ -85,7 +87,8 @@ void update(const UiInputs& in) {
   uint32_t t0 = micros(), touchUs = 0, logicUs = 0, drawUs = 0, sendUs = 0;
 
   // 1. Touch, every 50 ms (I2C1, from the loop as the RTC is). No read until 300 ms after a reset.
-  if (now - gLastTouchMs >= kTouchEveryMs) {
+  //    Not while the boot splash is up (5.5): nothing on it to touch.
+  if (gSplash.touches() && now - gLastTouchMs >= kTouchEveryMs) {
     gLastTouchMs = now;
     TouchPoint t;
     if (touch::read(t)) {
@@ -108,13 +111,24 @@ void update(const UiInputs& in) {
     logicUs = micros() - t1;
   }
 
-  // 3. One drawing step into the picture; what it changed is queued to send.
-  if (gStress && now - gLastStressMs >= 1000) { gLastStressMs = now; gPainter.invalidate(); }
+  // 3. One drawing step into the picture: the splash's while it is going up, the UI's after.
+  //    What it changed is queued to send - except while the splash is held on the screen, when
+  //    the walk-past screen is drawn behind it unsent (BootSplash).
+  const UiView& view = gSplash.paintsSplash() ? gSplashView : gUi.view();
+  if (gStress && gSplash.phase() == BootSplash::Phase::Done && now - gLastStressMs >= 1000) {
+    gLastStressMs = now;
+    gPainter.invalidate();
+  }
   uint32_t t2 = micros();
   Rect painted;
-  if (gPainter.step(*gCanvas, gUi.view(), &painted)) {
-    lcd::queue(painted);
+  if (gPainter.step(*gCanvas, view, &painted)) {
+    if (gSplash.sends()) lcd::queue(painted);
     drawUs = micros() - t2;
+    if (gSplash.sends() && !gFrameBusy) { gFrameBusy = true; gFrameStartMs = now; }
+  }
+  gSplash.update(gPainter.idle(view), lcd::idle(), now);
+  if (gSplash.takeRelease()) {                      // the walk-past screen replaces the splash, whole
+    lcd::queue(Rect(0, 0, kScreenW, kScreenH));
     if (!gFrameBusy) { gFrameBusy = true; gFrameStartMs = now; }
   }
 
@@ -124,16 +138,15 @@ void update(const UiInputs& in) {
   sendUs = micros() - t3;
 
   // A frame is done when nothing is left to draw or send.
-  if (gFrameBusy && lcd::idle() && gPainter.idle(gUi.view())) {
+  if (gFrameBusy && lcd::idle() && gPainter.idle(view)) {    // the view being painted (asking about another would restart it)
     gFrameBusy = false;
     gStats.lastFrameMs = now - gFrameStartMs;
     maxInto(gStats.maxFrameMs, gStats.lastFrameMs);
     gStats.frames++;
-    gFirstFrameSent = true;
   }
 
-  // 5. Backlight (3A.11): off until the first walk-past screen has been sent; then 5.5's level.
-  const uint8_t bl = gFirstFrameSent ? gUi.backlightPct(now) : 0;
+  // 5. Backlight (3A.11): off until the boot splash is all on the screen; then 5.5's level.
+  const uint8_t bl = gSplash.backlightOn() ? gUi.backlightPct(now) : 0;
   if (bl != gBacklight) { backlight::set(bl); gBacklight = bl; }
 
   const uint32_t passUs = micros() - t0;
@@ -193,7 +206,7 @@ void formatStatus(char* out, size_t n) {
 
 static UpdateWindow gWindow;
 static LcdUi gNoUi;
-bool begin(uint32_t) { return false; }
+bool begin(uint32_t, const char*) { return false; }
 bool running() { return false; }
 bool logicRunning() { return false; }
 const LcdUi& ui() { return gNoUi; }

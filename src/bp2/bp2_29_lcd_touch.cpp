@@ -39,6 +39,7 @@ const char* const kBanner[] = {
   "Steps: bars at 13.3 MHz; bars at 20 MHz (trial); touch; backlight dimming; GPIO48 reset; I2C1 scan",
   "and the touch chip's ID; 40 s untouched, then a touch; the landscape check (UP arrow, four corners;",
   "a / b switch the landscape way).",
+  "Look at the walk-past wordmark: if 'open' or the wave looks too faint, tell Claude (the size is one constant).",
   nullptr,
 };
 

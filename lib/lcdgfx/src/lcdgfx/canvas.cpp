@@ -71,7 +71,7 @@ void Canvas::roundRect(Rect r, int16_t radius, uint16_t c) {
     }
 }
 
-void Canvas::mask4(int16_t x, int16_t y, uint8_t w, uint8_t h, const uint8_t* bits, uint16_t c) {
+void Canvas::mask4(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits, uint16_t c) {
   const int stride = (w + 1) / 2;
   for (int row = 0; row < h; row++) {
     const int16_t py = (int16_t)(y + row);
@@ -91,6 +91,7 @@ void Canvas::mask4(int16_t x, int16_t y, uint8_t w, uint8_t h, const uint8_t* bi
 }
 
 void Canvas::icon(const Icon& ic, int16_t x, int16_t y, uint16_t c) { mask4(x, y, ic.w, ic.h, ic.bits, c); }
+void Canvas::bitmap(const Bitmap& b, int16_t x, int16_t y, uint16_t c) { mask4(x, y, b.w, b.h, b.bits, c); }
 
 uint32_t nextCodepoint(const char** sp) {
   const unsigned char* s = (const unsigned char*)*sp;

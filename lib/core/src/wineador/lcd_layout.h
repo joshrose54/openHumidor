@@ -23,9 +23,14 @@ constexpr Rect grow(Rect r, int16_t by) { return Rect((int16_t)(r.x - by), (int1
 
 namespace layout {
 
+// ---- boot splash (5.5): the logo centred on black, the version small beneath it. Each place is
+// one drawing step (under lcdgfx's kMaxStepPixels); the logo is centred in its place.
+constexpr Rect kSplashLogo{40, 104, 400, 84};
+constexpr Rect kSplashVersion{0, 188, 480, 32};
+
 // ---- walk-past screen
 constexpr Rect kTime{0, 0, 160, 40};
-constexpr Rect kTag{160, 0, 200, 40};
+constexpr Rect kTag{160, 0, 200, 40};      // the wordmark (cabinet build) or the BENCH / TEST tag
 constexpr Rect kWifi{400, 0, 80, 40};
 constexpr Rect kTemp{0, 40, 288, 132};
 constexpr Rect kRh{288, 40, 192, 132};

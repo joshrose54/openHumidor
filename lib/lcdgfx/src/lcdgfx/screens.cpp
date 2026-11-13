@@ -35,6 +35,8 @@ Rect elementRect(Element e) {
     case Element::CancelSave: return L::kCancelSaveArea;
     case Element::AlertsTitle: return L::kAlertsTitle;
     case Element::AlertsBar: return L::kAlertsBar;
+    case Element::SplashLogo: return L::kSplashLogo;
+    case Element::SplashVersion: return L::kSplashVersion;
     default:
       if (e >= Element::Row0 && e <= Element::Row4) return L::alertRow((int)e - (int)Element::Row0);
       return Rect();
@@ -49,10 +51,12 @@ int elementsOf(LcdScreen s, Element* out, int max) {
                                 Element::RhControl, Element::UpdateButton, Element::CancelSave};
   static const Element alerts[] = {Element::AlertsTitle, Element::Row0, Element::Row1, Element::Row2,
                                    Element::Row3, Element::Row4, Element::AlertsBar};
-  const Element* list = s == LcdScreen::WalkPast ? walk : s == LcdScreen::Settings ? set : alerts;
+  static const Element splash[] = {Element::SplashLogo, Element::SplashVersion};
+  const Element* list = s == LcdScreen::WalkPast ? walk : s == LcdScreen::Settings ? set : s == LcdScreen::Alerts ? alerts : splash;
   const int n = s == LcdScreen::WalkPast ? (int)(sizeof(walk) / sizeof(walk[0]))
               : s == LcdScreen::Settings ? (int)(sizeof(set) / sizeof(set[0]))
-                                         : (int)(sizeof(alerts) / sizeof(alerts[0]));
+              : s == LcdScreen::Alerts   ? (int)(sizeof(alerts) / sizeof(alerts[0]))
+                                         : (int)(sizeof(splash) / sizeof(splash[0]));
   int k = 0;
   for (int i = 0; i < n && k < max; i++) out[k++] = list[i];
   return k;
@@ -115,6 +119,22 @@ static void iconButton(Canvas& c, Rect r, const Icon& ic, bool enabled) {
   c.icon(ic, (int16_t)(r.x + (r.w - ic.w) / 2), (int16_t)(r.y + (r.h - ic.h) / 2), enabled ? pal::kText : pal::kFaint);
 }
 
+Rect wordmarkRect() {
+  const Rect r = L::kTag;
+  return Rect((int16_t)(r.x + (r.w - kLogoWordmark.w) / 2), (int16_t)(r.y + (r.h - kLogoWordmark.h) / 2),
+              (int16_t)kLogoWordmark.w, (int16_t)kLogoWordmark.h);
+}
+
+Rect splashLogoRect() {
+  const Rect r = L::kSplashLogo;
+  return Rect((int16_t)(r.x + (r.w - kLogoSplash.w) / 2), (int16_t)(r.y + (r.h - kLogoSplash.h) / 2),
+              (int16_t)kLogoSplash.w, (int16_t)kLogoSplash.h);
+}
+
+// The splash is on true black (the LCD is cleared to black at boot, 3A.11; 5.5 "centred on
+// black"); every other screen on the palette's background.
+static uint16_t bgOf(const UiView& v) { return v.screen == LcdScreen::Splash ? 0x0000 : pal::kBg; }
+
 static const char* tagText(BuildTag t) {
   return t == BuildTag::Bench ? "BENCH" : t == BuildTag::Test ? "TEST" : t == BuildTag::BenchTest ? "BENCH TEST" : "";
 }
@@ -149,19 +169,22 @@ static void paintRow(Canvas& c, const UiView& v, int i, Rect r) {
 void paintElement(Canvas& c, const UiView& v, Element e) {
   const Rect r = elementRect(e);
   c.setClip(r);
-  c.fill(r, pal::kBg);
+  c.fill(r, bgOf(v));
   char buf[64];
   switch (e) {
     case Element::Time:
       c.text(kFontMedium, 16, midBaseline(kFontMedium, r), v.timeText, v.timeText[0] == '-' ? pal::kMuted : pal::kText);
       break;
     case Element::Tag:
-      if (v.tag != BuildTag::None) {
+      if (v.tag != BuildTag::None) {             // any build but the cabinet's: its tag in the wordmark's place
         const char* t = tagText(v.tag);
         const int16_t w = (int16_t)(Canvas::measure(kFontSmall, t) + 20);
         const Rect p((int16_t)(r.x + (r.w - w) / 2), 8, w, 24);
         c.roundRect(p, 6, pal::kWarn);
         textCentred(c, kFontSmall, p, midBaseline(kFontSmall, p), t, pal::kBg);
+      } else {                                   // the cabinet build: the wordmark, dimmed (5.5)
+        const Rect m = wordmarkRect();
+        c.bitmap(kLogoWordmark, m.x, m.y, pal::kMuted);
       }
       break;
     case Element::Wifi:
@@ -279,6 +302,15 @@ void paintElement(Canvas& c, const UiView& v, Element e) {
       }
       break;
     }
+    // ---- boot splash: the logo in the palette's text colour; the version small beneath it
+    case Element::SplashLogo: {
+      const Rect m = splashLogoRect();
+      c.bitmap(kLogoSplash, m.x, m.y, pal::kText);
+      break;
+    }
+    case Element::SplashVersion:
+      textCentred(c, kFontSmall, r, midBaseline(kFontSmall, r), v.version, pal::kMuted);
+      break;
     default:
       if (e >= Element::Row0 && e <= Element::Row4) paintRow(c, v, (int)e - (int)Element::Row0, r);
       break;   // background strips: the fill above is all
@@ -321,6 +353,8 @@ uint32_t elementKey(const UiView& v, Element e) {
     case Element::CancelSave: h.num(v.draftChanged); break;
     case Element::AlertsTitle: h.num(v.alertCount); h.num(v.page); h.num(v.pages); break;
     case Element::AlertsBar: h.num(v.page); h.num(v.pages); break;
+    case Element::SplashLogo: break;                          // fixed
+    case Element::SplashVersion: h.str(v.version); break;
     default:
       if (e >= Element::Row0 && e <= Element::Row4) {
         const int i = (int)e - (int)Element::Row0;

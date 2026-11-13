@@ -9,8 +9,12 @@
 //   - one drawing step: one changed element into the picture (at most kMaxStepPixels);
 //   - one sending step: the next piece by DMA (lcd.h), which then runs on by itself.
 // Each part is timed; the worst are in the status line, and a pass whose screen work took over
-// 50 ms is an event. The backlight stays off until the first walk-past screen has been sent,
-// then full, dimmed after 60 s without a touch (3A.11, 5.5).
+// 50 ms is an event.
+// The boot splash first (5.5; lib/core BootSplash decides each pass): the logo and the version,
+// drawn and sent in the same small steps; the backlight off until it is all on the screen (3A.11),
+// then full. The walk-past screen is drawn into the picture behind it, unsent, and sent whole once
+// ready - after at least 2 s, at most 5 s. Touches are ignored meanwhile. Then dimmed after 60 s
+// without a touch (5.5). Control never waits for any of it.
 // Rev N: no LCD; everything does nothing.
 
 #include <stdint.h>
@@ -22,7 +26,7 @@ namespace screen {
 // BOOT ONLY: the picture (PSRAM, 307,200 bytes) and the LCD's send buffers (internal RAM,
 // board::kLcdSendBytes), before the heap baseline. False (and the LCD stays dark) if either
 // can't be had; control is unaffected.
-bool begin(uint32_t nowMs);
+bool begin(uint32_t nowMs, const char* version);   // version for the splash: "2.0.0-BENCH"
 bool running();
 // Rev Q: the screen's logic (what it shows: modes, alerts, the Allow update window) runs even if the
 // LCD itself failed, because the dashboard shows the same (5.5). Rev N: false.

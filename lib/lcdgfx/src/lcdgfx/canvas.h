@@ -35,6 +35,7 @@ class Canvas {
   void fill(Rect r, uint16_t c);
   void roundRect(Rect r, int16_t radius, uint16_t c);   // filled; corners blended with what is there
   void icon(const Icon& ic, int16_t x, int16_t y, uint16_t c);
+  void bitmap(const Bitmap& b, int16_t x, int16_t y, uint16_t c);
   // Text from its baseline; returns the width drawn. UTF-8; characters the font lacks are skipped.
   int16_t text(const Font& f, int16_t x, int16_t baseline, const char* s, uint16_t c);
   static int16_t measure(const Font& f, const char* s);
@@ -44,7 +45,7 @@ class Canvas {
   void resetWrites() { writes_ = 0; }
 
  private:
-  void mask4(int16_t x, int16_t y, uint8_t w, uint8_t h, const uint8_t* bits, uint16_t c);
+  void mask4(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits, uint16_t c);
   uint16_t* px_;
   int16_t w_, h_;
   Rect clip_;

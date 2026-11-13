@@ -712,9 +712,9 @@ void setup() {
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
   supplysense::begin();    // Rev Q: 12V sense on GPIO8, ADC1 at 12 dB
   // Rev Q: the LCD screens (5.5). The picture in PSRAM and the send buffers, now (before the heap
-  // baseline); its own task resets the LCD and clears it to black; backlight off until the first
-  // screen has been sent (3A.11).
-  screen::begin(millis());
+  // baseline); its own task resets the LCD and clears it to black; backlight off until the boot
+  // splash has been sent (3A.11).
+  screen::begin(millis(), gVersion);      // the boot splash first (5.5), at every boot
 
   // SLOW, BOOT ONLY: mounting the SD card. Timed, and shown in the banner.
   watchdog::feed();

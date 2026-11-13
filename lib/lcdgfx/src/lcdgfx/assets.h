@@ -28,9 +28,18 @@ struct Icon {
   const uint8_t* bits;  // as a font's
 };
 
+// A larger picture in the same form: the logo (made by tools/make_lcd_logo.py, lcdgfx/logo.cpp).
+struct Bitmap {
+  uint16_t w, h;
+  const uint8_t* bits;  // as a font's
+};
+
 extern const Font kFontHuge, kFontLarge, kFontMedium, kFontSmall;
 extern const Icon kIconCooling, kIconHeating, kIconHumidifying, kIconDrying, kIconStandby, kIconStarting,
     kIconUpdating, kIconFault, kIconWifi, kIconWifiOff, kIconSettings, kIconAlert, kIconAdd, kIconRemove,
     kIconPageUp, kIconPageDown, kIconBack, kIconArrowUp;
+// The openHumidor logo, from docs/brand/openhumidor-logo.svg: the boot splash's, and the
+// walk-past wordmark's (spec 5.5). Cropped to the ink.
+extern const Bitmap kLogoSplash, kLogoWordmark;
 
 }  // namespace lcdgfx

@@ -45,6 +45,41 @@ bool UpdateWindow::consume(uint32_t now) {
   return ok;
 }
 
+// ---------------------------------------------------------------- boot splash
+UiView splashView(const char* version) {
+  UiView v;
+  v.screen = LcdScreen::Splash;
+  snprintf(v.version, sizeof(v.version), "%s", version ? version : "");
+  return v;
+}
+
+BootSplash::Phase BootSplash::update(bool painted, bool lcdIdle, uint32_t nowMs) {
+  switch (phase_) {
+    case Phase::Splash:
+      // Fully on the screen: painted, and the LCD has sent every piece. Only then is the
+      // picture free for the walk-past view (the driver reads it while it sends).
+      if (painted && lcdIdle) { phase_ = Phase::Holding; shownMs_ = nowMs; }
+      break;
+    case Phase::Holding: {
+      const uint32_t up = nowMs - shownMs_;
+      if (up >= kSplashMaxMs || (painted && up >= kSplashMinMs)) {
+        phase_ = Phase::Done;
+        endedMs_ = nowMs;
+        release_ = true;
+      }
+      break;
+    }
+    case Phase::Done: break;
+  }
+  return phase_;
+}
+
+bool BootSplash::takeRelease() {
+  const bool r = release_;
+  release_ = false;
+  return r;
+}
+
 // ---------------------------------------------------------------- session
 void LcdUi::begin(uint32_t nowMs, uint8_t dimPct) {
   dimPct_ = dimPct;
@@ -106,6 +141,7 @@ void LcdUi::press(int x, int y, uint32_t nowMs) {
       else if (pages > 1 && grow(kPageDown, kSlop).contains(x, y)) { if (page_ + 1 < pages) page_++; }
       break;
     }
+    case LcdScreen::Splash: break;     // never LcdUi's own screen
   }
 }
 

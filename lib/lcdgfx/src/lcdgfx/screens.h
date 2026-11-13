@@ -19,12 +19,20 @@ enum class Element : uint8_t {
   SetTitle, TempLabel, TempControl, RhLabel, RhControl, UpdateButton, CancelSave,
   // alerts
   AlertsTitle, Row0, Row1, Row2, Row3, Row4, AlertsBar,
+  // boot splash (on black)
+  SplashLogo, SplashVersion,
   Count
 };
 constexpr int kElements = (int)Element::Count;
 constexpr int kBgStrips = 8;
 constexpr int32_t kMaxStepPixels = 40000;   // the largest element: the temperature, 288 x 132
+static_assert(kElements <= 64, "the Painter keeps one bit an element");
 
+// Where the walk-past wordmark's ink is drawn (inside the Tag element; spec 5.5: top-centre,
+// between the time and the WiFi icon). The native tests keep it clear of both.
+Rect wordmarkRect();
+// Where the splash logo's ink is drawn (centred in layout::kSplashLogo).
+Rect splashLogoRect();
 Rect elementRect(Element e);
 // The elements of a screen (not the background strips). Returns how many.
 int elementsOf(wineador::LcdScreen s, Element* out, int max);

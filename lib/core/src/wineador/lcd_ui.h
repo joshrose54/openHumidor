@@ -21,7 +21,9 @@ namespace wineador {
 constexpr uint32_t kUiIdleMs = 60000;               // 5.5: back to walk-past, and dim, after 60 s
 constexpr uint32_t kUpdateWindowMs = 5UL * 60000UL; // 5.5: Allow update, 5 minutes
 
-enum class LcdScreen : uint8_t { WalkPast, Settings, Alerts };
+// Splash: the boot splash (5.5). LcdUi itself never shows it: BootSplash (below) decides when the
+// splash is on the screen, and splashView() is what is drawn.
+enum class LcdScreen : uint8_t { WalkPast, Settings, Alerts, Splash };
 enum class ModeIcon : uint8_t { Cooling, Heating, Humidifying, Drying, Standby, Starting, Updating, Fault };
 enum class BuildTag : uint8_t { None, Bench, Test, BenchTest };
 const char* modeName(ModeIcon m);
@@ -91,6 +93,44 @@ struct UiView {
   AlertRowView row[layout::kAlertRows];
   // ---- backlight
   uint8_t backlightPct = 100;
+  // ---- boot splash
+  char version[28] = "";              // "2.0.0", "2.0.0-BENCH-TEST" (makeVersionString)
+};
+
+// The boot splash's view: the screen and the firmware version, nothing else.
+UiView splashView(const char* version);
+
+// The boot splash (spec 5.5, 3A.11), as a sequence the screen code carries out pass by pass.
+// It never touches control: it only says what to draw, what to send and when the backlight is on.
+//   Splash: paint the splash view and send what is painted. Backlight off (3A.11), touches ignored.
+//   Holding: the splash is fully on the screen (it was painted AND the LCD had sent it all): the
+//     backlight comes on and the 2 s / 5 s start. The walk-past view is painted into the picture
+//     but nothing is sent, so the splash stays up. Touches still ignored.
+//   Done: from at least kSplashMinMs, once the walk-past view is fully painted, or at kSplashMaxMs
+//     whatever: the whole picture is sent once (takeRelease), and the screen runs as normal.
+// The splash is shown "until the walk-past screen is ready, at least 2 s and at most 5 s" (5.5).
+constexpr uint32_t kSplashMinMs = 2000, kSplashMaxMs = 5000;
+
+class BootSplash {
+ public:
+  enum class Phase : uint8_t { Splash, Holding, Done };
+  // One pass, after the drawing step. painted = nothing left to paint for the view this phase
+  // paints (the splash view while Splash, the UI's view after); lcdIdle = nothing queued or being
+  // sent. Returns the phase for the next pass.
+  Phase update(bool painted, bool lcdIdle, uint32_t nowMs);
+  Phase phase() const { return phase_; }
+  bool paintsSplash() const { return phase_ == Phase::Splash; }
+  bool sends() const { return phase_ != Phase::Holding; }    // send what is painted
+  bool backlightOn() const { return phase_ != Phase::Splash; }
+  bool touches() const { return phase_ == Phase::Done; }
+  bool takeRelease();                 // true once, at Holding -> Done: send the whole picture now
+  uint32_t shownMs() const { return shownMs_; }   // when the splash was fully on the screen
+  uint32_t endedMs() const { return endedMs_; }
+
+ private:
+  Phase phase_ = Phase::Splash;
+  uint32_t shownMs_ = 0, endedMs_ = 0;
+  bool release_ = false;
 };
 
 class UpdateWindow {
