@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "wineador/sensor_table.h"
 
 namespace wineador {
 
@@ -307,7 +308,7 @@ void ScenarioRunner::run1(const ScenarioView& v, Controller& ctl, CabinetModel& 
 // ------------------------------------------------------------------ run 2
 // B3 test 2, heater guards. The heater runs (lit for 5 s so it is seen), then one
 // guard is tripped; the heater must be off on the pass after the guards first see it.
-//   item 0: cabinet ceiling (cabinet sensor ch2 scripted above setpoint + 3 C)
+//   item 0: cabinet ceiling (cabinet sensor ch0 scripted above setpoint + 3 C)
 //   item 1: chamber ceiling (chamber scripted above 30 C)
 //   item 2: sensors (chamber scripted to -20 C: implausible, excluded; then it must
 //           recover — 10 reads + serial — and the 4.3 recovery hold must pass)
@@ -346,17 +347,17 @@ void ScenarioRunner::run2(const ScenarioView& v, Controller& ctl, CabinetModel& 
       if (item_ == 0) {
         const float want = target + f.cabinetCeilingAboveSetpointC + 0.5f;
         model.setOffset(0, want - model.tempC(0), 0);
-        say(now, "2.1 TRIP cabinet ceiling: cabinet sensor ch2 scripted to %.1f C (ceiling %.1f C); seen at the next sweep",
+        say(now, "2.1 TRIP cabinet ceiling: cabinet sensor ch0 scripted to %.1f C (ceiling %.1f C); seen at the next sweep",
             (double)want, (double)(target + f.cabinetCeilingAboveSetpointC));
         phase(3, now);
       } else if (item_ == 1) {
         const float want = f.chamberCeilingC + 0.5f;
         model.setOffset(kChamberIndex, want - model.tempC(kChamberIndex), 0);
-        say(now, "2.2 TRIP chamber ceiling: chamber sensor ch6 scripted to %.1f C (ceiling %.1f C)", (double)want, (double)f.chamberCeilingC);
+        say(now, "2.2 TRIP chamber ceiling: chamber sensor ch4 scripted to %.1f C (ceiling %.1f C)", (double)want, (double)f.chamberCeilingC);
         phase(3, now);
       } else if (item_ == 2) {
         model.setOffset(kChamberIndex, -20.0f - model.tempC(kChamberIndex), 0);
-        say(now, "2.3 TRIP sensors: chamber sensor ch6 scripted to -20.0 C - implausible (below -10 C), so it is excluded");
+        say(now, "2.3 TRIP sensors: chamber sensor ch4 scripted to -20.0 C - implausible (below -10 C), so it is excluded");
         phase(3, now);
       } else {
         const uint32_t ranFor = elapsedMs(now, onAtMs_[1]);
@@ -660,7 +661,7 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
     case 1:
       if (v.live.heat && v.live.humid) {
         say(now, "heater and humidifier ON");
-        say(now, "4.1 >>> UNPLUG THE CHAMBER SENSOR (ch6) NOW <<<");
+        say(now, "4.1 >>> UNPLUG THE CHAMBER SENSOR (ch4, probe %s) NOW <<<", kSensors[kChamberIndex].label);
         target_ = kChamberIndex;
         phase(2, now);
       } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
@@ -670,10 +671,10 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
 
     case 2: case 4: case 6:   // waiting for the unplugged sensor to be excluded
       if (!h->healthy(target_)) {
-        say(now, "ch%d excluded: %s", channelOf(target_), exclusionName(h->reason(target_)));
+        say(now, "ch%d excluded: %s", target_, exclusionName(h->reason(target_)));
         phase(phase_ + 1, now);
       } else if (elapsedMs(now, phaseAtMs_) > 90000) {
-        snprintf(c, sizeof(c), "ch%d was never excluded - is it unplugged?", channelOf(target_));
+        snprintf(c, sizeof(c), "ch%d was never excluded - is it unplugged?", target_);
         finish(now, model, Result::Fail, c);
       }
       break;
@@ -685,7 +686,7 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       say(now, "heater OFF (sensors: chamber) - correct. Humidifier %s (needs only 3 of 4 cabinet) - correct",
           v.live.humid ? "still ON" : "not blocked for sensors");
-      say(now, "4.2 >>> UNPLUG ch2 (top front) NOW <<<");
+      say(now, "4.2 >>> UNPLUG ch0 (top front, probe %s) NOW <<<", kSensors[0].label);
       target_ = 0;
       phase(4, now);
       break;
@@ -697,7 +698,7 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       say(now, "3 of 4 cabinet healthy: humidifier still allowed - correct; heater still off (%s)",
           guardBlockName(ctl.decisions().heat.block));
-      say(now, "4.3 >>> UNPLUG ch3 (bottom front) NOW <<<");
+      say(now, "4.3 >>> UNPLUG ch1 (bottom front, probe %s) NOW <<<", kSensors[1].label);
       target_ = 1;
       phase(6, now);
       break;
@@ -708,7 +709,7 @@ void ScenarioRunner::run4(const ScenarioView& v, Controller& ctl, CabinetModel& 
         break;
       }
       say(now, "2 of 4 cabinet healthy: humidifier OFF (sensors) - correct");
-      say(now, "4.4 >>> PLUG ch6, ch2 AND ch3 BACK IN NOW <<< Each needs 10 good reads and its serial re-checked (~2.5 min), "
+      say(now, "4.4 >>> PLUG ch4, ch0 AND ch1 BACK IN NOW <<< Each needs 10 good reads and its serial re-checked (~2.5 min), "
                "then the recovery hold (%s)", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
       expectMs_ = 1;            // recovery under way: the "never held at 3 of 4" check pauses
       item_ = 0;                // 0 = waiting for both requirements to be met again
@@ -773,7 +774,7 @@ void ScenarioRunner::run41(const ScenarioView& v, Controller& ctl, CabinetModel&
     case 1:
       if (v.live.heat) {
         say(now, "heater ON (bulb lit)");
-        say(now, "4c.1 >>> UNPLUG ch2 (top front) NOW <<<");
+        say(now, "4c.1 >>> UNPLUG ch0 (top front, probe %s) NOW <<<", kSensors[0].label);
         target_ = 0;
         phase(2, now);
       } else if (elapsedMs(now, phaseAtMs_) > deadlineMs_) {
@@ -782,7 +783,7 @@ void ScenarioRunner::run41(const ScenarioView& v, Controller& ctl, CabinetModel&
       break;
     case 2: case 4:
       if (!h->healthy(target_)) {
-        say(now, "ch%d excluded: %s", channelOf(target_), exclusionName(h->reason(target_)));
+        say(now, "ch%d excluded: %s", target_, exclusionName(h->reason(target_)));
         phase(phase_ + 1, now);
       } else if (elapsedMs(now, phaseAtMs_) > 90000) {
         finish(now, model, Result::Fail, "the sensor was never excluded - is it unplugged?");
@@ -791,14 +792,14 @@ void ScenarioRunner::run41(const ScenarioView& v, Controller& ctl, CabinetModel&
     case 3:   // 3 of 4 cabinet, chamber in: the heater is still allowed
       if (hb == GuardBlock::Sensors) { finish(now, model, Result::Fail, "heater held for sensors at 3 of 4 cabinet with the chamber in"); break; }
       say(now, "3 of 4 cabinet healthy, chamber in: heater still allowed - correct (%s)", v.live.heat ? "bulb lit" : guardBlockName(hb));
-      say(now, "4c.2 >>> UNPLUG ch3 (bottom front) NOW <<<");
+      say(now, "4c.2 >>> UNPLUG ch1 (bottom front, probe %s) NOW <<<", kSensors[1].label);
       target_ = 1;
       phase(4, now);
       break;
     case 5:   // 2 of 4: off now
       if (v.live.heat || hb != GuardBlock::Sensors) { finish(now, model, Result::Fail, "heater not off for sensors at 2 of 4 cabinet"); break; }
       say(now, "2 of 4 cabinet healthy: heater OFF (sensors) - correct (bulb dark)");
-      say(now, "4c.3 >>> PLUG ch2 AND ch3 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      say(now, "4c.3 >>> PLUG ch0 AND ch1 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
       tempMetMs_ = 0;
       phase(6, now);
       break;
@@ -851,15 +852,15 @@ void ScenarioRunner::run42(const ScenarioView& v, Controller& ctl, CabinetModel&
       break;
     case 2:   // 15 s to meter, then the unplug
       if (elapsedMs(now, phaseAtMs_) < 15000) break;
-      say(now, "4d.1 >>> UNPLUG THE CHAMBER SENSOR (ch6) NOW <<<");
+      say(now, "4d.1 >>> UNPLUG THE CHAMBER SENSOR (ch4, probe %s) NOW <<<", kSensors[kChamberIndex].label);
       phase(3, now);
       break;
     case 3:
       if (!h->healthy(kChamberIndex)) {
-        say(now, "ch6 excluded: %s", exclusionName(h->reason(kChamberIndex)));
+        say(now, "ch4 excluded: %s", exclusionName(h->reason(kChamberIndex)));
         phase(4, now);
       } else if (elapsedMs(now, phaseAtMs_) > 90000) {
-        finish(now, model, Result::Fail, "ch6 was never excluded - is it unplugged?");
+        finish(now, model, Result::Fail, "ch4 was never excluded - is it unplugged?");
       }
       break;
     case 4:
@@ -869,7 +870,7 @@ void ScenarioRunner::run42(const ScenarioView& v, Controller& ctl, CabinetModel&
       break;
     case 5:   // 15 s to meter, then the replug
       if (elapsedMs(now, phaseAtMs_) < 15000) break;
-      say(now, "4d.2 >>> PLUG ch6 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
+      say(now, "4d.2 >>> PLUG ch4 BACK IN NOW <<< ~3 min to recover, then the %s hold", secs(a, sizeof(a), f.sensorRecoveryHoldMs));
       tempMetMs_ = 0;
       phase(6, now);
       break;
@@ -893,7 +894,7 @@ void ScenarioRunner::run42(const ScenarioView& v, Controller& ctl, CabinetModel&
 }
 
 // ------------------------------------------------------------------ run 5
-// B3 test 5, divergence (scripted). Cabinet sensor ch3 scripted 5.5 C above the
+// B3 test 5, divergence (scripted). Cabinet sensor ch1 scripted 5.5 C above the
 // others: excluded once it has been out for 10 min. Then back in line: it recovers
 // after 10 reads within 5 C of the median and its serial re-checked.
 void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& model) {
@@ -901,13 +902,13 @@ void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& 
   const uint32_t now = v.nowMs;
   const SafetySettings& f = s_.safety;
   const SensorHealth* h = v.health;
-  constexpr int kIdx = 1;   // ch3, bottom front
+  constexpr int kIdx = 1;   // ch1, bottom front
   char a[16], b[16], c[120];
   if (!h) { finish(now, model, Result::Fail, "no health information"); return; }
 
   switch (phase_) {
     case 0:
-      say(now, "TEST 5 - divergence. Cabinet sensor ch3 scripted 5.5 C above the others; excluded after %s out. No loads.",
+      say(now, "TEST 5 - divergence. Cabinet sensor ch1 scripted 5.5 C above the others; excluded after %s out. No loads.",
           secs(a, sizeof(a), f.divergenceMs));
       demand_ = Demand{};
       model.setOffset(kIdx, f.divergenceC + 0.5f, 0);
@@ -923,7 +924,7 @@ void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& 
       }
       if (h->diverging(kIdx) && expectMs_ == 0) {
         expectMs_ = now ? now : 1;
-        say(now, "ch3 diverging (more than %.1f C from the median of the healthy cabinet sensors); timer started", (double)f.divergenceC);
+        say(now, "ch1 diverging (more than %.1f C from the median of the healthy cabinet sensors); timer started", (double)f.divergenceC);
       }
       if (h->reason(kIdx) == Exclusion::Divergence) {
         const uint32_t out = expectMs_ ? elapsedMs(now, expectMs_) : 0;
@@ -932,16 +933,16 @@ void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& 
           finish(now, model, Result::Fail, c);
           break;
         }
-        say(now, "ch3 EXCLUDED for divergence after %s - correct. Scripted back in line: it needs 10 reads within %.1f C, then its serial re-checked",
+        say(now, "ch1 EXCLUDED for divergence after %s - correct. Scripted back in line: it needs 10 reads within %.1f C, then its serial re-checked",
             secs(a, sizeof(a), out), (double)f.divergenceC);
         model.setOffset(kIdx, 0, 0);
         phase(2, now);
       } else if (!h->healthy(kIdx)) {
-        snprintf(c, sizeof(c), "ch3 excluded for %s, expected divergence", exclusionName(h->reason(kIdx)));
+        snprintf(c, sizeof(c), "ch1 excluded for %s, expected divergence", exclusionName(h->reason(kIdx)));
         finish(now, model, Result::Fail, c);
       } else if (expectMs_ && elapsedMs(now, expectMs_) / 120000 > (uint32_t)item_) {
         item_++;
-        say(now, "ch3 still diverging, %s so far", secs(a, sizeof(a), elapsedMs(now, expectMs_)));
+        say(now, "ch1 still diverging, %s so far", secs(a, sizeof(a), elapsedMs(now, expectMs_)));
       }
       break;
 
@@ -953,10 +954,10 @@ void ScenarioRunner::run5(const ScenarioView& v, Controller& ctl, CabinetModel& 
           finish(now, model, Result::Fail, c);
           break;
         }
-        say(now, "ch3 RECOVERED %s after coming back in line", secs(a, sizeof(a), took));
+        say(now, "ch1 RECOVERED %s after coming back in line", secs(a, sizeof(a), took));
         finish(now, model, Result::Pass, "excluded after 10 min of divergence; recovered after 10 reads within 5 C and a serial re-check");
       } else if (elapsedMs(now, phaseAtMs_) > 300000) {
-        finish(now, model, Result::Fail, "ch3 did not recover within 5 min");
+        finish(now, model, Result::Fail, "ch1 did not recover within 5 min");
       }
       break;
   }
@@ -1095,7 +1096,7 @@ void ScenarioRunner::run15(const ScenarioView& v, Controller& ctl, CabinetModel&
         for (int i = 0; i < kNumSensors; i++) if (h->reason(i) == Exclusion::BusFault) target_ = i;
         if (target_ < 0) { finish(now, model, Result::Fail, "bus stuck, but no channel excluded for a bus fault"); break; }
         say(now, "BUS STUCK detected with ch%d selected: mux RST pulsed, I2C restarted, ch%d excluded (bus-fault)",
-            channelOf(target_), channelOf(target_));
+            target_, target_);
         item_ = 0;
         phase(2, now);
       } else if (elapsedMs(now, phaseAtMs_) > 120000) {
@@ -1108,20 +1109,20 @@ void ScenarioRunner::run15(const ScenarioView& v, Controller& ctl, CabinetModel&
       if (!v.rtcOk) { finish(now, model, Result::Fail, "the RTC stopped reading during the fault"); break; }
       for (int i = 0; i < kNumSensors; i++) {
         if (i != target_ && !h->healthy(i)) {
-          snprintf(c, sizeof(c), "ch%d excluded (%s) during the fault on ch%d", channelOf(i), exclusionName(h->reason(i)), channelOf(target_));
+          snprintf(c, sizeof(c), "ch%d excluded (%s) during the fault on ch%d", i, exclusionName(h->reason(i)), target_);
           finish(now, model, Result::Fail, c);
           return;
         }
       }
       if (++item_ < 2) break;
       say(now, "two sweeps with the short in place: RTC reading, the other five sensors healthy, internal pull-ups off - correct");
-      say(now, "15.2 >>> REMOVE THE SHORT NOW <<< ch%d needs 10 good reads and its serial re-checked (~2.5 min)", channelOf(target_));
+      say(now, "15.2 >>> REMOVE THE SHORT NOW <<< ch%d needs 10 good reads and its serial re-checked (~2.5 min)", target_);
       phase(3, now);
       break;
 
     case 3:
       if (h->healthy(target_)) {
-        say(now, "ch%d RECOVERED", channelOf(target_));
+        say(now, "ch%d RECOVERED", target_);
         finish(now, model, Result::Pass, "stuck bus detected, RST pulsed, channel excluded; RTC and others kept working; channel recovered");
       } else if (elapsedMs(now, phaseAtMs_) > 360000) {
         finish(now, model, Result::Fail, "the channel did not recover within 6 min of removing the short");

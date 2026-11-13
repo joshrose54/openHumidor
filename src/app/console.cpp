@@ -7,6 +7,7 @@
 #include "wineador/sensor_health.h"
 #include "drivers/i2c_bus.h"
 #include "drivers/sd_card.h"
+#include "board.h"
 
 using namespace wineador;
 
@@ -40,16 +41,24 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.println();
   Serial.println("=====================================================================");
   Serial.printf ("  WINEADOR CONTROLLER    firmware %s\n", b.version);
-  Serial.printf ("  Board Rev N   |   profile %s   |   %s\n", profileName(s.profile),
+  Serial.printf ("  Board %s   |   profile %s   |   %s\n", board::kName, profileName(s.profile),
                  kTestBuild ? "TEST BUILD" : "cabinet build");
   Serial.printf ("  Boot reason: %s\n", b.bootReason);
   Serial.println("=====================================================================");
+
+#if defined(WINEADOR_BOARD_REVQ)
+  // Stage Q1: the Rev Q build compiles with every pin named, but its drivers are stage Q2.
+  Serial.println("#####################################################################");
+  Serial.println("##   REV Q, STAGE Q1 BUILD  -  NOT FOR USE                         ##");
+  Serial.println("##   The Rev Q drivers (RTC bus, watchdog, SD power...) are Q2.    ##");
+  Serial.println("#####################################################################");
+#endif
 
   if (s.profile == Profile::Bench) {
     Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     Serial.println("!!                                                                 !!");
     Serial.println("!!   BENCH PROFILE  -  SHORT TEST TIMERS                           !!");
-    Serial.println("!!   NOT FOR THE CABINET. Before installing, flash the esp32dev    !!");
+    Serial.println("!!   NOT FOR THE CABINET. Before installing, flash the cabinet     !!");
     Serial.println("!!   build (REAL profile) and check this banner has gone.          !!");
     Serial.println("!!                                                                 !!");
     Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -87,6 +96,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
                  (unsigned long)f.relayExerciseOnMs, (unsigned long)f.relayExerciseOffMs);
 
   Serial.println("\n  Hardware:");
+  Serial.printf ("    sensors     ch0-ch5 on mux channels %u, %u, %u, %u, %u, %u (%s)\n",
+                 (unsigned)board::kSensorMuxChannel[0], (unsigned)board::kSensorMuxChannel[1],
+                 (unsigned)board::kSensorMuxChannel[2], (unsigned)board::kSensorMuxChannel[3],
+                 (unsigned)board::kSensorMuxChannel[4], (unsigned)board::kSensorMuxChannel[5], board::kName);
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
   Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
@@ -171,7 +184,7 @@ void printHelp(bool testBuild) {
   Serial.println("    status    everything at a glance     sensors   per-channel health and counts");
   Serial.println("    events [n]  the last n events (10)   log       SD card and logging     settings  all settings");
   Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set defaults  (saved)");
-  Serial.println("    exclude chN on|off   take a sensor out for maintenance, or put it back (saved)");
+  Serial.println("    exclude chN on|off   take sensor N (0-5) out for maintenance, or put it back (saved)");
   if (testBuild) {
     Serial.println("    run <n>   TEST BUILD ONLY: play B3 test n's scenario (1, 2, 3, 4, 41=4c, 42=4d, 5, 6, 13, 15,");
     Serial.println("              7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24; 'run soak' = B4)");

@@ -8,13 +8,16 @@ Usage (card in the Mac's reader, mounted as WINEADOR):
 Only reads the card. Prints each check as PASS / FAIL / NOTE and a summary.
 
 What it checks
-  every run   folders and file names by UTC month; headers (schema, firmware,
+  every run   folders and file names by UTC month; headers (schema, board, firmware,
               profile, each sensor's serial with rh_gain / rh_offset as in
               lib/core/src/wineador/sensor_table.cpp); every row has the header's
               columns; each RH column = gain x raw + offset (clamped 0-100), for
               the logic's and (test builds) the real readings; each row's month
               matches its file; time_trusted is 0/1; file dates are real (not
               1980); loop_max_ms present (its maximum is reported).
+              Schemas (spec 5.4): 1 = B1-B4 cards, channels ch2-ch7 (Rev N's mux numbers),
+              no -sN in the file names; 2 = channels ch0-ch5, a "# board" line, and -s2
+              in every file name (hourly-s2.csv too). A card may hold both.
   --test24    every 5.4 event type present (disturbance exempt until B6), the RTC
               lost-time and NTP-correction events, the retention deletion.
   --stress    B4's SD stress run (events file): every write made, none lost, retries
@@ -57,10 +60,35 @@ def report(ok, what, detail=""):
 
 
 def sensor_table():
-    """(channel, serial, gain, offset) from the firmware's own table."""
+    """(channel 0-5, serial, position, gain, offset) from the firmware's own table."""
     src = open(os.path.join(ROOT, "lib/core/src/wineador/sensor_table.cpp")).read()
     rows = re.findall(r"\{(\d+),\s*0x([0-9A-Fa-f]+),\s*\"\w+\",\s*\"(\w+)\",\s*([-\d.]+)f,\s*([-\d.]+)f\}", src)
     return [(int(c), int(s, 16), pos, float(g), float(o)) for c, s, pos, g, o in rows]
+
+
+KNOWN_SCHEMAS = (1, 2)
+BOARD_LINES = ("# board rev-n (channel n = mux n+2)", "# board rev-q (channel n = mux n)")
+
+
+def file_schema(comments):
+    """The schema number from a file's '# schema N' line, or None."""
+    for c in comments:
+        m = re.fullmatch(r"# schema (\d+)", c)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def name_schema(path):
+    """The schema a file's name says: '-sN' in it, or 1 with none."""
+    m = re.search(r"-s(\d+)(-p\d+)?\.csv$", os.path.basename(path))
+    return int(m.group(1)) if m else 1
+
+
+def table_for(table, schema):
+    """The sensor table with the channel numbers that schema used: schema 1 numbered
+    them by Rev N's mux (ch2-ch7), schema 2 on uses ch0-ch5 (spec 2.3, 5.4)."""
+    return [(ch + 2 if schema == 1 else ch, serial, pos, g, o) for ch, serial, pos, g, o in table]
 
 
 def read_csv(path):
@@ -81,11 +109,23 @@ def read_csv(path):
 
 
 def check_header(path, comments, kind, profile, table):
-    want = [f"# wineador {kind}", "# schema 1"]
-    for w in want:
-        if w not in comments:
-            report(False, f"{os.path.basename(path)} header", f"missing '{w}'")
-            return
+    """Returns the file's schema (or None if the header is unusable)."""
+    name = os.path.basename(path)
+    if f"# wineador {kind}" not in comments:
+        report(False, f"{name} header", f"missing '# wineador {kind}'")
+        return None
+    schema = file_schema(comments)
+    if schema not in KNOWN_SCHEMAS:
+        report(False, f"{name} header", f"schema {schema}: this checker knows {KNOWN_SCHEMAS}")
+        return None
+    if name_schema(path) != schema:
+        report(False, f"{name} name", f"says schema {name_schema(path)}, header says {schema} (5.4: one schema per file)")
+        return None
+    board = [c for c in comments if c.startswith("# board ")]
+    if schema >= 2 and (len(board) != 1 or board[0] not in BOARD_LINES):
+        report(False, f"{name} header", f"board line {board[0] if board else 'missing'}; expected one of {BOARD_LINES}")
+        return None
+    table = table_for(table, schema)
     prof = [c for c in comments if c.startswith("# profile ")]
     if not prof or not prof[0].startswith(f"# profile {profile}"):
         # A month's file is made by the first build that logs that month; a later build
@@ -98,21 +138,24 @@ def check_header(path, comments, kind, profile, table):
                          f"{len(boots)} later boot(s) as {profile}")
         else:
             report(False, f"{os.path.basename(path)} header profile", f"{prof[0] if prof else 'none'}; expected {profile}")
-            return
+            return schema
     if not any(c.startswith("# firmware ") for c in comments):
         report(False, f"{os.path.basename(path)} header", "no firmware line")
-        return
+        return schema
     if kind == "readings":
         for ch, serial, pos, g, o in table:
             line = f"# ch{ch} serial 0x{serial:08X} {pos} rh_gain {g:.4f} rh_offset {o:.3f}"
             if line not in comments:
                 report(False, f"{os.path.basename(path)} header", f"missing or wrong: '{line}'")
-                return
-    report(True, f"{os.path.basename(path)} header", prof[0][2:])
+                return schema
+    report(True, f"{os.path.basename(path)} header",
+           f"schema {schema}" + (f", {board[0][2:]}" if board else "") + f", {prof[0][2:]}")
+    return schema
 
 
 def check_readings(path, table):
     comments, header, rows = read_csv(path)
+    table = table_for(table, file_schema(comments) or 1)
     name = os.path.basename(path)
     month = name[:7]
     bad_cols = sum(1 for r in rows if len(r) != len(header))
@@ -259,12 +302,22 @@ def main():
                 events_files.append(p)
             elif not f.startswith("."):
                 report(None, f"unexpected file {year}/{f}")
+    # In time order: by month, then schema (a month can change schema part way), then part file.
+    # (By name alone "...-readings-s2.csv" would sort before "...-readings.csv".)
+    def in_time_order(p):
+        m = re.search(r"-p(\d+)\.csv$", p)
+        return (os.path.basename(p)[:7], name_schema(p), int(m.group(1)) if m else 1)
+    readings.sort(key=in_time_order)
+    events_files.sort(key=in_time_order)
     report(bool(readings) and bool(events_files), "files as /logs/YYYY/YYYY-MM-readings.csv and -events.csv",
            f"{len(readings)} readings, {len(events_files)} events files")
-    hourly = os.path.join(logs, "hourly.csv")   # (a part file hourly-p2.csv would only follow a 3.9 GB hourly.csv)
-    report(os.path.isfile(hourly), "/logs/hourly.csv exists")
+    # hourly.csv (schema 1) and hourly-sN.csv (schema N); a part file -pN would only follow a 3.9 GB one.
+    hourlies = sorted((os.path.join(logs, f) for f in os.listdir(logs)
+                       if re.fullmatch(r"hourly(-s\d+)?(-p\d+)?\.csv", f)), key=lambda p: (name_schema(p), p))
+    report(bool(hourlies), "an hourly file exists (/logs/hourly.csv, or hourly-sN.csv from schema 2)",
+           ", ".join(os.path.basename(p) for p in hourlies))
 
-    for p in readings + events_files + ([hourly] if os.path.isfile(hourly) else []):
+    for p in readings + events_files + hourlies:
         ok, y = file_date_ok(p)
         if not ok:
             report(False, f"{os.path.basename(p)} file date", f"year {y}: the system clock was not set from the RTC")
@@ -277,26 +330,27 @@ def main():
             trusted = [r[1] for r in rows if len(r) > 1]
             report(None, f"{name}: written while the clock read {name[:7]} (lost time); time_trusted values {sorted(set(trusted))}")
 
-    all_rows, header = [], []
+    all_rows, header, schema = [], [], 1
     for p in readings:
         comments, h, rows = read_csv(p)
-        check_header(p, comments, "readings", a.profile, table)
+        schema = check_header(p, comments, "readings", a.profile, table) or 1
         header, rows = check_readings(p, table)
         all_rows += rows
     for p in events_files:
         comments, h, rows = read_csv(p)
         check_header(p, comments, "events", a.profile, table)
         report(h == ["timestamp", "time_trusted", "uptime_ms", "type", "detail"], f"{os.path.basename(p)} columns")
-    if os.path.isfile(hourly):
+    for hourly in hourlies:
+        hn = os.path.basename(hourly)
         comments, h, rows = read_csv(hourly)
         check_header(hourly, comments, "hourly", a.profile, table)
         bad = sum(1 for r in rows if len(r) != len(h))
-        report(bad == 0, f"hourly.csv: {len(rows)} rows with {len(h)} columns", f"{bad} wrong" if bad else "")
+        report(bad == 0, f"{hn}: {len(rows)} rows with {len(h)} columns", f"{bad} wrong" if bad else "")
         if "heap_min" in h:
             k = h.index("heap_min")
             lows = [int(r[k]) for r in rows if len(r) == len(h) and r[k].isdigit()]
             if lows:
-                report(min(lows) >= HEAP_FLOOR, "hourly.csv: lowest free heap since boot at or above 30 KB",
+                report(min(lows) >= HEAP_FLOOR, f"{hn}: lowest free heap since boot at or above 30 KB",
                        f"lowest {min(lows)} bytes")
 
     events = load_events(events_files)
@@ -375,7 +429,7 @@ def main():
             report(order == 0, "readings rows in order", f"{order} out of order" if order else "")
             report(not gaps, "no gap in the readings (every row kept while the card was out reached it)",
                    "; ".join(f"{x:%H:%M:%S} -> {y:%H:%M:%S}" for x, y in gaps[:5]))
-        if os.path.isfile(hourly):
+        for hourly in hourlies[-1:]:   # the newest schema's file: the one being written now
             comments, h, rows = read_csv(hourly)
             hours = [dt.datetime.strptime(r[0], "%Y-%m-%dT%H:%M:%SZ") for r in rows if r and r[0][:2] == "20" and int(r[1] or 0) == 1]
             missing = [x for x, y in zip(hours, hours[1:]) if (y - x).total_seconds() != 3600]
@@ -447,7 +501,7 @@ def main():
                 else:
                     report(last - first <= limit, f"{label} not creeping", f"first 2 h {first:.1f}, last 2 h {last:.1f} ms")
             crc = {}
-            for ch, *_ in table:
+            for ch, *_ in table_for(table, schema):
                 k = f"ch{ch}_bus_real"
                 if k in idx:
                     crc[ch] = sum(1 for r in rows if r[idx[k]] == "CRC FAIL")

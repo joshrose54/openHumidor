@@ -5,6 +5,9 @@
 #include "soc/io_mux_reg.h"
 #include "soc/gpio_periph.h"
 #include "pins.h"
+#include "board.h"
+
+static_assert(sizeof(board::kSensorMuxChannel) == wineador::kNumSensors, "one mux channel per sensor");
 
 using wineador::BusResult;
 using wineador::kNumSensors;
@@ -297,7 +300,7 @@ static void step(uint32_t nowMs) {
       if (gIdx >= kNumSensors) { gSt = St::Deselect; break; }
       gReadSerialThis = gBootSweep || gWantSerial[gIdx];
       gWantSerial[gIdx] = false;
-      if (!muxWrite((uint8_t)(1u << wineador::channelOf(gIdx)))) { failed(BusResult::MuxFail); break; }
+      if (!muxWrite((uint8_t)(1u << board::kSensorMuxChannel[gIdx]))) { failed(BusResult::MuxFail); break; }
       gSt = gReadSerialThis ? St::SerialCmd : St::MeasCmd;
       break;
 

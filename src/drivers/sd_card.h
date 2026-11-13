@@ -1,5 +1,5 @@
 #pragma once
-// SD card on VSPI, CS on P17 — from soak_test.cpp (which ran at 4 MHz; now kSpiHz).
+// SD card: Rev N on VSPI (CS P17), Rev Q on SPI3 (CS GPIO42) — pins.h. From soak_test.cpp (which ran at 4 MHz; now kSpiHz).
 // Mount at boot and report. From stage 6 the SD logging task (sd_log) owns the card
 // after boot: nothing else may call the SD library.
 //

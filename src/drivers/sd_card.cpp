@@ -6,7 +6,11 @@
 
 namespace sdcard {
 
-static SPIClass gSpi(VSPI);
+#if defined(WINEADOR_BOARD_REVQ)
+static SPIClass gSpi(HSPI);   // Rev Q: SPI3 (3A.10). On the S3, Arduino's HSPI is SPI3; SPI2 (FSPI) is the LCD's
+#else
+static SPIClass gSpi(VSPI);   // Rev N: VSPI
+#endif
 static bool gMounted = false;
 static uint64_t gMB = 0;
 

@@ -15,14 +15,14 @@ namespace wineador {
 enum class Profile : uint8_t { Real, Bench };
 
 // ---------------------------------------------------------------- sensors
-// Six SHT40s on mux channels 2..7. Index 0..5 everywhere in the code.
+// Six SHT40s, channels 0..5 (spec 2.3). The channel number IS the index, everywhere:
+// control rules, settings, logs, commands, tools. Which mux channel each one is wired to
+// is a board matter (include/board.h, used only by the I2C driver): Rev Q wires channel n
+// to mux channel n, Rev N to mux channel n+2. lib/core never sees mux numbers.
 constexpr int kNumSensors      = 6;
-constexpr int kFirstChannel    = 2;   // index 0 = mux channel 2
-constexpr int kCabinetSensors  = 4;   // index 0..3 = ch2..ch5, the control sensors
-constexpr int kChamberIndex    = 4;   // ch6, in the plenum — safety only, never control
-constexpr int kAmbientIndex    = 5;   // ch7, room air — never control
-
-inline int channelOf(int index) { return index + kFirstChannel; }
+constexpr int kCabinetSensors  = 4;   // ch0..ch3, the control sensors
+constexpr int kChamberIndex    = 4;   // ch4, in the plenum — safety only, never control
+constexpr int kAmbientIndex    = 5;   // ch5, room air — never control
 
 // Result of the I2C transaction for one sensor. These are the "bus checks",
 // which stay real even in a test build.

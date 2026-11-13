@@ -61,13 +61,13 @@ void test_status_line_clock_health_and_net() {
   StatusInfo s = sample();
   s.timeTrusted = false;
   s.rtcLostTime = true;
-  s.healthText = "| excl ch6 absent | sensor hold 12s";
+  s.healthText = "| excl ch4 absent | sensor hold 12s";
   s.netText = "wifi up ntp waiting";
   char b[600];
   formatStatusLine(b, sizeof(b), s);
   TEST_ASSERT_TRUE(has(b, "2026-11-07T13:00:15Z UNTRUSTED up 0:01:30"));
   TEST_ASSERT_TRUE(has(b, "| RTC LOST TIME"));
-  TEST_ASSERT_TRUE(has(b, "/6 | excl ch6 absent | sensor hold 12s"));
+  TEST_ASSERT_TRUE(has(b, "/6 | excl ch4 absent | sensor hold 12s"));
   TEST_ASSERT_TRUE(has(b, "| wifi up ntp waiting"));
 }
 
@@ -96,7 +96,7 @@ void test_status_line_shows_loads_and_sensors() {
   formatStatusLine(b, sizeof(b), s);
   TEST_ASSERT_TRUE(has(b, "relay HEAT cool off heat ON humid off"));
   TEST_ASSERT_TRUE(has(b, "cab 21.00C 60.0% (3/4, 20.00-22.00)"));
-  TEST_ASSERT_TRUE(has(b, "ch6 24.00C"));
+  TEST_ASSERT_TRUE(has(b, "ch4 24.00C"));
   TEST_ASSERT_TRUE(has(b, "sensors 5/6"));
 }
 
@@ -120,7 +120,7 @@ void test_live_block() {
 }
 
 // ---------------------------------------------------------------- summary
-void test_summary_cabinet_is_ch2_to_ch5_only() {
+void test_summary_cabinet_is_ch0_to_ch3_only() {
   Readings r;
   r.s[0] = {BusResult::Ok, 19.0f, 60.0f};
   r.s[1] = {BusResult::Ok, 21.0f, 64.0f};
@@ -264,22 +264,26 @@ void test_stage6_serial_interface_commands() {
   TEST_ASSERT_EQUAL_INT(-2, a.arg);
   TEST_ASSERT_TRUE(parseCommand("set defaults", false, a) == Command::SetDefaults);
   TEST_ASSERT_TRUE(parseCommand("set colour blue", false, a) == Command::Unknown);
-  TEST_ASSERT_TRUE(parseCommand("exclude ch3 on", false, a) == Command::Exclude);
-  TEST_ASSERT_EQUAL_INT(3, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude ch1 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(1, a.arg);
   TEST_ASSERT_EQUAL_INT(1, a.arg2);
-  TEST_ASSERT_TRUE(parseCommand("exclude 7 off", false, a) == Command::Exclude);
-  TEST_ASSERT_EQUAL_INT(7, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("exclude 5 off", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(5, a.arg);
   TEST_ASSERT_EQUAL_INT(0, a.arg2);
+  TEST_ASSERT_TRUE(parseCommand("exclude ch0 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(0, a.arg);                        // channels are 0-5 (spec 2.3)
+  TEST_ASSERT_TRUE(parseCommand("exclude ch6 on", false, a) == Command::Exclude);
+  TEST_ASSERT_EQUAL_INT(-2, a.arg);                       // no such channel (Rev N's old 2-7 numbering)
   TEST_ASSERT_TRUE(parseCommand("exclude ch8 on", false, a) == Command::Exclude);
   TEST_ASSERT_EQUAL_INT(-2, a.arg);                       // no such channel
-  TEST_ASSERT_TRUE(parseCommand("exclude ch3", false, a) == Command::Exclude);
+  TEST_ASSERT_TRUE(parseCommand("exclude ch1", false, a) == Command::Exclude);
   TEST_ASSERT_EQUAL_INT(-2, a.arg);
   // test-build only
-  TEST_ASSERT_TRUE(parseCommand("crc ch4", true, a) == Command::InjectCrc);
+  TEST_ASSERT_TRUE(parseCommand("crc ch2", true, a) == Command::InjectCrc);
+  TEST_ASSERT_EQUAL_INT(2, a.arg);
+  TEST_ASSERT_TRUE(parseCommand("timeout 4", true, a) == Command::InjectTimeout);
   TEST_ASSERT_EQUAL_INT(4, a.arg);
-  TEST_ASSERT_TRUE(parseCommand("timeout 6", true, a) == Command::InjectTimeout);
-  TEST_ASSERT_EQUAL_INT(6, a.arg);
-  TEST_ASSERT_TRUE(parseCommand("crc ch4", false, a) == Command::TestOnly);
+  TEST_ASSERT_TRUE(parseCommand("crc ch2", false, a) == Command::TestOnly);
   TEST_ASSERT_TRUE(parseCommand("run soak", true, a) == Command::Run);
   TEST_ASSERT_EQUAL_INT(kSoakScenario, a.arg);
   TEST_ASSERT_TRUE(parseCommand("status now", false, a) == Command::Unknown);
@@ -434,11 +438,11 @@ void test_sht40_serial() {
 
 void test_sensor_table() {
   for (int i = 0; i < kNumSensors; i++) {
-    TEST_ASSERT_EQUAL_UINT8(i + 2, kSensors[i].channel);
+    TEST_ASSERT_EQUAL_UINT8(i, kSensors[i].channel);                      // channels 0-5 (spec 2.3)
     TEST_ASSERT_EQUAL_INT(i, sensorIndexForSerial(kSensors[i].serial));   // serials unique
   }
   TEST_ASSERT_EQUAL_INT(-1, sensorIndexForSerial(0x12345678));
-  TEST_ASSERT_EQUAL_FLOAT(1.0274f, kSensors[2].rhGain);    // ch4, build log
+  TEST_ASSERT_EQUAL_FLOAT(1.0274f, kSensors[2].rhGain);    // ch2, build log
   TEST_ASSERT_EQUAL_FLOAT(-3.878f, kSensors[2].rhOffset);
 }
 
@@ -491,7 +495,7 @@ int main() {
   RUN_TEST(test_status_line_shows_loads_and_sensors);
   RUN_TEST(test_status_line_never_overruns);
   RUN_TEST(test_live_block);
-  RUN_TEST(test_summary_cabinet_is_ch2_to_ch5_only);
+  RUN_TEST(test_summary_cabinet_is_ch0_to_ch3_only);
   RUN_TEST(test_line_reader_and_commands);
   RUN_TEST(test_fan_command);
   RUN_TEST(test_status_line_control_text);

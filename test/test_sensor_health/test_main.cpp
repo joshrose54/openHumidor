@@ -46,7 +46,7 @@ struct Rig {
 
 // ---------------------------------------------------------------- calibration
 void test_calibration_per_serial() {
-  // Build log: ch2 gain 1.0067 offset -2.556
+  // Build log: ch0 gain 1.0067 offset -2.556
   TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0067f * 65.0f - 2.556f, correctedRh(0, 65.0f));
   TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0274f * 65.0f - 3.878f, correctedRh(2, 65.0f));
   TEST_ASSERT_EQUAL_FLOAT(100.0f, correctedRh(0, 105.0f));    // clamped after correction
@@ -68,7 +68,7 @@ void test_boot_healthy_from_first_good_read_with_right_serial() {
 void test_boot_wrong_serial_excluded_and_logged() {
   Rig g(false);
   for (int i = 0; i < kNumSensors; i++) g.h.serialResult(i, BusResult::Ok, kSensors[i].serial);
-  g.h.serialResult(1, BusResult::Ok, kSensors[2].serial);   // ch3 and ch4 plugs swapped
+  g.h.serialResult(1, BusResult::Ok, kSensors[2].serial);   // ch1 and ch2 plugs swapped
   g.h.serialResult(2, BusResult::Ok, kSensors[1].serial);
   g.sweep(1000, false);
   TEST_ASSERT_TRUE(g.h.reason(1) == Exclusion::WrongSerial);
@@ -243,7 +243,7 @@ void test_recovery_refused_if_a_different_probe_came_back() {
   for (int k = 0; k < 9; k++) g.sweep();
   g.sweep(15000, false);
   TEST_ASSERT_TRUE(g.h.wantsSerial(2));
-  g.h.serialResult(2, BusResult::Ok, kSensors[3].serial);   // ch5's probe on ch4
+  g.h.serialResult(2, BusResult::Ok, kSensors[3].serial);   // ch3's probe on ch2
   g.sweep(15000, false);
   TEST_ASSERT_TRUE(g.h.reason(2) == Exclusion::WrongSerial);
 }

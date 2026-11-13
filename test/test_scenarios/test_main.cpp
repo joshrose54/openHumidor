@@ -166,8 +166,8 @@ struct Sim {
       if (strstr(l, "UNPLUG THE PLENUM FAN")) { fanPlugged = false; fanSpinning = false; }
       if (strstr(l, "PLUG J2 BACK IN")) fanPlugged = true;
       if (strstr(l, "UNPLUG THE CHAMBER SENSOR")) plugged[kChamberIndex] = false;
-      if (strstr(l, "UNPLUG ch2")) plugged[0] = false;
-      if (strstr(l, "UNPLUG ch3")) plugged[1] = false;
+      if (strstr(l, "UNPLUG ch0")) plugged[0] = false;
+      if (strstr(l, "UNPLUG ch1")) plugged[1] = false;
       if (strstr(l, "BACK IN NOW") && !strstr(l, "J2")) for (bool& p : plugged) p = true;
       if (strstr(l, "SHORT ONE SENSOR'S SDA")) shorted = 2;
       if (strstr(l, "REMOVE THE SHORT")) shorted = -1;

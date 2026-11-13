@@ -71,11 +71,11 @@ int onOff(const char* s) {
   return -2;
 }
 
-// "ch3" or "3" -> 3 (channels 2..7); -2 otherwise.
+// "ch3" or "3" -> 3 (channels 0..5, spec 2.3); -2 otherwise.
 int channelWord(const char* s) {
   if (s[0] == 'c' && s[1] == 'h') s += 2;
   int v;
-  if (!toInt(s, &v) || v < 2 || v > 7) return -2;
+  if (!toInt(s, &v) || v < 0 || v > 5) return -2;
   return v;
 }
 

@@ -28,14 +28,25 @@ static const char* lastLine(const char* s) {
 
 void test_paths() {
   char p[64];
+  // Schema 2 (channels 0-5): every name carries -s2, hourly included (5.4)
+  TEST_ASSERT_EQUAL_INT(2, kLogSchema);
   logPath(p, sizeof(p), LogKind::Readings, 2026, 9);
-  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-09-readings.csv", p);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-09-readings-s2.csv", p);
   logPath(p, sizeof(p), LogKind::Events, 2026, 11);
-  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-11-events.csv", p);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-11-events-s2.csv", p);
   logPath(p, sizeof(p), LogKind::Hourly, 2026, 11);
+  TEST_ASSERT_EQUAL_STRING("/logs/hourly-s2.csv", p);
+  // Schema 1 (B1-B4 cards, channels 2-7): no suffix
+  logPath(p, sizeof(p), LogKind::Readings, 2026, 9, 1);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-09-readings.csv", p);
+  logPath(p, sizeof(p), LogKind::Events, 2026, 11, 1);
+  TEST_ASSERT_EQUAL_STRING("/logs/2026/2026-11-events.csv", p);
+  logPath(p, sizeof(p), LogKind::Hourly, 0, 0, 1);
   TEST_ASSERT_EQUAL_STRING("/logs/hourly.csv", p);
-  logPath(p, sizeof(p), LogKind::Readings, 2027, 1, 2);
-  TEST_ASSERT_EQUAL_STRING("/logs/2027/2027-01-readings-s2.csv", p);   // a new schema, a new file
+  logPath(p, sizeof(p), LogKind::Hourly, 0, 0, 3);
+  TEST_ASSERT_EQUAL_STRING("/logs/hourly-s3.csv", p);
+  logPartPath(p, sizeof(p), "/logs/hourly-s2.csv", 2);
+  TEST_ASSERT_EQUAL_STRING("/logs/hourly-s2-p2.csv", p);
   logYearDir(p, sizeof(p), 2026);
   TEST_ASSERT_EQUAL_STRING("/logs/2026", p);
 }
@@ -78,15 +89,20 @@ void test_readings_header_has_profile_serials_and_columns() {
   LogHeaderInfo info;
   info.firmware = "0.1.0-stage6-BENCH-TEST";
   info.profile = Profile::Bench;
+  info.board = "rev-n (channel n = mux n+2)";
   info.testBuild = true;
-  formatReadingsHeader(h, sizeof(h), info);
-  TEST_ASSERT_NOT_NULL(strstr(h, "# wineador readings\n# schema 1\n# firmware 0.1.0-stage6-BENCH-TEST\n# profile bench TEST-BUILD"));
-  TEST_ASSERT_NOT_NULL(strstr(h, "# ch2 serial 0x0AD409ED top_front rh_gain 1.0067 rh_offset -2.556"));
-  TEST_ASSERT_NOT_NULL(strstr(h, "# ch7 serial 0x0E42EFBA ambient rh_gain 1.0151 rh_offset -3.475"));
+  const int len = formatReadingsHeader(h, sizeof(h), info);
+  TEST_ASSERT_TRUE(len < 2600);                                  // fits main.cpp's header buffer
+  TEST_ASSERT_NOT_NULL(strstr(h, "# wineador readings\n# schema 2\n# board rev-n (channel n = mux n+2)\n"
+                                 "# firmware 0.1.0-stage6-BENCH-TEST\n# profile bench TEST-BUILD"));
+  TEST_ASSERT_NOT_NULL(strstr(h, "# ch0 serial 0x0AD409ED top_front rh_gain 1.0067 rh_offset -2.556"));
+  TEST_ASSERT_NOT_NULL(strstr(h, "# ch5 serial 0x0E42EFBA ambient rh_gain 1.0151 rh_offset -3.475"));
   const char* cols = lastLine(h);
-  TEST_ASSERT_EQUAL_INT(0, strncmp(cols, "timestamp,time_trusted,ch2_t,ch2_rh,ch2_rh_raw,ch2_flag", 54));
+  TEST_ASSERT_EQUAL_INT(0, strncmp(cols, "timestamp,time_trusted,ch0_t,ch0_rh,ch0_rh_raw,ch0_flag", 54));
   TEST_ASSERT_NOT_NULL(strstr(cols, ",loop_max_ms,heap_free,heap_min,sd_worst_ms,"));
-  TEST_ASSERT_NOT_NULL(strstr(cols, ",ch7_bus_real\n"));
+  TEST_ASSERT_NOT_NULL(strstr(cols, ",ch5_bus_real\n"));
+  TEST_ASSERT_NULL(strstr(h, "ch6"));                            // nothing left of the 2-7 numbering
+  TEST_ASSERT_NULL(strstr(h, "ch7"));
   // the cabinet build has no *_real columns
   info.testBuild = false;
   info.profile = Profile::Real;
@@ -105,7 +121,7 @@ void test_readings_row_matches_header_columns() {
     row.timestamp = "2026-11-08T16:00:00Z";
     row.timeTrusted = true;
     for (int i = 0; i < kNumSensors; i++) {
-      row.ch[i].read = (i != 2);                       // ch4 failed this sweep
+      row.ch[i].read = (i != 2);                       // ch2 failed this sweep
       row.ch[i].tempC = 20.0f + i;
       row.ch[i].rhRawPct = 64.0f;
       row.ch[i].rhPct = correctedRh(i, 64.0f);
@@ -230,8 +246,11 @@ void test_hourly_row() {
   h.formatRow(r, sizeof(r));
   formatHourlyHeader(hdr, sizeof(hdr), LogHeaderInfo{});
   TEST_ASSERT_EQUAL_INT(countChar(lastLine(hdr), ','), countChar(r, ','));
+  TEST_ASSERT_NOT_NULL(strstr(hdr, "# schema 2\n# board ?\n"));
+  TEST_ASSERT_NOT_NULL(strstr(hdr, "hour,time_trusted,samples,ch0_t_min,"));
+  TEST_ASSERT_NOT_NULL(strstr(hdr, ",ch5_rh_mean,cab_mean_t_min,"));
   TEST_ASSERT_NOT_NULL(strstr(r, "2026-11-08T16:00:00Z,1,2,20.00,22.00,21.00,62.00,62.00,62.00,"));
-  TEST_ASSERT_NOT_NULL(strstr(r, ",,,,,,,"));            // ch7 not healthy: blank
+  TEST_ASSERT_NOT_NULL(strstr(r, ",,,,,,,"));            // ch5 not healthy: blank
   TEST_ASSERT_NOT_NULL(strstr(r, ",30.0,650,90,0,0,54321\n"));  // fan mean, rpm mean, compressor 90 s, heap_min
 }
 

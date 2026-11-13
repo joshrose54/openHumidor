@@ -3,8 +3,8 @@
 
 The firmware's boot check: below 10 % free, delete the oldest month of readings
 until above 20 % free. This script, run on the Mac with the card in the reader:
-  1. writes two dummy OLD months of readings, /logs/2025/2025-09-readings.csv and
-     2025-10-readings.csv, big enough that deleting both takes free space from
+  1. writes two dummy OLD months of readings, /logs/2025/2025-09-readings-s2.csv and
+     2025-10-readings-s2.csv (log schema 2, spec 5.4), big enough that deleting both takes free space from
      ~8 % to just over 20 % (deleting only the first must NOT be enough), and
   2. writes filler files /FILLER-01.bin, -02 ... so free space ends at ~8 %.
 FAT32 holds no file of 4 GB or more, so every file is kept under 3.9 GB. Run it
@@ -26,9 +26,10 @@ import sys
 GB = 1024 ** 3
 PART = int(3.9 * GB)                               # FAT32: every file under 4 GB
 CHUNK = 64 * 1024 * 1024
-HEADER = (b"# wineador readings\n# schema 1\n# firmware DUMMY (tools/fill_card.py, for B3 test 24)\n"
-          b"# profile bench\ntimestamp,time_trusted\n")
-DUMMIES = ["logs/2025/2025-09-readings.csv", "logs/2025/2025-10-readings.csv"]
+HEADER = (b"# wineador readings\n# schema 2\n# board rev-q (channel n = mux n)\n"
+          b"# firmware DUMMY (tools/fill_card.py, for B3 test 24)\n# profile bench\ntimestamp,time_trusted\n")
+# Schema 2 names (spec 5.4); the firmware's retention reads both the old and the -sN form.
+DUMMIES = ["logs/2025/2025-09-readings-s2.csv", "logs/2025/2025-10-readings-s2.csv"]
 
 
 def plan(card):

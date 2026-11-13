@@ -1,6 +1,23 @@
 # Where we're up to
 
-*Updated 2026-11-11.*
+*Updated 2026-11-13.*
+
+## Port to Rev Q: stage Q1 built, waiting for Josh's sign-off (2026-11-13)
+
+Rev N is no longer available: build and native tests only until Rev Q arrives.
+
+- **Rev Q environments** (spec 5.1): `revq`, `revq_bench`, `revq_bench_test`, `revq_bench_test_boot`,
+  `revq_real_test` on `esp32-s3-devkitc1-n8r2`, `default_8MB.csv`, console on UART0. **Not for
+  flashing until Q2** (the banner says so). Rev N's five keep building, with `-DWINEADOR_BOARD_REVN`.
+- **Pins and board settings:** `include/pins.h` and `include/board.h` hold both boards (`pins_revn`,
+  `pins_revq`, `board_revn`, `board_revq`); the board flag picks one. Rev N values unchanged.
+- **Channels 0-5 everywhere** (spec 2.3). The mux map is only in `board.h` (Rev N 2-7, Rev Q 0-5),
+  used once in `i2c_bus`. Commands `exclude`/`crc`/`timeout` take 0-5 and echo the sensor's name and
+  probe label.
+- **Log schema 2:** ch0-ch5 columns, a `# board` header line, `-s2` in every file name
+  (`hourly-s2.csv` too). `tools/check_logs.py` reads schema 1 (B1-B4 cards) and 2.
+- Native tests **254/254** (new: `test_board_map`, `test_sample_card`, which writes sample schema 2
+  cards under `.pio.nosync/sample-cards/` for `check_logs.py`).
 
 ## Phase closed: B3 and B4 passed on Rev N (2026-11-11)
 

@@ -178,7 +178,7 @@ void ScenarioRunner::run20(const ScenarioView& v, Controller& ctl, CabinetModel&
     case 2:
       if (elapsedMs(now, phaseAtMs_) >= seconds(10)) {
         model.setOffset(1, 0, 70.5f - model.rhPct(1));
-        say(now, "ch3 scripted to 70.5%% RH; the mean stays near 55%%. At the next read the humidifier must stop at once");
+        say(now, "ch1 scripted to 70.5%% RH; the mean stays near 55%%. At the next read the humidifier must stop at once");
         phase(3, now);
       }
       break;
@@ -200,7 +200,7 @@ void ScenarioRunner::run20(const ScenarioView& v, Controller& ctl, CabinetModel&
     case 4:
       if (elapsedMs(now, phaseAtMs_) >= seconds(5)) {
         model.setOffset(1, 0, 0);
-        say(now, "ch3 back to the cabinet value: the humidifier resumes after its min off, same call");
+        say(now, "ch1 back to the cabinet value: the humidifier resumes after its min off, same call");
         phase(5, now);
       }
       break;
@@ -216,7 +216,7 @@ void ScenarioRunner::run20(const ScenarioView& v, Controller& ctl, CabinetModel&
     case 6:
       if (elapsedMs(now, phaseAtMs_) >= seconds(5)) {
         model.setOffset(0, -60.0f, 0);
-        say(now, "ch2 scripted to an impossible temperature: it will be excluded, leaving 3 of 4. The humidifier must keep running");
+        say(now, "ch0 scripted to an impossible temperature: it will be excluded, leaving 3 of 4. The humidifier must keep running");
         phase(7, now);
       }
       break;
@@ -226,14 +226,14 @@ void ScenarioRunner::run20(const ScenarioView& v, Controller& ctl, CabinetModel&
       if (!flag_ && !h.healthy(0)) {
         flag_ = true;
         markMs_ = now;
-        say(now, "ch2 EXCLUDED: %d of 4 cabinet sensors healthy - humidifier still %s", h.healthyCabinet(), onWord5(v.live.humid));
+        say(now, "ch0 EXCLUDED: %d of 4 cabinet sensors healthy - humidifier still %s", h.healthyCabinet(), onWord5(v.live.humid));
       }
       if (flag_ && elapsedMs(now, markMs_) >= seconds(15)) {
         model.setOffset(2, -60.0f, 0);
-        say(now, "still running 15 s later - correct. Now ch4 too: 2 of 4 left, the humidifier must stop");
+        say(now, "still running 15 s later - correct. Now ch2 too: 2 of 4 left, the humidifier must stop");
         flag_ = false;
         phase(8, now);
-      } else if (!flag_ && elapsedMs(now, phaseAtMs_) > seconds(40)) finish(now, model, Result::Fail, "ch2 was not excluded");
+      } else if (!flag_ && elapsedMs(now, phaseAtMs_) > seconds(40)) finish(now, model, Result::Fail, "ch0 was not excluded");
       break;
 
     case 8:

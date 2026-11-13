@@ -8,8 +8,12 @@
 //   Hourly    min / max / mean per channel and derived value, plus each load's
 //             on-time in the hour (hourly.h).
 //   Files     /logs/YYYY/YYYY-MM-readings.csv and -events.csv by UTC month, and
-//             /logs/hourly.csv. Self-describing headers. A new schema starts a
-//             new file (schema 2 -> YYYY-MM-readings-s2.csv).
+//             /logs/hourly.csv. Self-describing headers. From schema 2 every file
+//             name carries the schema as -sN (YYYY-MM-readings-s2.csv,
+//             YYYY-MM-events-s2.csv, hourly-s2.csv), so a file holds one schema only.
+//   Schemas   1: channels numbered by Rev N's mux, ch2-ch7 (B1-B4 cards).
+//             2: channels 0-5 (spec 2.3), and a "# board" header line naming the
+//                board and its mux wiring.
 //   Retention at boot: below 10 % free, delete the oldest month of readings until
 //             above 20 % free. Events and hourly are never deleted, nor the
 //             current month's readings.
@@ -25,7 +29,7 @@ namespace wineador {
 // included. The lowest since boot is logged in every readings and hourly row.
 constexpr uint32_t kHeapFloorBytes = 30u * 1024u;
 
-constexpr int kLogSchema = 1;
+constexpr int kLogSchema = 2;          // bump whenever columns change, renamed ones included (5.4)
 constexpr int kReadingsBatch = 16;         // rows per SD write (5.4 wear)
 // FAT32 holds no file of 4 GiB or more. No log file should ever get near it
 // (~12 MB of readings a month), but if one would pass this limit the logger
@@ -39,7 +43,7 @@ int csvField(char* out, size_t n, const char* text);
 
 // ---------------------------------------------------------------- paths
 enum class LogKind : uint8_t { Readings, Events, Hourly };
-// "/logs/2026/2026-11-readings.csv"; "/logs/hourly.csv". Returns the length.
+// "/logs/2026/2026-11-readings-s2.csv"; "/logs/hourly-s2.csv" (schema 1: no -s1). Returns the length.
 int logPath(char* out, size_t n, LogKind k, int year, int month, int schema = kLogSchema);
 // "/logs/2026"
 int logYearDir(char* out, size_t n, int year);
@@ -54,10 +58,11 @@ bool parseReadingsName(const char* name, int* year, int* month);
 // ---------------------------------------------------------------- headers
 struct LogHeaderInfo {
   const char* firmware = "?";
+  const char* board = "?";      // the "# board" line, from include/board.h, e.g. "rev-q (channel n = mux n)"
   Profile profile = Profile::Real;
   bool testBuild = false;
 };
-// Comment lines (# wineador readings, # schema 1, # firmware, # profile, one line
+// Comment lines (# wineador readings, # schema 2, # board, # firmware, # profile, one line
 // per sensor with serial, position, rh_gain, rh_offset) then the column header.
 int formatReadingsHeader(char* out, size_t n, const LogHeaderInfo& h);
 int formatEventsHeader(char* out, size_t n, const LogHeaderInfo& h);

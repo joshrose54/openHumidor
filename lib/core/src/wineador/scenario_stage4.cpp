@@ -388,7 +388,7 @@ void ScenarioRunner::run10(const ScenarioView& v, Controller& ctl, CabinetModel&
 
   switch (phase_) {
     case 0:
-      say(now, "TEST 10 - RH temperature floor (%.1f C). RH 69%%; ch2 scripted 1.0 C below the other cabinet sensors. "
+      say(now, "TEST 10 - RH temperature floor (%.1f C). RH 69%%; ch0 scripted 1.0 C below the other cabinet sensors. "
                "The model cools 0.5 C/min and removes NO water, so only the floor can stop the strip.", floorC);
       phase(1, now);
       break;

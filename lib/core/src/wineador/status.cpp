@@ -58,8 +58,8 @@ int formatStatusLine(char* buf, size_t n, const StatusInfo& s) {
     o.add(" cab %.2fC %.1f%% (%d/4, %.2f-%.2f)", s.cab.meanC, s.cab.meanRhPct, s.cab.cabinetOk, s.cab.minC, s.cab.maxC);
   else
     o.add(" cab -- (0/4)");
-  if (s.cab.chamberOk) o.add(" ch6 %.2fC", s.cab.chamberC); else o.add(" ch6 --");
-  if (s.cab.ambientOk) o.add(" ch7 %.2fC %.1f%%", s.cab.ambientC, s.cab.ambientRhPct); else o.add(" ch7 --");
+  if (s.cab.chamberOk) o.add(" ch4 %.2fC", s.cab.chamberC); else o.add(" ch4 --");
+  if (s.cab.ambientOk) o.add(" ch5 %.2fC %.1f%%", s.cab.ambientC, s.cab.ambientRhPct); else o.add(" ch5 --");
   o.add(" | sensors %d/6", s.cab.sensorsOk);
   if (s.healthText && s.healthText[0]) o.add(" %s", s.healthText);
   o.add(" | loop max %lu.%lums", (unsigned long)(s.loopMaxUs / 1000), (unsigned long)((s.loopMaxUs % 1000) / 100));

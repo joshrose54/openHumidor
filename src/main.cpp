@@ -128,7 +128,7 @@ static void timestamp(char* out, size_t n) {
   strftime(out, n, "%Y-%m-%dT%H:%M:%SZ", &tmv);
 }
 
-// "| excl ch6 absent, ch3 crc | sensor hold 12s" — empty when all six are healthy.
+// "| excl ch4 absent, ch1 crc | sensor hold 12s" — empty when all six are healthy.
 static void healthText(char* out, size_t n, uint32_t nowMs) {
   size_t len = 0;
   out[0] = 0;
@@ -140,7 +140,7 @@ static void healthText(char* out, size_t n, uint32_t nowMs) {
   bool first = true;
   for (int i = 0; i < kNumSensors; i++) {
     if (gHealth.healthy(i)) continue;
-    add("%sch%d %s", first ? "| excl " : ", ", channelOf(i), exclusionName(gHealth.reason(i)));
+    add("%sch%d %s", first ? "| excl " : ", ", i, exclusionName(gHealth.reason(i)));
     first = false;
   }
   if (gGate.tempHolding() || gGate.humidHolding()) {
@@ -343,9 +343,11 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     }
     case Command::Exclude: {
-      if (arg < 2 || arg > 7) { Serial.println("  exclude chN on|off (N = 2-7). Nothing changed."); break; }
+      if (arg < 0 || arg > 5) { Serial.println("  exclude chN on|off (N = 0-5). Nothing changed."); break; }
       const UserSettings was = gSettings.user;
-      const uint8_t bit = (uint8_t)(1u << (arg - kFirstChannel));
+      // Channels were 2-7 before schema 2: say which sensor this is, so an old number is caught.
+      Serial.printf("  ch%d = %s, probe %s.\n", arg, kSensors[arg].position, kSensors[arg].label);
+      const uint8_t bit = (uint8_t)(1u << arg);
       if (a.arg2 == 1) gSettings.user.manualExcludeMask |= bit;
       else gSettings.user.manualExcludeMask &= (uint8_t)~bit;
       if (sameUser(was, gSettings.user)) Serial.println("  No change.");
@@ -369,9 +371,10 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
       break;
     case Command::InjectCrc:
     case Command::InjectTimeout:
-      if (arg < 2 || arg > 7) { Serial.println("  crc chN / timeout chN (N = 2-7). Nothing done."); break; }
-      i2cbus::injectFault(arg - kFirstChannel, c == Command::InjectCrc ? BusResult::CrcFail : BusResult::ShortRead);
-      Serial.printf("  TEST: the next read of ch%d will %s.\n", arg, c == Command::InjectCrc ? "fail its CRC" : "time out");
+      if (arg < 0 || arg > 5) { Serial.println("  crc chN / timeout chN (N = 0-5). Nothing done."); break; }
+      i2cbus::injectFault(arg, c == Command::InjectCrc ? BusResult::CrcFail : BusResult::ShortRead);
+      Serial.printf("  TEST: the next read of ch%d (%s, probe %s) will %s.\n", arg, kSensors[arg].position,
+                    kSensors[arg].label, c == Command::InjectCrc ? "fail its CRC" : "time out");
       break;
     case Command::Stall: {
       // TEST BUILDS ONLY (B3 test 11). Stops feeding the watchdog on purpose.
@@ -503,6 +506,7 @@ void setup() {
     static char hr[2600], he[700], hh[2600];
     LogHeaderInfo info;
     info.firmware = gVersion;
+    info.board = board::kLogBoard;
     info.profile = kBuildProfile;
     info.testBuild = kTestBuild;
     formatReadingsHeader(hr, sizeof(hr), info);
@@ -644,7 +648,7 @@ static void afterSweep(uint32_t now) {
     const bool crc = b == BusResult::CrcFail;
     const uint32_t n = crc ? ++gCrcCount[i] : ++gTimeoutCount[i];
     if (gBusLimit.allow(i, now))
-      eventlog::log(crc ? "crc" : "timeout", "ch%d %s: %s (%lu since boot)", channelOf(i), kSensors[i].position,
+      eventlog::log(crc ? "crc" : "timeout", "ch%d %s: %s (%lu since boot)", i, kSensors[i].position,
                     crc ? "CRC failure" : "read timed out", (unsigned long)n);
   }
 
@@ -652,14 +656,14 @@ static void afterSweep(uint32_t now) {
     gStuckSeen = i2cbus::busStuckCount();
     eventlog::log("i2c", "I2C BUS STUCK with ch%d selected: ch%d excluded, mux reset pulsed, I2C restarted (%lu since boot). "
                   "RTC and other sensors carry on.",
-                  channelOf(i2cbus::lastStuckIndex()), channelOf(i2cbus::lastStuckIndex()), (unsigned long)gStuckSeen);
+                  i2cbus::lastStuckIndex(), i2cbus::lastStuckIndex(), (unsigned long)gStuckSeen);
   }
   SensorHealth::Event e;
   while (gHealth.takeEvent(e)) {
-    if (e.excluded) eventlog::log("sensor", "SENSOR EXCLUDED: ch%d %s - %s", channelOf(e.index),
+    if (e.excluded) eventlog::log("sensor", "SENSOR EXCLUDED: ch%d %s - %s", e.index,
                                   kSensors[e.index].position, exclusionName(e.reason));
     else            eventlog::log("sensor", "SENSOR RECOVERED: ch%d %s - 10 good reads, serial re-checked",
-                                  channelOf(e.index), kSensors[e.index].position);
+                                  e.index, kSensors[e.index].position);
   }
 
   if (i2cbus::lastSweepWasBoot()) {       // (the OSF flag itself was read before logging started)
@@ -761,7 +765,8 @@ static void startLogging() {
   struct tm tmv;
   gmtime_r(&t, &tmv);
   sdlog::start(tmv.tm_year + 1900, tmv.tm_mon + 1);
-  eventlog::log("boot", "BOOT: reason %s; firmware %s; profile %s%s; user settings %s; clock %s", gBoot.bootReason, gVersion,
+  eventlog::log("boot", "BOOT: reason %s; firmware %s; board %s; profile %s%s; user settings %s; clock %s", gBoot.bootReason,
+                gVersion, board::kName,
                 kBuildProfile == Profile::Bench ? "BENCH" : "REAL", kTestBuild ? " TEST-BUILD" : "", gBoot.userNote,
                 !gClockSet ? "NOT SET (RTC unreadable)" : gClock.trusted() ? "set from the RTC" : "set from the RTC, LOST TIME");
 }
@@ -1062,7 +1067,7 @@ void loop() {
     uint32_t more;
     while (gBusLimit.takeSuppressed(now, &idx, &more))
       eventlog::log("crc", "ch%d: %lu more CRC failures / timeouts in the last hour (only the first 10 logged)",
-                    channelOf(idx), (unsigned long)more);
+                    idx, (unsigned long)more);
   }
 
   // Status line on its own 15 s timer, so a stuck bus cannot stop it.

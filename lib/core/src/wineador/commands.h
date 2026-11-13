@@ -41,9 +41,9 @@ enum class Command : uint8_t {
   SetHeater,         // "set heater on|off": arg 1 / 0, -2 neither
   SetHumid,          // "set humid on|off":  arg 1 / 0, -2 neither
   SetDefaults,       // "set defaults": every user setting back to its default, excludes cleared
-  Exclude,           // "exclude ch3 on|off": arg = channel 2..7 (-2 = bad), arg2 = 1 on / 0 off
-  InjectCrc,         // TEST BUILDS ONLY: "crc ch3" — the next read of ch3 fails its CRC (B3 test 24)
-  InjectTimeout,     // TEST BUILDS ONLY: "timeout ch3" — the next read of ch3 times out
+  Exclude,           // "exclude ch1 on|off": arg = channel 0..5 (-2 = bad), arg2 = 1 on / 0 off
+  InjectCrc,         // TEST BUILDS ONLY: "crc ch1" — the next read of ch1 fails its CRC (B3 test 24)
+  InjectTimeout,     // TEST BUILDS ONLY: "timeout ch1" — the next read of ch1 times out
   SdStress,          // TEST BUILDS ONLY: "sdstress <kHz> retry|noretry <writes>"; "sdstress stop" (arg -1).
                      //   arg = kHz (400-9999; -2 = bad), arg2 = 1 retry / 0 noretry, arg3 = writes
   NtpSync,           // TEST BUILDS ONLY: "ntpsync" — open the NTP-only radio window now (Rev N)

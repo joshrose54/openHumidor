@@ -27,6 +27,7 @@ const char* profileWord(Profile p) { return p == Profile::Bench ? "bench" : "rea
 void headerCommon(Out& o, const char* what, const LogHeaderInfo& h) {
   o.add("# wineador %s\n", what);
   o.add("# schema %d\n", kLogSchema);
+  o.add("# board %s\n", h.board);
   o.add("# firmware %s\n", h.firmware);
   o.add("# profile %s%s\n", profileWord(h.profile), h.testBuild ? " TEST-BUILD (scripted readings; real ones in *_real columns)" : "");
   o.add("# timestamps UTC; time_trusted 0 = the clock lost time and NTP has not corrected it yet\n");
@@ -52,7 +53,10 @@ int csvField(char* out, size_t n, const char* text) {
 
 // ---------------------------------------------------------------- paths
 int logPath(char* out, size_t n, LogKind k, int year, int month, int schema) {
-  if (k == LogKind::Hourly) return snprintf(out, n, "/logs/hourly.csv");
+  if (k == LogKind::Hourly) {
+    if (schema <= 1) return snprintf(out, n, "/logs/hourly.csv");
+    return snprintf(out, n, "/logs/hourly-s%d.csv", schema);
+  }
   const char* what = k == LogKind::Readings ? "readings" : "events";
   if (schema <= 1) return snprintf(out, n, "/logs/%04d/%04d-%02d-%s.csv", year, year, month, what);
   return snprintf(out, n, "/logs/%04d/%04d-%02d-%s-s%d.csv", year, year, month, what, schema);
