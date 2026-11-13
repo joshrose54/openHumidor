@@ -901,9 +901,9 @@ static void logBoardEvents(uint32_t now) {
       if (gDipLogged) eventlog::log(kEvTypeSupply12v, "%s: below %.1f V for 1 s (%.2f V now)", kEvDip12v,
                                     (double)SupplySense::kDipBelowV, (double)e.lowestV);
     } else if (gDipLogged) {
-      eventlog::log(kEvTypeSupply12v, "%s: back above %.1f V after %lu ms; lowest %.2f V", kEvRecovered12v,
-                    (double)SupplySense::kDipBelowV,
-                    (unsigned long)e.durationMs, (double)e.lowestV);
+      char d[120];
+      formatRecovered12v(d, sizeof(d), SupplySense::kDipBelowV, e.durationMs, e.lowestV);
+      eventlog::log(kEvTypeSupply12v, "%s", d);
       gDipLogged = false;
     }
   }
@@ -914,7 +914,9 @@ static void logBoardEvents(uint32_t now) {
     wifiLogged = gWifiLimit.allow(0, now);
     if (wifiLogged) eventlog::log(kEvTypeWifi, "%s", kEvWifiLost);
   } else if (w > 0 && wifiLogged) {
-    eventlog::log(kEvTypeWifi, "%s %lu s", kEvWifiBack, (unsigned long)((outMs + 500) / 1000));
+    char d[48];
+    formatWifiBack(d, sizeof(d), (outMs + 500) / 1000);
+    eventlog::log(kEvTypeWifi, "%s", d);
     wifiLogged = false;
   }
   int idx;
@@ -1158,22 +1160,21 @@ static void watchSd(uint32_t now) {
     static bool wasActive = false;
     const sdlog::StressStats& x = st.stress;
     auto line = [&](const char* what) {
-      eventlog::log(kEvTypeSd, "%s %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt "
-                          "failed at: folder %lu, open %lu, header %lu, data %lu, verify %lu); worst write %lu ms",
-                    strcmp(what, "DONE") == 0 ? kEvSdStressDone : "SD STRESS progress:", (unsigned long)x.khz,
-                    x.retry ? "on" : "off", (unsigned long)x.writes, (unsigned long)x.target,
-                    (unsigned long)x.failures, (unsigned long)x.retries, (unsigned long)x.atFolder, (unsigned long)x.atOpen,
-                    (unsigned long)x.atHeader, (unsigned long)x.atData, (unsigned long)x.atVerify,
-                    (unsigned long)x.worstMs);
+      SdStressFigures f;
+      f.khz = x.khz; f.retry = x.retry; f.writes = x.writes; f.target = x.target;
+      f.failures = x.failures; f.retries = x.retries; f.atFolder = x.atFolder; f.atOpen = x.atOpen;
+      f.atHeader = x.atHeader; f.atData = x.atData; f.atVerify = x.atVerify; f.worstMs = x.worstMs;
+      char d[300];
+      formatSdStressLine(d, sizeof(d), strcmp(what, "DONE") == 0, f);
+      eventlog::log(kEvTypeSd, "%s", d);
     };
     if (x.active && x.writes >= shown + 100) { shown = x.writes - x.writes % 100; line("progress"); }
     if (wasActive && !x.active) {
       line("DONE");
       shown = 0;
-      eventlog::log(kEvTypeSd, "%s size mismatches %lu; heap lowest after a write %lu (largest block then "
-                          "%lu), lowest since boot %lu; paused for WiFi %lu s",
-                    kEvSdStressChecks, (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
-                    (unsigned long)x.heapMinEver, (unsigned long)(x.pausedMs / 1000));
+      char d[240];
+      formatSdStressChecks(d, sizeof(d), x.sizeMismatch, x.heapMin, x.heapMinLargest, x.heapMinEver, x.pausedMs / 1000);
+      eventlog::log(kEvTypeSd, "%s", d);
     }
     if (!wasActive && x.active) {
       shown = 0;

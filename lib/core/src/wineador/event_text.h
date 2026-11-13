@@ -101,6 +101,32 @@ bool eventIs(const char* type, const char* detail, const EventText& t);
 // tools/event_text.json, as the tool writes it and the test compares it.
 int formatEventTextJson(char* out, size_t n);
 
+// ---------------------------------------------------------------- events that carry numbers
+// tools/check_logs.py reads numbers back out of these (test_event_numbers proves it reads what
+// these write). The firmware writes them only through these functions.
+
+// "12V recovered: back above 11.0 V after 5300 ms; lowest 10.52 V"
+int formatRecovered12v(char* out, size_t n, float belowV, uint32_t durationMs, float lowestV);
+// "WiFi back after 61 s"
+int formatWifiBack(char* out, size_t n, uint32_t seconds);
+
+// The SD stress test's figures (test builds, B4 / BP2 test 38).
+struct SdStressFigures {
+  uint32_t khz = 0;
+  bool retry = false;
+  uint32_t writes = 0, target = 0, failures = 0, retries = 0;
+  uint32_t atFolder = 0, atOpen = 0, atHeader = 0, atData = 0, atVerify = 0;
+  uint32_t worstMs = 0;
+};
+// done: "SD STRESS DONE: 1000 kHz, retry on: 6000 of 6000 writes, 0 failures, 3 retries (first
+// attempt failed at: folder 0, open 0, header 0, data 3, verify 0); worst write 412 ms";
+// otherwise the same as "SD STRESS progress: ...".
+int formatSdStressLine(char* out, size_t n, bool done, const SdStressFigures& f);
+// "SD STRESS DONE checks: size mismatches 0; heap lowest after a write 61234 (largest block then
+// 30000), lowest since boot 58000; paused for WiFi 12 s"
+int formatSdStressChecks(char* out, size_t n, uint32_t sizeMismatches, uint32_t heapMin, uint32_t heapMinLargest,
+                         uint32_t heapMinEver, uint32_t pausedS);
+
 // The load events (spec 5.4), "compressor ON (temperature call, control 20.62 C)". load: 0
 // compressor, 1 heater, 2 humidifier.
 int formatLoadEvent(char* out, size_t n, int load, bool on, const char* why);

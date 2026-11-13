@@ -66,6 +66,34 @@ int formatEventTextJson(char* out, size_t n) {
   return ok ? (int)len : -1;
 }
 
+int formatRecovered12v(char* out, size_t n, float belowV, uint32_t durationMs, float lowestV) {
+  return snprintf(out, n, "%s: back above %.1f V after %lu ms; lowest %.2f V", kEvRecovered12v, (double)belowV,
+                  (unsigned long)durationMs, (double)lowestV);
+}
+
+int formatWifiBack(char* out, size_t n, uint32_t seconds) {
+  return snprintf(out, n, "%s %lu s", kEvWifiBack, (unsigned long)seconds);
+}
+
+int formatSdStressLine(char* out, size_t n, bool done, const SdStressFigures& f) {
+  return snprintf(out, n,
+                  "%s %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt failed at: "
+                  "folder %lu, open %lu, header %lu, data %lu, verify %lu); worst write %lu ms",
+                  done ? kEvSdStressDone : "SD STRESS progress:", (unsigned long)f.khz, f.retry ? "on" : "off",
+                  (unsigned long)f.writes, (unsigned long)f.target, (unsigned long)f.failures, (unsigned long)f.retries,
+                  (unsigned long)f.atFolder, (unsigned long)f.atOpen, (unsigned long)f.atHeader, (unsigned long)f.atData,
+                  (unsigned long)f.atVerify, (unsigned long)f.worstMs);
+}
+
+int formatSdStressChecks(char* out, size_t n, uint32_t sizeMismatches, uint32_t heapMin, uint32_t heapMinLargest,
+                         uint32_t heapMinEver, uint32_t pausedS) {
+  return snprintf(out, n,
+                  "%s size mismatches %lu; heap lowest after a write %lu (largest block then %lu), lowest since boot "
+                  "%lu; paused for WiFi %lu s",
+                  kEvSdStressChecks, (unsigned long)sizeMismatches, (unsigned long)heapMin,
+                  (unsigned long)heapMinLargest, (unsigned long)heapMinEver, (unsigned long)pausedS);
+}
+
 const char* loadEventType(int load) {
   return load == 0 ? kEvTypeCompressor : load == 1 ? kEvTypeHeater : kEvTypeHumidifier;
 }

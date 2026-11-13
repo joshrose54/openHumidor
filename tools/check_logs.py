@@ -84,6 +84,58 @@ LOADS = {TYPE["Compressor"]: "CompressorOn", TYPE["Heater"]: "HeaterOn", TYPE["H
 results = []
 
 
+# ---------------------------------------------------------------- numbers read out of events
+# The firmware writes these events with lib/core event_text.cpp (formatRecovered12v,
+# formatWifiBack, formatSdStressLine, formatSdStressChecks). The native test test_event_numbers
+# writes real examples with those formatters and runs --parse-selftest on them, so a change of
+# wording that these patterns no longer read fails a test. Each returns None if it can't read them.
+
+def parse_recovered_12v(detail):
+    """(duration ms, lowest V) from a 12V recovered event."""
+    m = re.search(r"after (\d+) ms; lowest ([\d.]+) V", detail)
+    return (int(m.group(1)), float(m.group(2))) if m else None
+
+
+def parse_wifi_back(detail):
+    """Seconds from a WiFi back event."""
+    m = re.search(r"back after (\d+) s", detail)
+    return int(m.group(1)) if m else None
+
+
+def parse_stress_done(detail):
+    """(writes, target, failures, retries) from the SD stress result."""
+    m = re.search(r"(\d+) of (\d+) writes, (\d+) failures, (\d+) retries", detail)
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def parse_stress_checks(detail):
+    """(size mismatches, lowest free heap since boot) from the SD stress checks."""
+    mm = re.search(r"size mismatches (\d+)", detail)
+    mh = re.search(r"lowest since boot (\d+)", detail)
+    return (int(mm.group(1)), int(mh.group(1))) if mm and mh else None
+
+
+PARSERS = {"Recovered12v": parse_recovered_12v, "WifiBack": parse_wifi_back,
+           "SdStressDone": parse_stress_done, "SdStressChecks": parse_stress_checks}
+
+
+def parse_selftest(path):
+    """Reads examples written by the firmware's formatters (test_event_numbers) and checks each
+    parser reads back the numbers that were written. Exit 0 if all do."""
+    with open(path, encoding="utf-8") as f:
+        examples = json.load(f)
+    bad = 0
+    for ex in examples:
+        name, detail, want = ex["name"], ex["detail"], ex["numbers"]
+        e = {"type": _EVT["texts"][name]["type"], "detail": detail}
+        got = PARSERS[name](detail) if ev_is(e, name) else None
+        got = [got] if isinstance(got, (int, float)) else list(got) if got is not None else None
+        ok = got is not None and len(got) == len(want) and all(abs(g - w) < 1e-6 for g, w in zip(got, want))
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}: wrote {want}, read {got}  ({detail[:70]})")
+        bad += 0 if ok else 1
+    return 0 if bad == 0 else 1
+
+
 def report(ok, what, detail=""):
     tag = "PASS" if ok is True else "FAIL" if ok is False else "NOTE"
     results.append(tag)
@@ -405,8 +457,13 @@ def main():
     ap.add_argument("--outage", action="store_true",
                     help="the SD stress test's card pull: everything kept in RAM reached the card, in order")
     ap.add_argument("--bulb", action="store_true", help="BP2 test 35: the bulb sketch's log, /bp2/bulb.csv")
+    ap.add_argument("--parse-selftest", action="store_true",
+                    help="`card` is a JSON file of example events from test_event_numbers: check every number "
+                         "pattern reads back what the firmware wrote")
     a = ap.parse_args()
 
+    if a.parse_selftest:
+        return parse_selftest(a.card)
     if a.bulb:
         return check_bulb(a.card)
     if not a.profile:
@@ -531,9 +588,10 @@ def main():
             report(pair is not None, "12V dip logged, then its recovery (test 24, Rev Q)",
                    "" if pair else f"{len(dips)} dip and {len(recs)} recovered events")
             if pair:
-                m = re.search(r"after (\d+) ms; lowest ([\d.]+) V", pair[1][1]["detail"])
-                if m:
-                    ms, low = int(m.group(1)), float(m.group(2))
+                got = parse_recovered_12v(pair[1][1]["detail"])
+                report(got is not None, "the 12V recovery's figures can be read", pair[1][1]["detail"][:80])
+                if got:
+                    ms, low = got
                     report(10.0 <= low <= 10.9 and 2000 <= ms <= 20000,
                            "the recovery's lowest reading near 10.5V and duration near 5 s (10.0-10.9V, 2-20 s: the PSU is turned by hand)",
                            f"lowest {low:.2f} V, {ms / 1000:.1f} s")
@@ -544,9 +602,9 @@ def main():
             report(wp is not None, "WiFi lost logged, then back (test 24, Rev Q)",
                    "" if wp else f"{len(lost)} lost and {len(backs)} back events")
             if wp:
-                m = re.search(r"back after (\d+) s", wp[1][1]["detail"])
-                if m:
-                    sec = int(m.group(1))
+                sec = parse_wifi_back(wp[1][1]["detail"])
+                report(sec is not None, "the WiFi outage's length can be read", wp[1][1]["detail"][:80])
+                if sec is not None:
                     report(30 <= sec <= 180, "WiFi back after about the time the router was off (30-180 s for ~1 minute)",
                            f"back after {sec} s")
 
@@ -557,9 +615,10 @@ def main():
             report(False, "the SD stress run's result is in the events file", "no 'SD STRESS DONE' line")
         else:
             d = done[-1]["detail"]
-            m = re.search(r"(\d+) of (\d+) writes, (\d+) failures, (\d+) retries", d)
-            if m:
-                w, target, fails, retries = (int(x) for x in m.groups())
+            got = parse_stress_done(d)
+            report(got is not None, "the SD stress result's figures can be read", d[:80])
+            if got:
+                w, target, fails, retries = got
                 report(w == target, "every stress write was made", f"{w} of {target}")
                 report(fails == 0, "no lost writes (every failed first try written by the retry)", f"{fails} lost")
                 report(None, f"retries counted: {retries} in {w} writes" + (f" (1 in {w // retries})" if retries else ""))
@@ -567,14 +626,14 @@ def main():
             report(None, f"failed first tries recorded: {len(fails)}")
             if checks:
                 c = checks[-1]["detail"]
-                mm = re.search(r"size mismatches (\d+)", c)
-                if mm:
-                    report(int(mm.group(1)) == 0, "no file the wrong size (the verify step caught everything)",
-                           f"{mm.group(1)} mismatches")
-                mh = re.search(r"lowest since boot (\d+)", c)
-                if mh:
-                    report(int(mh.group(1)) >= HEAP_FLOOR, "lowest free heap since boot at or above 30 KB",
-                           f"lowest {mh.group(1)} bytes")
+                got = parse_stress_checks(c)
+                report(got is not None, "the SD stress checks' figures can be read", c[:80])
+                if got:
+                    mismatches, lowest = got
+                    report(mismatches == 0, "no file the wrong size (the verify step caught everything)",
+                           f"{mismatches} mismatches")
+                    report(lowest >= HEAP_FLOOR, "lowest free heap since boot at or above 30 KB",
+                           f"lowest {lowest} bytes")
         if revq and done:
             # Rev Q (BP2 test 38): WiFi stays connected all the time; the stress build's retry
             # never power-cycles the card, so the run is the card unaided.
