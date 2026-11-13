@@ -1,0 +1,142 @@
+# Rev Q netlist report
+
+Every net and the pins on it, from the same data the schematic is generated from.
+
+**Matches design report revision 15: 218 parts, 134 nets.** The table is unchanged since revision 13 (revisions 14 and 15 changed no net; revision 15 changed only U5's part number). Compared net by net with the routed board behind file set B4 on 13 November 2026: no differences.
+
+| Net | Pins |
+|---|---|
+| +12V | Q1.3, D3.1, D2.1, C10.1, C11.1, TP6.1, D1.2, R23.1, K1.A1, K1.11, D6.1, J11.1, D5.1, J16.1, D9.1, D10.1, C32.1, C33.1, C34.1, C35.1, C36.1, J12.1, J13.1, J14.1, J15.1 |
+| +12V_HOLD | R21.2, R22.2, C12.1, C13.1, C14.1, U8.1 |
+| +12V_IN | J1.1, Q1.2 |
+| +5V | U8.3, C15.1, C16.1, TP1.1, U2.3, C17.1, U3.3, C21.1, U4.3, C24.1, U9.2, U9.5, U9.10, U9.13, U9.14, C37.1, J2.2, FB1.1 |
+| 3V3_Q | U3.2, C22.1, C23.1, TP8.1, J23.5, R41.1, U6.VCC, C39.1, R42.1, R43.1, R44.1, U7.VCC, C48.1, R69.1, R70.1, D11.2, R82.1, Q8.1, Q9.1, U16.5, U17.5, Q10.2, C55.1 |
+| 3V3_RF | U2.2, C18.1, C19.1, C20.1, TP2.1, U1.3V3, C28.1, C29.1, R25.1, U5.5, C31.1, R27.1, U11.5, R36.1, R76.1, R79.1 |
+| 3V3_SENS | U4.2, C25.1, C26.1, TP9.1, R45.1, R48.1, U12.5, R51.1, R54.1, U13.5, R57.1, R60.1, U14.5, R63.1, R66.1, U15.5 |
+| BLW_DAMP | C33.2, R38.1, R39.1, R40.1 |
+| BLW_G | R37.2, Q7.1 |
+| BLW_NEG | L1.2, C32.2, R38.2, R39.2, R40.2, J12.2, J13.2, J14.2, J15.2, TP12.1 |
+| BLW_PWM | U1.IO15, R36.2, R37.1 |
+| BLW_SW | Q7.3, D10.2, L1.1 |
+| CH0_SCL | U6.SC0, R46.1 |
+| CH0_SDA | U6.SD0, R47.1 |
+| CH1_SCL | U6.SC1, R49.1 |
+| CH1_SDA | U6.SD1, R50.1 |
+| CH2_SCL | U6.SC2, R52.1 |
+| CH2_SDA | U6.SD2, R53.1 |
+| CH3_SCL | U6.SC3, R55.1 |
+| CH3_SDA | U6.SD3, R56.1 |
+| CH4_SCL | U6.SC4, R58.1 |
+| CH4_SDA | U6.SD4, R59.1 |
+| CH5_SCL | U6.SC5, R61.1 |
+| CH5_SDA | U6.SD5, R62.1 |
+| CH6_SCL | U6.SC6, R64.1 |
+| CH6_SDA | U6.SD6, R65.1 |
+| CH7_SCL | U6.SC7, R67.1 |
+| CH7_SDA | U6.SD7, R68.1 |
+| CTP_INT | U1.IO47, R81.1, R82.2 |
+| CTP_INT_C | J20.13, R81.2, U17.6 |
+| CTP_RST_C | J20.11, R78.2, U17.1 |
+| CTP_SCL_5V | J20.10, Q9.3, R84.2, U18.3 |
+| CTP_SDA_5V | J20.12, Q8.3, R83.2, U18.1 |
+| D1_K | D1.1, R21.1, R22.1 |
+| DISP_RST | U1.IO48, R77.1, R78.1, R79.2 |
+| EN | U1.EN, R25.2, C30.1, SW1.1, U5.1, TP10.1 |
+| FAN_PWM | U1.IO18, J2.4, TP5.1 |
+| FAN_TACH | U1.IO16, J2.3, R41.2, C38.1, TP4.1 |
+| GND | J1.2, R8.2, D2.2, C10.2, C11.2, C12.2, C13.2, C14.2, U8.2, C15.2, C16.2, U2.1, C17.2, C18.2, C19.2, C20.2, U3.1, C21.2, C22.2, C23.2, U4.1, C24.2, C25.2, C26.2, TP3.1, TP7.1, R24.2, C27.2, U1.GND, C28.2, C29.2, C30.2, SW1.2, U5.2, C31.2, SW2.2, J23.1, J19.GND, J19.SHIELD, R28.2, R29.2, U11.2, R1.2, R13.2, Q2.2, R2.2, R14.2, Q3.2, R33.2, Q11.2, R3.2, R16.2, Q5.2, R7.2, R15.2, Q4.2, R34.2, Q6.2, Q7.2, C34.2, C35.2, C36.2, U9.7, C37.2, J2.1, C38.2, U6.A0, U6.A1, U6.A2, U6.GND, C39.2, J3.2, C40.2, J4.2, C41.2, U12.2, J5.2, C42.2, J6.2, C43.2, U13.2, J7.2, C44.2, J8.2, C45.2, U14.2, J17.2, C46.2, J18.2, C47.2, U15.2, U7.GND, C48.2, C49.2, BT1.2, J20.2, J20.MP, C50.2, C51.2, C52.2, U16.2, U17.2, U18.2, J22.VSS, J22.SHIELD, C53.2, C54.2, R91.2 |
+| HEAT_CTL | U1.IO5, R2.1, R18.1 |
+| HEAT_DRV | U9.6, R10.1, R32.1 |
+| HEAT_G | R10.2, R14.1, Q3.1 |
+| HEAT_G2 | R32.2, R33.1, Q11.1 |
+| HEAT_IN | R18.2, U9.4 |
+| HEAT_NEG | Q3.3, Q11.3, D4.2, J10.4 |
+| HEAT_POS | D4.1, K1.14, J10.3 |
+| HUM_CTL | U1.IO7, R7.1, R19.1 |
+| HUM_DRV | U9.11, R11.1 |
+| HUM_G | R11.2, R15.1, Q4.1 |
+| HUM_IN | R19.2, U9.12 |
+| HUM_NEG | Q4.3, J11.2, D5.2 |
+| I2C0_SCL | U1.IO36, U6.SCL, R44.2 |
+| I2C0_SDA | U1.IO35, U6.SDA, R43.2 |
+| I2C1_SCL | U1.IO14, U7.SCL, R70.2, Q9.2 |
+| I2C1_SDA | U1.IO21, U7.SDA, R69.2, Q8.2 |
+| IO0 | U1.IO0, R27.2, SW2.1, TP11.1 |
+| ION_CTL | U1.IO17, R34.1, R35.1 |
+| ION_G | R35.2, Q6.1 |
+| ION_NEG | Q6.3, J16.2, D9.2 |
+| K1_COIL | Q5.3, K1.A2, D6.2 |
+| K1_CTL | U1.IO6, R3.1, R20.1 |
+| K1_DRV | U9.8, R12.1 |
+| K1_G | R12.2, R16.1, Q5.1 |
+| K1_IN | R20.2, U9.9 |
+| LCD_5V | J20.1, FB1.2, C50.1, C51.1, C52.1, R83.1, R84.1, U18.5 |
+| LCD_BL | U1.IO13, R80.1 |
+| LCD_BL_C | J20.8, R80.2, U17.3 |
+| LCD_CS | U1.IO10, R72.1, R76.2 |
+| LCD_CS_C | J20.3, R72.2, U16.4 |
+| LCD_MOSI | U1.IO11, R74.1 |
+| LCD_MOSI_C | J20.6, R74.2, U16.6 |
+| LCD_RS | U1.IO9, R73.1 |
+| LCD_RST_C | J20.4, R77.2, U16.3 |
+| LCD_RS_C | J20.5, R73.2, U16.1 |
+| LCD_SCK | U1.IO12, R75.1 |
+| LCD_SCK_C | J20.7, R75.2, U17.4 |
+| MON_RX | J23.3, R94.2 |
+| MON_TX | J23.2, R93.2 |
+| MUX_RST | U1.IO37, U6.~{RESET}, R42.2 |
+| Q1_G | Q1.1, R8.1, D3.2 |
+| RTC_CHG | D11.1, R71.1 |
+| RTC_VBAT | U7.VBAT, C49.1, R71.2, BT1.1 |
+| S0_3V3 | J3.1, R45.2, C40.1 |
+| S0_SCL | J3.3, R46.2, U12.1 |
+| S0_SDA | J3.4, R47.2, U12.3 |
+| S1_3V3 | J4.1, R48.2, C41.1 |
+| S1_SCL | J4.3, R49.2, U12.4 |
+| S1_SDA | J4.4, R50.2, U12.6 |
+| S2_3V3 | J5.1, R51.2, C42.1 |
+| S2_SCL | J5.3, R52.2, U13.1 |
+| S2_SDA | J5.4, R53.2, U13.3 |
+| S3_3V3 | J6.1, R54.2, C43.1 |
+| S3_SCL | J6.3, R55.2, U13.4 |
+| S3_SDA | J6.4, R56.2, U13.6 |
+| S4_3V3 | J7.1, R57.2, C44.1 |
+| S4_SCL | J7.3, R58.2, U14.1 |
+| S4_SDA | J7.4, R59.2, U14.3 |
+| S5_3V3 | J8.1, R60.2, C45.1 |
+| S5_SCL | J8.3, R61.2, U14.4 |
+| S5_SDA | J8.4, R62.2, U14.6 |
+| S6_3V3 | J17.1, R63.2, C46.1, R95.1, R96.1 |
+| S6_SCL | J17.3, R64.2, R95.2, U15.1 |
+| S6_SDA | J17.4, R65.2, R96.2, U15.3 |
+| S7_3V3 | J18.1, R66.2, C47.1, R97.1, R98.1 |
+| S7_SCL | J18.3, R67.2, R97.2, U15.4 |
+| S7_SDA | J18.4, R68.2, R98.2, U15.6 |
+| SD_3V3 | J22.VDD, R86.1, R87.1, R88.1, R89.1, R90.1, C53.1, C54.1, Q10.3 |
+| SD_CLK_C | J22.CLK, R85.2 |
+| SD_CS | U1.IO42, J22.DAT3/CD, R86.2 |
+| SD_DAT1 | J22.DAT1, R89.2 |
+| SD_DAT2 | J22.DAT2, R90.2 |
+| SD_MISO | U1.IO38, J22.DAT0, R88.2 |
+| SD_MOSI | U1.IO41, J22.CMD, R87.2 |
+| SD_PWR_G | Q10.1, R91.1, R92.2, C55.2 |
+| SD_PWR_OFF | U1.IO39, R92.1 |
+| SD_SCK | U1.IO40, R85.1 |
+| SPARE1 | U1.IO2, J23.4 |
+| SSR_A1 | D8.1, K1.12, J10.1 |
+| SSR_A2 | Q2.3, D8.2, J10.2 |
+| SSR_CTL | U1.IO4, R1.1, R17.1 |
+| SSR_DRV | U9.3, R9.1 |
+| SSR_G | R9.2, R13.1, Q2.1 |
+| SSR_IN | R17.2, U9.1 |
+| UART0_RX | U1.RXD0, R94.1 |
+| UART0_TX | U1.TXD0, R93.1 |
+| USB_CC1 | J19.CC1, R28.1 |
+| USB_CC2 | J19.CC2, R29.1 |
+| USB_DM | J19.D-, R31.1, U11.1 |
+| USB_DM_MCU | U1.USB_D-, R31.2 |
+| USB_DP | J19.D+, R30.1, U11.6 |
+| USB_DP_MCU | U1.USB_D+, R30.2 |
+| V12_SENSE | R23.2, R24.1, C27.1, U1.IO8 |
+| WDI | U5.4, R26.2 |
+| WDT | U1.IO1, R26.1 |

@@ -38,6 +38,7 @@
   checks can be done first
 - Bench instructions state the power-up order. On the Rev N board: keep 12V on whenever USB is
   connected — 12V on before USB in, USB out before 12V off; flashing on the board is then fine. Any
-  test that cuts the 12V is run with USB unplugged first. On Rev P (with D7), any order is safe
+  test that cuts the 12V is run with USB unplugged first. On Rev P (with D7), any order is safe.
+  On Rev Q, USB powers nothing: any order is safe, and flashing and the monitor need 12V on
 - Check facts against the current documents before stating them, and say so when something was
   wrong

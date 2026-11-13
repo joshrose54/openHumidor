@@ -69,7 +69,7 @@ lower down.
 | Size / pitch | 80 × 80 × 25mm / 71.5mm |
 | Voltage | **5V only** |
 | Current | 0.15A, 0.75W |
-| Speed | 450 RPM @ 20% PWM to 2,200 RPM |
+| Speed | 400 RPM @ 20% PWM to 2,200 RPM (Noctua) |
 | Airflow / pressure | 55.5 m³/h / 2.37 mm H₂O |
 | PWM logic | High 3.3V or 5V, low below 0.8V |
 | PWM frequency | 21–28kHz; **25kHz used** |
@@ -89,14 +89,13 @@ header is 12V; the 5V NF-A8 must never be connected to it.**
 shelves; **intake open to the cabinet, no opening through the panel** — they recirculate cabinet air
 only, so the plenum stays sealed apart from the slots and the Noctua alone sets the airflow across
 the plate. Run 24/7 from the board's 12V rail through J12–J15 (3.3). Not controlled or monitored by
-the firmware on Rev P. The next board adds voltage speed control, full speed by default
-(`next-board-changes.md`).
+the firmware on Rev P. Rev Q adds voltage speed control, full speed by default (3A.6).
 Sensors sit out of their streams (B5).
 
 ## 2.3 Sensors
 
-**SHT40 ×6** — sealed probe, 2m cable, bare wire ends. Five in the cabinet on mux channels 2–6, one
-ambient on channel 7.
+**SHT40 ×6** — sealed probe, 2m cable, bare wire ends. Five in the cabinet on channels 0–4, one
+ambient on channel 5.
 
 | Spec | Value |
 |---|---|
@@ -109,11 +108,13 @@ ambient on channel 7.
 | Wiring | Red VCC · Black GND · Yellow SCL · Green SDA |
 | Pull-ups | 10kΩ fitted inside each probe |
 
-**TCA9548A** — 8-channel I²C mux, 0x70, board HW-617. **Power VIN from 3.3V, never 5V** — a
+**TCA9548A** — 8-channel I²C mux, 0x70; on Rev P the board HW-617 (Rev Q: on the board, 3A.7). **Power VIN from 3.3V, never 5V** — a
 5V-powered mux would reference channel logic to 5V and destroy all six sensors. Module's own 10kΩ
 pull-up on RST retained.
 
 ### I²C pull-ups
+
+Rev P (Rev Q: 3A.7):
 
 | Bus segment | Existing | Action |
 |---|---|---|
@@ -127,18 +128,20 @@ unreliable: 4.7kΩ in parallel on that channel only. Do not fit pre-emptively.
 
 | Channel | Position | Where | Role |
 |---|---|---|---|
-| 2 | Top front | Top level, front half — nearer the door | Control |
-| 3 | Bottom front | Bottom level, front half | Control |
-| 4 | Mid front | Middle level, front half | Control |
-| 5 | Mid rear | Middle level, rear half — nearer the plenum wall | Control |
-| 6 | Chamber | In the plenum, halfway down, near but not touching the cooling plate | Safety limit and harvest termination — never control |
-| 7 | Ambient | Outside the cabinet, away from the fridge's warm parts and the controller enclosure — see below | Dosing feedforward, analysis, disturbance direction. Never control |
+| 0 | Top front | Top level, front half — nearer the door | Control |
+| 1 | Bottom front | Bottom level, front half | Control |
+| 2 | Mid front | Middle level, front half | Control |
+| 3 | Mid rear | Middle level, rear half — nearer the plenum wall | Control |
+| 4 | Chamber | In the plenum, halfway down, near but not touching the cooling plate | Safety limit and harvest termination — never control |
+| 5 | Ambient | Outside the cabinet, away from the fridge's warm parts and the controller enclosure — see below | Dosing feedforward, analysis, disturbance direction. Never control |
 
-Cabinet sensors (ch 2–5) sit **out of the plenum discharge and blower streams**, at least ~10cm from
+Cabinet sensors (ch 0–3) sit **out of the plenum discharge and blower streams**, at least ~10cm from
 the door and from the plenum wall, about 20mm off the side liner in their printed mounts, each with a baffled shroud to deflect
 air streams off the probe.
 
-Channels 0 and 1 unused.
+**Channels 0–5** are the numbers used everywhere — control rules, firmware, logs, settings, tools.
+Rev Q wires channel n to mux channel n (3A.7). Rev P wires them to mux channels 2–7 (3.3), so on
+Rev N/P the board settings map them; earlier B1–B4 records use Rev P's mux numbers.
 
 **Ambient sensor placement:** true room air at roughly cabinet height; not near the back or bottom of
 the fridge (condenser and compressor are warm); not inside the controller enclosure; away from
@@ -163,6 +166,10 @@ uncorrected.
 
 ## 2.4 Controller
 
+**This section and 3.1–3.3 describe Rev P, the bench design** (built as Rev N; B3 and B4 ran on it).
+**The cabinet board is Rev Q — chapter 3A.** Items here that Rev Q replaces: the DevKit, terminal
+adapter, SD module, HW-084 RTC and D7.
+
 | Item | Spec |
 |---|---|
 | ESP32-WROOM-32 DevKit ×3 | 38-pin, USB-C, 4MB flash, WiFi + BT. **Must have a diode between USB and its 5V pin** — check each unit before use (3.3). **Every unit modified before use: two pull-ups (3.3)** |
@@ -172,7 +179,7 @@ uncorrected.
 | DS3231 RTC | HW-084. I²C 0x68 clock, 0x57 EEPROM. LIR2032 cell |
 | PSU | **Mean Well IRM-60-12ST** — 12V 5A encapsulated, screw terminals, inside the enclosure. Mains design pending (4.10) |
 | On-board 5V | Traco **TSR 3-2450N** switching regulator, 12V → 5V 3A, on the PCB (U8) |
-| Controller PCB | **Rev P**, 108.7 × 96.0mm, 4-layer. All 12V loads switched on the board; full parts list in the board notes |
+| Controller PCB | **Rev P**, 108.7 × 96.0mm, 4-layer — the bench board. All 12V loads switched on the board; full parts list in the board notes. **Rev Q** for the cabinet (3A) |
 | Enclosure, glands | Minimum ~200 × 150 × 80mm. Carries a BS 1363 socket for the fridge (Pro Elec 9143) and an M16 gland (Multicomp PP001702) for the mains lead |
 | Mains joints | Genuine WAGO 221 lever connectors (450V) for the live, neutral and earth splits; insulated ring terminals at the SSR, hole to suit its screws |
 | Mains lead | 13A plug, 3-core flex 1.0mm² or more, **5A BS 1362 fuse** (the SSR's 5A AC-53 motor rating), into the enclosure through the M16 gland |
@@ -239,6 +246,8 @@ applies to every unit fitted.
 | Surge | D2 |
 
 ### RTC battery
+
+Rev P (Rev Q's charging cell: 3A.8).
 
 **The HW-084's charger is inert at 3.3V** — a 200Ω resistor and diode from VCC leave under 3V at
 the cell, below a LIR2032's 3.6V nominal, so no current flows. **The LIR2032 stays and is never
@@ -420,6 +429,8 @@ XH-capable crimper, for every lead into the PCB (3.3) · XT30U-F female plug for
 
 ## 3.1 Pin allocation
 
+Rev P (Rev Q: 3A.4).
+
 **Restrictions:** GPIO 34, 35, 36, 39 input only. GPIO 6–11 internal flash, unusable. GPIO 0, 2, 5,
 12, 15 strapping pins.
 
@@ -533,7 +544,7 @@ vibration.
 |---|---|---|---|
 | 12V in: XT30PW-M, PCB right-angle, male | J1 | 2 | **+12V**, GND. The PSU lead (via the 4A fuse) on an XT30U-F plug, square pad = + |
 | Fan — XH | J2 | 4 | GND, 5V, tach (P34), PWM (P25) |
-| Sensor, ch2 to ch7 — six, XH | J3–J8 | 4 | 3.3V, GND, SCL, SDA |
+| Sensor, channels 0–5 (mux 2–7) — six, XH | J3–J8 | 4 | 3.3V, GND, SCL, SDA |
 | RTC — XH, back face | J9 | 4 | SCL, SDA, 3.3V, GND — a short crimped lead to the HW-084, not jumpers |
 | SSR and heater — 5.08mm screw block, Multicomp MP012012 | J10 | 4 | 1 SSR +A1 (from K1 NC) · 2 SSR −A2 (to Q2) · 3 heater + (from K1 NO) · 4 heater − (to Q3). Counted from the top of the board; wire openings face the left edge, screws on top. 18AWG with ferrules |
 | Humidifier fan — XH 2-way | J11 | 2 | 1 +12V · 2 − (to Q4) |
@@ -589,12 +600,12 @@ TCA9548A A0–A2 unconnected. DS3231 32K and SQW unused.
 
 | Channel | Position | Red | Black | Yellow | Green |
 |---|---|---|---|---|---|
-| 2 | Top front | 3.3V rail | Board GND | Mux SC2 | Mux SD2 |
-| 3 | Bottom front | 3.3V rail | Board GND | Mux SC3 | Mux SD3 |
-| 4 | Mid front | 3.3V rail | Board GND | Mux SC4 | Mux SD4 |
-| 5 | Mid rear | 3.3V rail | Board GND | Mux SC5 | Mux SD5 |
-| 6 | Chamber | 3.3V rail | Board GND | Mux SC6 | Mux SD6 |
-| 7 | Ambient | 3.3V rail | Board GND | Mux SC7 | Mux SD7 |
+| 0 (mux 2) | Top front | 3.3V rail | Board GND | Mux SC2 | Mux SD2 |
+| 1 (mux 3) | Bottom front | 3.3V rail | Board GND | Mux SC3 | Mux SD3 |
+| 2 (mux 4) | Mid front | 3.3V rail | Board GND | Mux SC4 | Mux SD4 |
+| 3 (mux 5) | Mid rear | 3.3V rail | Board GND | Mux SC5 | Mux SD5 |
+| 4 (mux 6) | Chamber | 3.3V rail | Board GND | Mux SC6 | Mux SD6 |
+| 5 (mux 7) | Ambient | 3.3V rail | Board GND | Mux SC7 | Mux SD7 |
 
 ### SD card module
 
@@ -703,6 +714,356 @@ socket in place of the fridge.
 
 ---
 
+# 3A. CONTROLLER — REV Q
+
+**Rev Q is the board that goes in the cabinet** (B5 onwards). Sections 2.4 and 3.1–3.3 describe
+**Rev P**, the bench design (built as Rev N), on which B3 and B4 were run. Rev Q does the same job
+from the same 12V input with the same heat/cool interlock; this chapter is everything that differs.
+Every part and every connection is in the Rev Q board notes (`6-revQ-design-report.md`, revision 15,
+218 parts, 134 nets, rules check clean). Layout, outline and heights: 3A.12; the full placement and routing records are
+in the layout folder (`7-revQ-placement.md`, `8-revQ-routing-setup.md`, `9-revQ-routing.md`).
+
+## 3A.1 What changes from Rev P
+
+- **ESP32-S3-WROOM-1-N8R2 module on the board**, flashed over its own USB. No DevKit, no
+  USB-serial chip, no auto-reset circuit.
+- **I²C mux, RTC and micro-SD socket on the board** as chips, not modules.
+- **LCD** (lcdwiki MSP4031, 4.0" ST7796, capacitive touch) on a 14-way FPC.
+- **Three separate 3.3V regulators**; a **supervisor with hardware watchdog** on EN; **hold-up
+  capacitors** behind D1.
+- **Blower speed control** and an **ion generator output** (new).
+- Mostly SMD, assembled by JLCPCB on the top side; a short list of through-hole parts hand-soldered,
+  also on top. **Every component on the top side.** Four layers.
+
+**Unchanged from Rev P:** the 12V input path (XT30, 4A inline fuse off the board, Q1 IRF4905
+reverse protection with its zener and 10kΩ), U8 (TSR 3-2450N), K1 and the interlock, the 74HCT08
+gating of the four original loads with their pull-downs, series resistors, gate resistors and gate
+pull-downs, the plenum fan circuit, J10's pin-out, the sensor connector pin-out and TP1–TP7.
+
+## 3A.2 Parts
+
+| Ref | Part | Job |
+|---|---|---|
+| U1 | **ESP32-S3-WROOM-1-N8R2** (JLCPCB C2913204) | 8MB flash, 2MB quad PSRAM on internal pins. **Never substitute any R8 or R16V variant** (e.g. N8R8, N16R8, N16R16VA) — their octal PSRAM takes GPIO35–37, used here for I²C0 and the mux reset, and the R16V runs GPIO47/48 (touch interrupt, display reset) at 1.8V |
+| U2, U3, U4 | ST LDL1117S33R, 3.3V 1.2A, SOT-223 | 3V3_RF, 3V3_Q, 3V3_SENS (3A.3) |
+| U5 | **Maxim / Analog Devices MAX823SEUK+T** (JLCPCB C239902) | Supervisor and hardware watchdog on EN (3A.5). **Never a TI TPS3820/3823/3824/3828 (non-A)**: toggling WDI while they assert reset can leave reset stuck low (TI SLVS165O 7.3.4) |
+| U6 | TCA9548APWR | I²C mux, 0x70 |
+| U7 | DS3231SN | RTC, 0x68. No EEPROM — 0x57 is gone |
+| BT1 | **Panasonic ML-2020/H1CN** | Rechargeable 3V backup cell, solder tabs, charged on the board (3A.8) |
+| U8 | Traco TSR 3-2450N | 12V → 5V 3A, as Rev P. **At most 820µF on its output** (datasheet); about 150µF fitted |
+| U9 | SN74HCT08N, DIP-14 in a socket | Gate drive for SSR, heater, K1, humidifier, as Rev P |
+| U11–U18 | Semtech SRV05-4.TCT ESD arrays | USB (U11), sensor connectors (U12–U15), LCD lines (U16–U18) |
+| Q1 | IRF4905 | Reverse protection, as Rev P |
+| Q2–Q7, Q11 | AO3400A | Q2 SSR · Q3 + Q11 heater, in parallel · Q4 humidifier · Q5 K1 coil · Q6 ion generator · Q7 blowers |
+| Q8, Q9 | BSS138 | Touch I²C level shifter |
+| Q10 | AO3401A | SD card power switch |
+| K1 | Finder 34.51.7.012.5010 | Interlock, as Rev P |
+| D1 | SS54 | Feeds the hold-up and U8; stops the 5V side back-feeding the 12V rail |
+| D2 | Littelfuse SMBJ15A | 12V surge clamp |
+| D3 | Diodes Inc BZT52C15-7-F | Q1 gate clamp |
+| D4, D5, D6, D8, D9 | SS34 | Flyback: heater, humidifier, K1 coil, SSR, ion generator |
+| D10 | SS54 | Blower stage freewheel |
+| D11 | 1N4148W | RTC cell charger |
+| R21, R22 | 6.8Ω 2W, in parallel (3.4Ω) | Inrush limiter ahead of the hold-up |
+| C12, C13 | 470µF 35V polymer | Hold-up |
+| L1 | 220µH, Sunlord SWRB1207S-221MT | Blower stage |
+| J19 | USB-C | Data only |
+| J20 | 14-way 0.5mm FPC socket, JUSHUO AFC24-S14FIC-00, **bottom contacts** | LCD |
+| J22 | Micro-SD socket | Logging card |
+
+**Assembly: JLCPCB Standard** — the module is "PCBA Type: Standard Only". SMD parts from JLCPCB
+stock, preferring Basic parts and reusing one part for several jobs.
+
+**Hand-soldered, all on top.** From **Farnell UK**: U8 TSR 3-2450**N** (4644820 — not the older TSR 3-2450), K1 (1169342, low stock — order
+early), J10 Multicomp Pro MP012012 (4179046), Q1 IRF4905PBF (8648190), U9 SN74HCT08N (3120497),
+BT1 ML-2020/H1CN (4167439), J23 Multicomp Pro 2211S-05G 1×5 header (1593414). **Supplied by Josh:** J1 XT30PW-M, the fifteen JST XH headers, the
+twelve Keystone through-hole test points, the DIP-14 socket. Not fitted: R95–R98 (spare-connector pull-ups, 3A.7).
+
+**Monitor cable:** a USB-serial cable for J23 (3A.5) with **3.3V logic on TX and RX** — a 3.3V VCC
+pin alone is not enough. Female 2.54mm ends; its VCC wire is insulated and never used.
+
+## 3A.3 Power
+
+```
+J1 XT30 ── 4A fuse (off board) ── Q1 ── D2 clamp ──► +12V
+  +12V ──► K1 COM, humidifier +, ion +, blower +, 12V sense divider
+  +12V ── D1 ── 3.4Ω ──► +12V_HOLD [2 × 470µF] ── U8 ──► +5V
+     +5V ──► plenum fan J2, U9, LCD (through ferrite bead FB1 = LCD_5V)
+     +5V ── U2 ──► 3V3_RF    ESP32 module; EN, BOOT, blower, LCD chip-select and display-reset
+                             pull-ups; supervisor; USB ESD array
+     +5V ── U3 ──► 3V3_Q     SD card (through Q10), mux, RTC, I²C pull-ups, tach pull-up,
+                             touch level shifter, LCD-line ESD arrays U16 and U17, spare header
+                             (U18, on the 5V touch lines, takes its supply from LCD_5V)
+     +5V ── U4 ──► 3V3_SENS  the eight sensor connectors, each through 220Ω
+USB VBUS ──► not connected
+```
+
+- **Separate 3.3V regulators** so the ESP32's WiFi bursts never reach the SD card, mux, RTC or
+  sensors. Each regulator: 10µF in, 10µF + 100nF out; 3V3_RF has a further 22µF at the regulator
+  and 22µF + 100nF at the module.
+- **Hold-up (calculated):** about 22ms of ride-through at 0.3A on 5V, 12ms at 0.5A, 4ms at the 1.0A
+  peak; a longer dip ends in a clean reset. D1 isolates it from dips on the 12V rail. The 3.4Ω
+  limits the plug-in pulse to about 3.6A for about 10ms and drops about 0.5V at 0.3A on 5V, about 2V
+  at the 1.0A peak.
+- **USB powers nothing** and nothing on the board puts a voltage on VBUS. **USB and 12V are safe in
+  any order.** With 12V off nothing runs, so **the board is always flashed with 12V on.** The S3's
+  1.5kΩ D+ pull-up is always present (under 2mA into a powered-off host's data line).
+- **12V sense:** 100kΩ / 15kΩ with 100nF, to GPIO8; 12V reads 1.57V. At D2's 24V clamp level the
+  pin sees about 3.2V, inside its limit.
+
+**Power budget (design estimates):** 5V about 1.0A peak (ESP32 0.5A, plenum fan 0.15A, LCD 0.2A,
+SD 0.1–0.2A, the rest about 30mA). 12V about 2.9A peak (heater 1.67A, blowers 0.48A, U8 input about
+0.58A, humidifier 0.12A, ion 0.04A, K1 and SSR about 0.03A). **The 4A fuse stays** (2.4).
+
+## 3A.4 Pin map
+
+| GPIO | Function | Undriven (boot, reset, flashing) |
+|---|---|---|
+| 0 | BOOT button, TP11 | High: 10kΩ pull-up to 3V3_RF |
+| 1 | Hardware watchdog toggle | Watchdog disabled |
+| 2 | Spare, J23 pin 4 | Unrestricted |
+| 3 | **Not connected** | — |
+| 4 | Cooling (SSR), through U9 | Low: 10kΩ pull-down. Off |
+| 5 | Heater, through U9 | Low: 10kΩ pull-down. Off |
+| 6 | Interlock K1, through U9 | Low: 10kΩ pull-down. De-energised = cooling selected |
+| 7 | Humidifier fan, through U9 | Low: 10kΩ pull-down. Off |
+| 8 | 12V sense, ADC1 channel 7 | — |
+| 9 | LCD data/command | — |
+| 10 / 11 / 12 | LCD CS / MOSI / SCK (SPI2, dedicated pins) | CS high: 10kΩ pull-up to 3V3_RF |
+| 13 | LCD backlight | The LCD pulls it high: backlight on |
+| 14 | I²C1 SCL — RTC and touch | 2.2kΩ pull-up to 3V3_Q |
+| 15 | Blower speed, direct | **High: 10kΩ pull-up to 3V3_RF. Full speed** |
+| 16 | Plenum fan tach | 1kΩ pull-up to 3V3_Q, 1µF to GND |
+| 17 | Ion generator, direct | Low: 10kΩ pull-down. Off |
+| 18 | Plenum fan PWM, 25kHz | Fan at full speed, as Rev P |
+| 19 / 20 | USB D− / D+ | — |
+| 21 | I²C1 SDA — RTC and touch | 2.2kΩ pull-up to 3V3_Q |
+| 35 / 36 | I²C0 SDA / SCL — mux only | 2.2kΩ pull-ups to 3V3_Q |
+| 37 | Mux reset | High: 10kΩ pull-up to 3V3_Q |
+| 38 | SD MISO (SPI3) | 10kΩ pull-up to the card's supply |
+| 39 | SD card power switch | Card powered (internal pull-up at reset; R91 holds the switch fully on against it) |
+| 40 / 41 / 42 | SD SCK / MOSI / CS (SPI3) | MOSI, CS: 10kΩ pull-ups to the card's supply |
+| 43 / 44 | **Serial monitor port** (UART0 TX / RX), J23 pins 2 and 3 through 220Ω / 4.7kΩ | 43 prints boot text at reset; 44 has a pull-up at reset |
+| 45, 46 | **Not connected** | Internal pull-downs give the right boot state |
+| 47 | Touch interrupt | High: 10kΩ pull-up to 3V3_Q |
+| 48 | LCD reset **and** touch reset, together | High: 10kΩ pull-up to 3V3_RF |
+
+**One unrestricted spare, GPIO2** (J23 pin 4). GPIO43/44 are the monitor port; usable as spares only
+with no monitor cable attached. No LCD MISO (the screen is never read). No I²C expander.
+
+**Reset states (Espressif ESP32-S3 datasheet v2.2, Tables 2-1 and 2-2):** no internal pull at or after
+reset on any connected pin except GPIO0, 39, 43, 44 (pull-ups) and the unconnected 45, 46. GPIO1–14
+and 15–17 are driven low for about 60µs at power-up, GPIO18 low and high, GPIO19/20 high twice.
+Harmless: low is off for every load, a lone SCL low is not an I²C start, the LCD is reset and
+re-initialised after boot, and on GPIO1 a glitch is at most one watchdog kick.
+
+## 3A.5 Reset, boot and USB
+
+- **EN net — exactly these and nothing else:** the module's EN pin, 10kΩ to 3V3_RF, 1µF to GND,
+  the reset button SW1, U5's reset output (push-pull, its pull-up limited to 0.4mA so SW1
+  still pulls EN low), TP10.
+- **U5 MAX823S** on 3V3_RF holds EN low below 2.93V (2.85–3.00V) and for 200ms (140–280ms)
+  after. **Hardware watchdog:** GPIO1 → R26 (0Ω link) → WDI. **Timeout 1.12s minimum** (1.6s
+  typical, 2.4s maximum), cleared by a rising or a falling edge. An undriven WDI (under 10µA leakage,
+  under 200pF) disables it; leaving R26 out removes it.
+- **BOOT:** GPIO0, 10kΩ to 3V3_RF, button SW2, TP11.
+- **USB-C J19:** D+ and D− through 22Ω to GPIO20 / GPIO19; CC1 and CC2 each 5.1kΩ to GND; ESD
+  array U11 with its supply pin on 3V3_RF; shield to GND; **VBUS not connected.** Nothing on the
+  USB side touches EN or GPIO0, so the board runs with no USB. **Native USB is for flashing** (lid
+  open). A monitor on it can reset the chip: whenever the host leaves RTS on with DTR off, even for
+  an instant (Espressif TRM table 33-2); DTR on with RTS off sets download mode for the next reset.
+  There is no run-time switch, and the fuses that disable it are never burned.
+- **Monitor port J23** (1×5 header, fitted): 1 GND · 2 TX, from GPIO43 through 220Ω · 3 RX, to
+  GPIO44 through 4.7kΩ · 4 GPIO2 spare · 5 3V3_Q. UART0 has no path to EN or GPIO0, so **a monitor
+  here can never reset the board.** A 3.3V USB-serial cable uses pins 1–3 only: cable GND to 1,
+  cable RX to 2, cable TX to 3. **The cable's VCC wire is never connected.** The cable may be attached with
+  the board on or off: with 12V off its TX feeds at most about 0.6mA through R94 onto 3V3_RF.
+  **R94 is 4.7kΩ, not higher:** GPIO44's internal pull-up (45kΩ typical, no range given) is on at
+  reset, and a low must stay under 0.825V against it.
+
+## 3A.6 Loads
+
+| Output | Chain | Default |
+|---|---|---|
+| SSR, heater, K1, humidifier | GPIO → 10kΩ pull-down → 1kΩ → U9 gate (other input to +5V) → 100Ω → AO3400A, 100kΩ gate pull-down. **As Rev P** | Off — also with U9 unpowered or out of its socket |
+| Ion generator, TFB-YD12102, 12V, two leads (J16) | GPIO17 → 10kΩ pull-down → 100Ω → Q6. No U9 | Off |
+| Blowers (J12–J15) | GPIO15 → 10kΩ pull-**up** to 3V3_RF → 100Ω → Q7. No U9 | **Full speed** |
+| Plenum fan (J2) | GPIO18 direct to the fan's PWM wire, as Rev P | Full speed |
+| LCD backlight | GPIO13 → 100Ω → the LCD's LED pin | On |
+| SD card power | GPIO39 → 220Ω → Q10 gate; 10kΩ gate pull-down; 1µF gate-to-source | On |
+
+- **Interlock, as Rev P:** K1 coil A1 to +12V, A2 to Q5. Contact 11 (COM) +12V; 12 (NC) to J10
+  pin 1, SSR +A1; 14 (NO) to J10 pin 3, heater +. J10 pin 2 (SSR −A2) to Q2; pin 4 (heater −) to
+  Q3 and Q11. The SSR and the heater can never both have a feed.
+- **Heater switch:** Q3 and Q11 in parallel, each with its own 100Ω gate resistor and 100kΩ
+  pull-down.
+- **Blower stage — smoothed PWM, low side.** Blower + pins on +12V; blower − pins joined
+  (BLW_NEG, TP12) → L1 → Q7 → GND; D10 from Q7's drain to +12V. Across the blowers: 10µF ceramic,
+  plus 470µF polymer in series with 3.3Ω (three 10Ω in parallel). **Blower voltage ≈ duty × 12V**
+  (about 11.8V at 100%), about 100kHz, no feedback. Simulated: no overshoot above the supply on a
+  reset from any speed, with none to four blowers. Below about 70mA total load the voltage reads
+  higher than duty × 12V.
+- A flyback diode across every switched output (3A.2).
+
+## 3A.7 Sensors and buses
+
+- **I²C0 (GPIO35/36), mux only, 25kHz.** U6 at 0x70 (address pins to GND), reset on GPIO37, 2.2kΩ
+  pull-ups to 3V3_Q, no pull-ups on the channels (the 10kΩ inside each probe, 2.3).
+- **Sensor connectors:** six sensors on **mux channels 0–5** (J3–J8); channels 6 and 7 on two spare
+  connectors (J17, J18). Each: pin 1 3.3V through **220Ω** from 3V3_SENS with 100nF after it; pin
+  2 GND; pin 3 SCL and pin 4 SDA each through 100Ω; one ESD array per pair of connectors. A lead
+  shorted to ground draws 15mA and affects that sensor only. **The 220Ω feeds rely on the SHT40
+  heaters never being used.** J17 and J18 have **unfitted** 10kΩ pull-up positions (R95–R98) from
+  each connector's own 3.3V feed to its SCL and SDA, connector side of the 100Ω — fitted only for a
+  sensor with no pull-ups of its own.
+- **Channel numbers match the mux:** sensor channel n (2.3) is mux channel n — no mapping.
+- **I²C1 (GPIO21 SDA / GPIO14 SCL), RTC and touch, 100kHz** (50kHz fallback if touch misbehaves), 2.2kΩ
+  pull-ups to 3V3_Q. A faulty sensor holding I²C0 can't take the clock down.
+
+**I²C addresses on Rev Q:** I²C0 — TCA9548A 0x70; SHT40 0x44, one per mux channel 0–5. I²C1 —
+DS3231 0x68; the touch controller, **FT6336U at 0x38** (from lcdwiki's MSP4031 documents; BP2
+test 29's I²C1 scan confirms it).
+
+## 3A.8 RTC
+
+DS3231SN on 3V3_Q. Cell BT1 charged from 3V3_Q through D11 (1N4148W) and 2.2kΩ; it floats at about
+about 3.0–3.15V (calculated; D11 drops only about 0.2V at the sub-µA float current), nearer 3.2V if
+this board's 3V3_Q is at the top of its tolerance. The cell's range is 2.8–3.2V; if test 30 reads
+above 3.2V, about 1MΩ across C49 raises D11's drop (no new board). Backup
+comfortably over a year (estimate). **The cell is soldered and stays fitted**; it is never removed
+for a test (BP2). 32kHz, INT/SQW and RST not connected.
+
+## 3A.9 LCD
+
+lcdwiki **MSP4031** (4.0" 320 × 480 ST7796, capacitive touch), on **J20** (14-way 0.5mm FPC,
+bottom contacts: the ribbon's **bare contacts face the board**) with the supplied **30cm cable, no
+longer**. Pin 1 is the left-hand contact, marked `1`, looking at the top face with the antenna at the
+top; the ribbon leaves towards the bottom edge and arches over U16–U18 just in front of the socket.
+The module's own ribbon socket (P2, on its back) is marked 1 and 14 with the fourteen pins in
+header order (lcdwiki size drawing), so J20 matches it pin for pin; a ribbon is either right (n to
+n) or reversed (n to 15−n). P2's contact side is not documented: if the supplied "reverse" ribbon
+comes out reversed, the other standard type (same-side) is right. The ribbon is the only LCD connection.
+
+| Pin | LCD | Path |
+|---|---|---|
+| 1 | VCC | LCD_5V: +5V through FB1; 2 × 47µF + 100nF at the connector |
+| 2 | GND | |
+| 3 | LCD_CS | 33Ω to GPIO10 |
+| 4 | LCD_RST | 100Ω to GPIO48 |
+| 5 | LCD_RS | 33Ω to GPIO9 |
+| 6 | MOSI | 33Ω to GPIO11 |
+| 7 | SCK | 33Ω to GPIO12 |
+| 8 | LED | 100Ω to GPIO13 |
+| 9 | MISO | Not connected |
+| 10 | CTP_SCL | BSS138 Q9 to GPIO14 |
+| 11 | CTP_RST | 100Ω to GPIO48 (its own resistor) |
+| 12 | CTP_SDA | BSS138 Q8 to GPIO21 |
+| 13 | CTP_INT | 100Ω to GPIO47 |
+| 14 | SD_CS | Not connected — the LCD's own SD slot is not used |
+
+- **On the module:** touch SDA and SCL pulled to **5V** (10kΩ); LED and SD_CS to the module's
+  3.3V; CTP_INT and CTP_RST no pull-up (the touch controller runs from the module's 3.3V).
+- **Touch level shifter:** Q8, Q9 (gates on 3V3_Q) keep I²C1 at 3.3V; 10kΩ to LCD_5V on the cable
+  side of each line. ESD arrays on every LCD line.
+- **SPI2 at 15MHz or less** (ST7796S minimum write cycle 66ns); 20 and 40MHz are bench trials only.
+- If touch reads fail: R83 and R84 duplicate pull-ups the module already has and can be removed.
+- Which end of J20 is pin 1 is fixed at layout; continuity checked before first power (BP2).
+
+## 3A.10 Micro-SD
+
+J22 on **SPI3**, its own bus. 33Ω in series with the clock; 10kΩ pull-ups to the card's supply on
+CS, MOSI, MISO and the two unused data lines; 47µF + 100nF at the socket. **Power switch Q10**
+(AO3401A) from 3V3_Q: 10kΩ gate to GND, 220Ω from GPIO39, 1µF gate-to-source — switch-on about 3ms after
+GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is not connected.
+
+## 3A.11 Firmware rules for Rev Q
+
+- **Pins:** 3A.4. LCD on SPI2, SD on SPI3; mux on I²C0, RTC and touch on I²C1; sensors on mux
+  channels 0–5 (3A.7). **Console on UART0 (J23).**
+- **Hardware watchdog (GPIO1):** an input until the control loop is running, then its level
+  changes **every pass, from the loop** — never a timer. **Never more than 0.9s between changes**,
+  including WiFi reconnects, SD writes and OTA updates. To pause it, set the pin back to an input **with both
+  internal pulls off** (never pad hold) — and pause it for an OTA erase, which can block for
+  seconds, or erase in pieces. The 5s software watchdog (5.2) stays.
+- **SD power (GPIO39):** drive **high to cut** power. **To switch the card back on, set the pin to
+  an input with its internal pull-up off** (the soft start); never drive it low — that switches the
+  card on hard. Before cutting power, set the four SD lines low or to inputs, or the card is
+  back-fed through them. After cutting, wait at least 100ms before switching back on.
+- **Blowers (GPIO15):** high = on, duty = speed, about 100kHz; undriven = full speed. Duty is
+  calibrated against blower voltage with all four fitted (BP2); the table is in the build log.
+- **Ion generator (GPIO17):** high = on; undriven = off.
+- **LCD:** GPIO48 resets the LCD and the touch controller together: hold it low at least 5ms, then
+  wait at least 120ms before Sleep Out and 300ms before the first touch read. SPI2 at 15MHz or less.
+  Backlight on until the firmware drives GPIO13; PWM dims it.
+- **LCD before the B7 screens:** initialised at boot and cleared to black, backlight off.
+  **Backlight PWM 5kHz, 8-bit.**
+- **SD card recovery (Rev Q):** when the remount for a failed write's retry (5.4) fails, power-cycle
+  the card once (off, at least 100ms, on, remount) before setting SD FAIL.
+- **32kHz crystal stays disabled** (GPIO15/16 are its pins; the default).
+- **SHT40 heaters: never used** (3A.7).
+- **12V sense (GPIO8, ADC1):** read every 100ms, averaged over 1s, logged (5.4). **A dip** — below
+  **11.0V for 1s or more** — is an event, followed by a recovered event with the lowest value seen. The scale factor is
+  calibrated at BP2 (build log); nominal 12V = 1.57V. **ADC at 12dB attenuation** (at the next
+  range down it clips at about 12.3V).
+- **Serial monitor: J23 only in the cabinet** (3A.5). The native USB is for flashing; never open a
+  monitor on it with the board in service.
+- **WiFi stays connected** and reconnects by itself (5.4); card writes are not paused for it.
+  **Outage buffers in PSRAM**; their sizes are set when the firmware is ported.
+- **Free internal heap never below 30 KB at all times** (5.2), WiFi connects included.
+
+### Rules elsewhere in the spec that Rev Q adds
+
+Blower speeds 4.6b · ion generator runs 4.6c · OTA updates 5.2 · the LCD and the web dashboard 5.5.
+
+## 3A.12 Connectors, test points, layout
+
+| Ref | What | Pins |
+|---|---|---|
+| J1 | 12V in, XT30PW-M | 1 +12V, 2 GND |
+| J2 | Plenum fan, XH 4-way | 1 GND, 2 +5V, 3 tach (GPIO16), 4 PWM (GPIO18) — as Rev P |
+| J3–J8 | Sensors, mux channels 0–5, XH 4-way | 1 3.3V, 2 GND, 3 SCL, 4 SDA — as Rev P |
+| J17, J18 | Spare sensors, mux channels 6 and 7, XH 4-way | same |
+| J10 | SSR and heater, 4-way 5.08mm screw block | 1 SSR +A1, 2 SSR −A2, 3 heater +, 4 heater − — as Rev P |
+| J11 | Humidifier fan, XH 2-way | 1 +12V, 2 − |
+| J12–J15 | Blowers 1–4, XH 2-way | 1 +12V, 2 − (switched) |
+| J16 | Ion generator, XH 2-way | 1 +12V, 2 − |
+| J19 | USB-C | Data only |
+| J20 | LCD FPC socket | 3A.9 |
+| J22 | Micro-SD | |
+| J23 | Monitor port and spare, 1×5 header, fitted | 1 GND, 2 TX (GPIO43), 3 RX (GPIO44), 4 GPIO2, 5 3V3_Q. Silk: GND, TX, RX, IO2, 3V3 |
+| SW1 / SW2 | Reset / BOOT | |
+
+J9 (Rev P's RTC lead) no longer exists.
+
+Test points are Keystone loops, printed with what they carry — **no TP numbers on the board**:
+
+| TP | Net | Printed | TP | Net | Printed | TP | Net | Printed |
+|---|---|---|---|---|---|---|---|---|
+| TP1 | +5V | 5V | TP5 | Fan PWM | PWM | TP9 | 3V3_SENS | 3V3S |
+| TP2 | 3V3_RF | 3V3RF | TP6 | +12V | 12V | TP10 | EN | EN |
+| TP3 | GND | GND | TP7 | GND | GND | TP11 | GPIO0 | IO0 |
+| TP4 | Fan tach | TACH | TP8 | 3V3_Q | 3V3Q | TP12 | Blower − | BLW− |
+
+**Layout (final, routed, JLCPCB DFM-checked):**
+
+- **Board 117.5 × 88mm, 1.6mm, 4 layers** (JLC04161H-7628). Layer 1 parts and signals · layer 2
+  unbroken ground · layer 3 one 12V area under the loads, ground elsewhere · layer 4 signals and
+  ground fill. **Every part on the top; the back is bare** (logo only).
+- **Antenna cut-out:** board removed above y = 6.8mm from x = 61.4mm to the right-hand edge (measured
+  from the top-left corner, looking at the top). The module's antenna sits in it. **No metal within
+  15mm of the antenna** in the enclosure.
+- **Mounting holes, M3 (3.2mm):** (4.0, 4.0) · (4.0, 84.0) · (113.5, 84.0) · (113.5, 29.0) · (49.0,
+  47.1). None in the top-right corner (the cut-out).
+- **Edges:** top — blowers 1–4, ion, humidifier (+12V on the inner pin of each), USB-C; left — J10
+  (wires from the left), J1 (plug from the left, overhangs 0.4mm), J2; bottom — sensors CH0–CH6;
+  right — micro-SD (card from the right), J18 (CH7). RESET and BOOT, J23, and the EN and IO0 loops on
+  the right below the SD socket.
+- **Tallest parts:** K1 15mm · J10 14mm · C12, C13, C33 13mm · U8 10.2mm · J23 8.5mm (more with a
+  cable) · U9 in its socket and L1 about 8mm · XH headers 7mm (about 10mm with a plug).
+- Positions of every connector, hole, button and test point: `placement-B-positions.md`.
+
+---
+
 # 4. CONTROL RULES
 
 ## 4.1 Targets
@@ -720,7 +1081,7 @@ the filler; the dip limit protects the wrapper. **Check cigars on shelves 4, 5 a
 week or two** for fine cracks, splitting at the cap or lifting wrapper — those levels swing most. A
 cigar hygrometer reads bulk moisture and will not show wrapper stress.
 
-**The dip** is the fall in the mean RH of the healthy cabinet sensors (ch 2–5) from its pre-cycle
+**The dip** is the fall in the mean RH of the healthy cabinet sensors (ch 0–3) from its pre-cycle
 baseline to the trough. The sensors sit out of the plenum and blower streams (B5 step 5), so no
 weighting is applied.
 
@@ -728,7 +1089,7 @@ The fridge's own thermostat never acts once the controller is in charge.
 
 ## 4.2 Control source
 
-The controller averages the four cabinet sensors, channels 2–5. The chamber sensor is excluded: it
+The controller averages the four cabinet sensors, channels 0–3. The chamber sensor is excluded: it
 reads plenum conditions next to the plate and heater, not the air the cigars sit in. Not user
 configurable.
 
@@ -751,7 +1112,7 @@ Automatic exclusion on any of:
 | I²C timeout | 3 consecutive |
 | No response | Absent from mux channel |
 | Implausible value | Outside −10 to 50°C, or RH outside 0–100%, **on the raw value before clamping** |
-| Divergence — cabinet sensors (ch 2–5) only, and only while ≥3 are healthy | >5°C from the median of the healthy cabinet sensors for 10 min |
+| Divergence — cabinet sensors (ch 0–3) only, and only while ≥3 are healthy | >5°C from the median of the healthy cabinet sensors for 10 min |
 | I²C bus fault | The channel selected when the main bus locked — see 5.6 |
 
 Recovery: 10 consecutive good plausible reads — and, after a divergence exclusion, all 10 within
@@ -761,9 +1122,9 @@ from its first good, plausible read with the right serial; the boot hold covers 
 
 | Requirement | Threshold |
 |---|---|
-| Chamber sensor (ch 6) | Must be healthy |
-| Ambient sensor (ch 7) | Not required — failure degrades dosing to feedback only |
-| Cabinet sensors (ch 2–5) | At least 3 of 4 healthy |
+| Chamber sensor (ch 4) | Must be healthy |
+| Ambient sensor (ch 5) | Not required — failure degrades dosing to feedback only |
+| Cabinet sensors (ch 0–3) | At least 3 of 4 healthy |
 
 If either requirement fails, compressor and heater shut off immediately and stay off until it is
 met **and** a 5 min hold has elapsed. The humidifier needs only the cabinet requirement, and shuts
@@ -886,7 +1247,7 @@ than letting it emerge from a threshold.
 | Anticipation | Reduces it, by ending the run early |
 
 **Dose, then correct from feedback:** the controller estimates the run from the temperature error
-and the room–cabinet gap (channel 7), delivers it, compares the result against target, and nudges a
+and the room–cabinet gap (channel 5), delivers it, compares the result against target, and nudges a
 single correction factor each cycle — clamped so it cannot wander far. The dosing function's shape
 and starting coefficients come from the B6 mapping test; feedback then tracks load, season and
 ageing. Without the ambient sensor, feedback alone corrects a cycle or two later.
@@ -934,13 +1295,43 @@ shows as falling RPM at the same duty against the baseline curve in the build lo
 |---|---|
 | 0% | Fan stops |
 | 1–19% | **Never command** — Noctua define nothing below 20% |
-| 20% | Minimum reliable, ~450 RPM |
+| 20% | Minimum reliable, ~400 RPM |
 | 20–100% | Normal operating range |
 
 **Kickstart:** any transition from 0% to running ramps to 100% for 1 second, then drops to the
 target duty. Required at boot before any other startup step, on recovery from a tach-stall fault,
 and on any commanded transition from 0% — including every restart from an idle stop, if B6 adopts
 one.
+
+## 4.6b Circulation blowers (Rev Q)
+
+The four blowers run **24/7** (2.2). Rev Q sets their speed (3A.6); Rev P runs them at full speed.
+
+| Condition | Blowers |
+|---|---|
+| Normal | **Idle speed** |
+| Cabinet sensors disagree: spread (highest minus lowest of the healthy cabinet sensors, ch 0–3) above **1.0°C** or above **3 points RH** | **Boost: full speed** |
+| Back to idle | Spread below **0.5°C and 2 points RH**, held for **10 minutes** |
+| Fewer than 2 healthy cabinet sensors, or any fault state | Full speed |
+| Reset, boot, flashing (GPIO15 undriven) | Full speed (hardware) |
+
+The idle speed is a duty setting chosen by ear and airflow from BP2 test 22's duty-to-voltage
+table, confirmed in B6. The spread thresholds sit below the divergence check (4.3), so mixing acts
+before a sensor is judged faulty.
+
+## 4.6c Ion generator (Rev Q)
+
+Short, infrequent runs only: the module's benefit lasts only while it runs, and ionisers give off a
+little ozone, which cigars must not be exposed to for long.
+
+| Rule | Value |
+|---|---|
+| Runs per day | **2**, evenly spaced (12 hours apart), from the clock; if the time is not trusted, every 12 hours from boot |
+| Minutes per run | **2** |
+| Hard cap | **10 minutes in any 24 hours** — never exceeded, whatever the settings |
+| Not during | The boot hold, an OTA update, or any fault state |
+
+A sharp, chlorine-like smell when the door is opened means too much: reduce the runs.
 
 ## 4.7 RH stripping
 
@@ -954,7 +1345,7 @@ humidifier's off point sits below the stripping trigger, so the two are never ca
 | Release | Mean cabinet **vapour pressure** ≤ that of setpoint RH at setpoint temperature — 62% at 20°C is 1.45 kPa |
 | Temperature floor | Stop if any healthy cabinet sensor falls below setpoint − 2°C |
 
-RH from the healthy cabinet sensors, channels 2–5; never the chamber sensor. **Mean vapour pressure
+RH from the healthy cabinet sensors, channels 0–3; never the chamber sensor. **Mean vapour pressure
 is the mean of each healthy cabinet sensor's own vapour pressure.** After the floor stops a strip,
 the full persistence runs again from zero, starting once every cabinet sensor is back above the
 floor.
@@ -978,7 +1369,7 @@ the count.
 | Release | Mean cabinet RH ≥ setpoint |
 | Ceiling | Any healthy cabinet sensor ≥ 70% — off immediately, regardless of the mean |
 
-RH from the healthy cabinet sensors, channels 2–5; never the chamber sensor. All 4.4 humidifier
+RH from the healthy cabinet sensors, channels 0–3; never the chamber sensor. All 4.4 humidifier
 guards apply unchanged. **A call stays on until RH reaches setpoint**: guards (max run and rest,
 sensors, ceiling) only pause the humidifier, and it resumes when they clear, with no fresh count.
 **The persistence count runs only while no strip is active**; it starts from zero when a strip ends.
@@ -1104,7 +1495,7 @@ Apple Silicon Mac, macOS 26.
 | Editor | VS Code |
 | Extension | **pioarduino IDE**, not PlatformIO IDE (deprecated for ESP32, stuck on core 2.0.17). Never install both |
 | Platform | pioarduino, pinned release 55.03.311 |
-| Board | `esp32dev` |
+| Board | `esp32dev` (Rev N/P). Rev Q: `esp32-s3-devkitc1-n8r2` (8MB quad flash, 2MB quad PSRAM), console on UART0 (J23), flashing over native USB — environment below |
 | Framework | Arduino |
 | Core | Arduino-ESP32 3.3.11 on ESP-IDF 5.5.5 |
 | Toolchain | xtensa-esp-elf 14.2.0 |
@@ -1127,6 +1518,35 @@ board_build.partitions = min_spiffs.csv
 `min_spiffs`: ~1.9 MB for firmware with two app slots, so wireless (OTA) updates stay possible;
 logs live on the SD card, so flash file storage is not needed.
 
+**Rev Q:**
+
+```ini
+[revq_common]
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
+board = esp32-s3-devkitc1-n8r2
+framework = arduino
+build_flags = -Wall -DCORE_DEBUG_LEVEL=0 -DWINEADOR_BOARD_REVQ -DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=0
+board_build.partitions = default_8MB.csv
+monitor_speed = 115200
+monitor_filters = time
+test_ignore = *
+monitor_rts = 0
+monitor_dtr = 0
+; upload_port: the native USB's /dev/cu.usbmodem… (set at BP2 test 15)
+; monitor_port: the J23 cable's port (set when the cable is here)
+```
+
+`-Wall` keeps the no-warnings rule; `CORE_DEBUG_LEVEL=0` stops the framework's own error printing
+holding up the loop. `ARDUINO_USB_CDC_ON_BOOT=0` puts `Serial` (and the boot messages) on UART0, GPIO43/44 — J23.
+`default_8MB.csv`: two 3.2 MB app slots for OTA; NVS at the same address and size as Rev N.
+`monitor_rts`/`monitor_dtr` at 0: J23 has no RTS/DTR wires; on the native USB, both off is the state
+that neither resets the chip nor sets download mode — but never monitor on the native USB (3A.5).
+Rev N builds carry `-DWINEADOR_BOARD_REVN`; a build with neither or both flags stops with an error.
+**Heap:** the prebuilt S3 framework keeps WiFi and network-stack buffers in internal RAM (PSRAM is on,
+but not for WiFi/lwIP). Outage buffers go in PSRAM. If the 30 KB floor (5.2) is not met at all
+times on the board, the fix is pioarduino's `custom_sdkconfig` to move WiFi/lwIP buffers to PSRAM —
+decided on measurement (BP2 test 39).
+
 `monitor_rts` and `monitor_dtr` at **1** stop the monitor resetting the board when opened or closed —
 essential for long runs. On the DevKit, EN is pulled low only when RTS is on and DTR off; at 0 the
 monitor turns DTR off first, leaving RTS on alone for a moment, which resets the board. A custom
@@ -1134,6 +1554,9 @@ serial script must likewise clear RTS before DTR. Pin the platform to a release 
 data-capable USB cable. If auto-reset fails: hold BOOT, tap EN, release BOOT, flash. Close the
 monitor before uploading. On Rev P, flash and monitor with the ESP32 on the board, USB and 12V in any
 order (2.4). **Rev N** has no D7: **keep 12V on whenever USB is connected** — 12V on before USB in, USB out before 12V off. With that, flashing on the board is fine. Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.
+**Rev Q:** USB powers nothing, so USB and 12V are safe in any order; flash and monitor with 12V on.
+The CP210x driver and the DevKit's RTS/DTR behaviour do not apply. **Monitor on J23** with a 3.3V
+USB-serial cable (3A.5); the native USB only for flashing.
 
 **With the DevKit pull-ups fitted (3.3)**, USB can be plugged into or unplugged from a running
 board without restarting it, and the board runs with no USB at all.
@@ -1156,7 +1579,7 @@ board without restarting it, and the board runs with no USB at all.
 - All timing from `millis()` against stored timestamps; all state in explicit, resumable state
   machines
 - Peripheral failure returns an error immediately, no inline retry
-- Watchdog enabled, **5 s** timeout
+- Watchdog enabled, **5 s** timeout. **Rev Q also has a hardware watchdog** (3A.11)
 - **Heap monitoring:** take the baseline after all initialisation completes, and never sample
   during a file write
 - **Weekly maintenance task:** exercise the interlock relay, three full cycles with both loads off —
@@ -1168,14 +1591,22 @@ humidifier guards — the 70% RH ceiling included — and turn off any load whos
 unsatisfied. Turning a load off must never depend
 on a sensor read, a log write or the network.
 
-**Free internal heap never below 30 KB** (internal RAM; PSRAM is measured separately), including during WiFi bursts and SD writes; the lowest seen is
+**Free internal heap never below 30 KB** (internal RAM only — on Rev Q the framework's ordinary free-heap calls include PSRAM, so the
+internal-only calls are used; PSRAM's lowest free is logged separately, 5.4), including during WiFi bursts and SD writes; the lowest seen is
 logged in the readings. On **Rev N** the floor applies outside NTP windows: while WiFi connects its
-own buffers dip it to ~29 KB, which is logged (card writes are paused). **The next board must meet
+own buffers dip it to ~29 KB, which is logged (card writes are paused). **Rev Q must meet
 it at all times.**
 
 **OTA updates** (from B6/B7): authenticated (5.5); a new image that fails to start properly rolls
-back to the previous one (min_spiffs keeps two app slots); after any update the normal boot hold
+back to the previous one (two app slots: `min_spiffs` on Rev N, `default_8MB` on Rev Q); after any update the normal boot hold
 applies.
+- **Starts only when the compressor is not running** — otherwise it is refused with a message, so
+  an update never cuts a cooling run short.
+- **During an update:** cooling, heater, humidifier and ion generator off; blowers at idle; plenum
+  fan at its idle setting; the hardware watchdog paused for the erase (3A.11). During the restart
+  itself the blowers and plenum fan run at full speed (hardware default).
+- After the restart the normal boot rules apply (boot hold; 4.4's timing state, so the compressor
+  waits its full minimum off).
 
 ## 5.3 Sensor handling
 
@@ -1206,6 +1637,9 @@ Working reference code: `soak_test.cpp` (PWM, tach width check, sensors, SD, RTC
 - **Leave P25 untouched until `ledcAttach`** — undriven, the fan runs at full speed, the safe-fail
   state
 - 20% minimum and the kickstart on every start from 0% — see 4.6
+
+**Rev Q:** PWM on GPIO18, tach on GPIO16 — read from `GPIO_IN_REG` bit 16 (GPIO0–31 register);
+otherwise as below.
 
 **Tach, P34:**
 - `pinMode(34, INPUT)` first
@@ -1244,8 +1678,9 @@ Local to SD, CSV throughout. Nothing pushed off the device.
 mean, min and max temperature · cabinet mean RH · active control value · fan
 PWM · fan RPM · compressor state · heater duty · humidifier state · interlock position ·
 per-channel error flags · time trusted (0/1) · longest loop pass in the interval · free heap · lowest-ever
-free heap · worst
-SD write time. Cabinet aggregates cover channels 2–5 only. In test builds, the real sensor readings
+free heap (internal RAM) · worst
+SD write time · 12V mean and lowest 1s average in the interval · lowest-ever free PSRAM (the last
+three empty where the board has neither). Cabinet aggregates cover channels 0–3 only. In test builds, the real sensor readings
 are logged alongside the scripted ones.
 
 **Events row:** timestamp · uptime (ms, so timings survive a clock correction) · type · detail. Types: compressor on/off with reason · heater on/off ·
@@ -1255,11 +1690,15 @@ with reason · SD flush failure · I²C bus fault, with the channel excluded and
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
-time). **Guard blocks:** one event when
+time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
+(Rev Q). **12V dips and WiFi events:** up to 10 an hour each, then one "N more this hour" line. **Guard blocks:** one event when
 an asked-for load becomes blocked, another when the reason changes or clears — not every pass.
 **CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
 
-**Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv`.
+**Layout:** `/logs/2026/2026-09-readings.csv`, `/logs/2026/2026-09-events.csv`, `/logs/hourly.csv` —
+from schema 2 each name carries the schema as an `-sN` suffix (e.g. `hourly-s2.csv`), so every file
+holds one schema only. Names do not sort in time order (`2026-11-readings-s2.csv` sorts before
+`2026-11-readings.csv`): tools order log files by month, then schema.
 Monthly files in year folders; a month of readings is ~12 MB. FAT32 holds no file of 4 GB or more:
 a log file that would pass 3.9 GB continues in a `-p2` part file. **Every write is verified:** flushed and the file size checked before the file is closed; a
 mismatch is treated as a failed write. No write may be lost without being logged. **A failed write is retried once
@@ -1268,22 +1707,27 @@ sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and
 logging needs very little bandwidth. **During a card outage,** events, readings rows and pending hourly
 rows are kept in RAM and written in order when the card returns; beyond that the oldest are dropped
 and counted. Buffer sizes are set per board — **Rev N: 60 events, 30 readings rows, 24 hourly rows**
-(heap); larger on the next board's PSRAM.
+(heap); **Rev Q: 1,000 events, 1,440 readings rows (24 hours at the steady rate), 168 hourly rows
+(a week), in PSRAM** (about 0.94 MB). If PSRAM is not found at boot: an event, and Rev N's sizes in
+internal RAM.
 
 **Self-describing headers** — comment lines then a column header. A file keeps the header of the build
 that created it; each boot event names its build, so later rows are still traceable.
 
 ```
 # wineador readings
-# schema 1
+# schema 2
+# board rev-q (channel n = mux n)
 # firmware 1.0.0
 # profile real
-# ch2 serial 0x0AD409ED top_front    rh_gain <from build log> rh_offset <from build log>
+# ch0 serial 0x0AD409ED top_front    rh_gain <from build log> rh_offset <from build log>
 # ...
-timestamp,ch2_t,ch2_rh,...
+timestamp,ch0_t,ch0_rh,...
 ```
 
-Bump the schema number whenever columns change; a new schema starts a new file.
+Bump the schema number whenever columns change, renamed columns included; a new schema starts a new
+file. **The `# board` line names the board that wrote the file:** `rev-n (channel n = mux n+2)` or
+`rev-q (channel n = mux n)`. Schema 1 (B1–B4 cards) used channels 2–7; schema 2 uses 0–5.
 
 **Wear:** every open-write-close rewrites the directory entry and FAT. **Buffer rows in RAM and
 flush ~16 at a time** — ~130 writes a day instead of ~2,100. A power cut loses at most 16 rows.
@@ -1298,8 +1742,8 @@ month. **At boot, set the ESP32 system clock from the DS3231 with `settimeofday`
 library dates files from the system clock, and left unset every file is dated 1 January 1980.
 **NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background; control never
 waits for it; after a missed sync, the next try is 1 h later. **WiFi, per board:** on Rev N it connects only for the NTP sync and turns off once the
-sync has worked or after 2 minutes (it caused the SD errors and most of the heap use); on the next
-board it stays connected and reconnects by itself, for the dashboard and OTA. **On Rev N, card writes
+sync has worked or after 2 minutes (it caused the SD errors and most of the heap use); on Rev Q
+it stays connected and reconnects by itself, for the dashboard and OTA. **On Rev N, card writes
 pause while WiFi is on**; rows and events wait in the outage buffers and are written once it is
 off, so WiFi and card writes never overlap. Each sync sets the system clock and
 writes the DS3231 if it is more than 2 s out; the correction is logged. Until NTP has corrected a
@@ -1310,13 +1754,24 @@ Flushes non-blocking and timeout-protected. An SD failure never stalls control; 
 ## 5.5 Dashboard
 
 Production dashboard, delivered in B7. B3–B5 use serial only; B6 a rough tuning dashboard. Served
-by the ESP32 over home WiFi, LAN only.
+by the ESP32 over home WiFi, **on the home network only** (reached as `wineador.local`); no access
+from outside. **Control never depends on WiFi or the dashboard**: with WiFi down everything runs as
+normal and the LCD still works.
 
-**Two interfaces** (next board):
-- **LCD** on the enclosure — the walk-past display (temperature, RH, what's running, faults) and the
-  everyday user settings; which ones is decided when the LCD section is written.
-- **Web dashboard** — everything: all user settings (and tuning settings in B6), graphs, events,
-  log downloads, OTA updates.
+**Two interfaces** (Rev Q):
+- **LCD** on the enclosure:
+  - **Walk-past screen:** cabinet temperature and RH, large (the mean of the healthy cabinet
+    sensors); what it is doing — Cooling, Heating, Humidifying, Drying (RH stripping), Standby or
+    Fault; the two setpoints, small; the time; WiFi status; an alert line when something needs
+    attention.
+  - **Settings:** target temperature (0.5°C steps) and RH setpoint (1-point steps), within the
+    user bounds below, with Save and Cancel. Nothing else. Returns to the walk-past screen after
+    60s without a touch; unsaved changes are dropped.
+  - **Backlight:** dims 60s after the last touch; a touch brings it back to full, and that first
+    touch only wakes the screen.
+- **Web dashboard** — everything else: graphs, events, log downloads, OTA updates. **It changes user
+  settings only**; tuning settings are shown read-only (changed only on the B6 tuning dashboard);
+  safety values are never shown.
 
 **Display:** current temperature and RH, all six sensors · cabinet mean, min, max, spread · state:
 compressor, heater, humidifier, fan PWM and RPM, interlock · graphs over hour, day, week, month ·
@@ -1343,6 +1798,8 @@ A setting you would never correctly change is only a way to make a mistake.
 | Heater enable | On | — | — |
 | Humidifier enable | On | — | — |
 | Manual sensor override — force-excludes a channel for maintenance | None | — | — |
+| Ion generator runs per day (Rev Q, 4.6c) | 2 | 0 | 4 |
+| Ion generator minutes per run (Rev Q) | 2 | 0 | 5 |
 
 **Tuning settings** — exposed on the B6 dashboard, then fixed; read-only at most in production. Starting
 values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces them**:
@@ -1373,6 +1830,8 @@ values run B3–B5 unchanged and are chosen to be safe, not good; **B6 replaces 
 | Humidifier ineffective | Cabinet mean **vapour pressure** rise ≥ the equivalent of 0.5 points at setpoint conditions (~0.012 kPa at 62%/20°C) within 20 min; retry after 2 h | B6 step 8 |
 | Disturbance detection | **Off** (4.7a) | B6 |
 | Disturbance rate threshold, exclusion after load switch, hold-off, hold-off cap | — (detection off) | B6 |
+| Blower PWM, idle (Rev Q, 4.6b) | Full speed until chosen at BP2 test 22 | From BP2 test 22's table; B6 |
+| Blower boost on / off spread | Above 1.0°C or 3 points / below 0.5°C and 2 points for 10 min | B6 |
 | Log rate, steady / active | 60s / 15s | 30–600s / 10–120s |
 | Sensor read rate | 15s | 5–60s, ≤ active log rate |
 
@@ -1391,17 +1850,23 @@ Constraints: deadband must exceed the worst measured overshoot; fan PWM never 1�
 | RH hard ceiling | **70%** |
 | Sensor exclusion thresholds | Per 4.3 |
 | Minimum healthy sensors | Chamber + 3 of 4 cabinet |
+| Ion generator cap (Rev Q) | 10 min in any 24 hours |
 | Sensor recovery hold | 5 min |
 
 These are the **real profile**. The bench profile in B3 shortens the timers and must never reach
 the cabinet.
+
+**Serial console** (B3–B5, and on Rev Q through J23): commands that take a sensor channel accept
+the number **0–5**, the **position name** (e.g. `top_front`) or the **probe label** (e.g. `09ED`),
+and **echo what they acted on** — channel, position and probe, e.g. `ch3 = mid_rear (probe A1C5):
+excluded`.
 
 **Implementation:** static page plus JSON endpoints; the browser graphs. Serve pre-aggregated data
 for wide ranges.
 
 **The JSON endpoints are a documented API**, used by the dashboard and by tools on the Mac alike:
 - **Read** — status, readings, events, hourly data, and log file downloads. Open on the LAN.
-- **Write** — user settings, tuning settings (B6), and a door-test marker; the same bounds as
+- **Write** — user settings, and a door-test marker; tuning settings only in the B6 tuning build; the same bounds as
   everywhere else. **Writes and OTA need a password or token.**
 - **Safety settings are never exposed**, through the API or anywhere else.
 
@@ -1463,8 +1928,8 @@ the PCB**. A failure in B3 is then a firmware fault.
 | BP | Bench, PCB | Bring-up — new on-board parts tested, the perfboard retired | ✅ Rev N — D7 checks, BP15 and BP16 repeat on Rev P |
 | B3 | Bench, PCB | Firmware — safety logic, bench profile, serial interface | ✅ |
 | B4 | Bench | Soak, real profile, at least 20 hours | ✅ |
-| BP2 | Bench, next board | Bring-up of the next board (SMD) and repeat of the B3 tests it affects — defined once the board is in the spec | Pending |
-| B5 | Cabinet | Install, on the next board. Fixed settings, serial interface | Pending |
+| BP2 | Bench, Rev Q | Bring-up of Rev Q, the B3 tests re-run on it, the deep SD test and a soak | Pending — after the order |
+| B5 | Cabinet | Install, on Rev Q. Fixed settings, serial interface | Pending |
 | B6 | Cabinet | Tuning. Settings to NVS, rough web dashboard | Pending |
 | B7 | Cabinet | Production dashboard; B6 findings become defaults | Pending |
 
@@ -1762,21 +2227,105 @@ batches back-to-back — first without the fix, to reproduce the fault and get a
 with it, for at least as many writes — plus a card pulled for a few minutes, with every buffered
 row and event reaching the card in order.
 
-## BP2 — Next board bring-up
+## BP2 — Rev Q bring-up
 
-The next board (SMD; `next-board-changes.md`) sits between B4 and B5. Its tests are written when
-the board is added to the spec: a bring-up like BP for its new parts, then every B3 test its changes
-affect, and a short soak. B5 runs on it. **It must include:**
-- **A deep SD test,** running as in the cabinet with **WiFi on all the time**: at least 20,000
-  large writes back to back, a card pull with every buffered row and event written in order, and
-  **zero first-try failures** — the proof the new SD design cures what Rev N showed (build log).
-- **The 30 KB heap floor at all times**, including while WiFi connects and reconnects.
-- Running with no USB; USB plugged in and out and the monitor opened and closed with no restart;
-  a supply dip ending in a clean reset.
+Rev Q (3A) sits between B4 and B5, and B5 runs on it. BP2 has three jobs: **prove the board and
+its new parts**, **re-run the firmware tests on it**, and **prove what Rev N couldn't** — the SD
+card with WiFi always on, the heap floor at all times, and a clean recovery from a supply dip. A
+failure in phases A–D is a board, assembly or design fault; the firmware is already proven by B3
+and B4.
+
+**Power order:** USB powers nothing on Rev Q, so **USB and 12V are safe in any order**; flashing
+and the serial monitor need **12V on**. Bench PSU 12.0V through the 4A fuse into J1.
+
+**Five phases, in order:** A as delivered · B hand-soldered parts fitted, no power · C power and
+hardware · D system · E firmware and soak. **Nothing is powered until every step of B passes.** U9
+is socketed and goes in after the rails are proven without it.
+
+Test points per 3A.12. Meter ground TP7 on the power side, TP3 for signal work. Meter: resistance
+on the top range unless stated; "open" means OL.
+
+### A — As delivered (JLCPCB SMD parts fitted, nothing hand-soldered)
+
+| # | Test | Procedure | Pass criteria | Status |
+|---|---|---|---|---|
+| 1 | Inspection | Magnifier over the module, every SMD part, the FPC and SD sockets | No bridges, tombstones, missing or rotated parts; polarity marks (polymers, diodes) match the silk | Pending |
+| 2 | Rails not shorted | TP1, TP2, TP8, TP9 each to TP3; TP1 to each of TP2, TP8, TP9. J1 pin 1 pad to TP6 | Not near zero — readings drift while the capacitors charge; a few kΩ or more is a pass. J1 pin 1 to TP6 open (Q1 not fitted) | Pending |
+| 3 | USB isolation, unpowered | J19's VBUS pads (A4, A9, B4, B9 — no test point: fine probe tip under the magnifier, or a USB-C breakout plugged in) to TP1, TP2, TP3, TP6 | All open — VBUS connects to nothing | Pending |
+| 4 | EN, GPIO0 and the buttons | TP10 to TP2; TP11 to TP2. Then TP10 to TP3 with SW1 pressed and released; TP11 to TP3 with SW2 pressed and released | ~10kΩ each to TP2 (TP10 may read lower: U5's output has its own path to its supply). Pressed: under 1Ω; released: well above 10kΩ (10kΩ plus 3V3_RF's own reading to ground; TP10 drifts at first while C30 charges) | Pending |
+| 4a | RTC cell pads | Before BT1 is fitted. Continuity: the pad marked + to R71's cell-side pad; the other pad to TP3. Meter the cell's own tabs on DC volts and mark the positive one. Then lay the cell on its footprint | + pad beeps to R71, − pad to TP3, and not the other way round; the cell's positive tab (by meter) sits over the + pad. Any other result: stop — do not fit the cell | Pending |
+
+### B — Hand-soldered parts fitted, no power
+
+| # | Test | Procedure | Pass criteria | Status |
+|---|---|---|---|---|
+| 5 | Assembly | **First snap off both assembly rails and file the nibs flat** — J1 overhangs the left edge by 0.4mm and won't sit flat with the rail on. Then fit the hand-soldered parts (3A.2), lowest first: test points, the DIP socket, XH headers, J10, J1, Q1, U8, K1, BT1 last — 35 parts in all: J1, J10, six 2-way and nine 4-way XH headers, J23, K1, U8, the U9 socket, Q1, BT1, twelve test loops. **J1's ground pin joins the ground planes solidly: it needs more heat** (every other hand-soldered pin has thermal relief). **Polarity:** BT1 + to the pad proven in test 4a; U8 by its outline; Q1, J1, J10 and the XH headers per the silk. **U9 left out**. R95–R98 not fitted | Every part in its outline and orientation | Pending |
+| 6 | Inspection | Magnifier over every hand-soldered joint | No bridges or dry joints; flux cleaned around the antenna keep-out | Pending |
+| 7 | Rails still not shorted | As test 2 | As test 2 | Pending |
+| 8 | Resistance to TP3 | U9 socket pins 1, 4, 9, 12; each AO3400A gate (Q2–Q7, Q11) | U9 inputs ~11kΩ (1kΩ + 10kΩ); Q2, Q4, Q5 gates ~100kΩ; **Q3 and Q11 gates ~50kΩ** (R14 or R33 in parallel with the other heater gate's chain through R10 and R32); Q6 gate ~10kΩ (R35 and the ion pull-down); Q7 gate to TP2 ~10kΩ (the blower pull-up) | Pending |
+| 9 | Diodes | Diode mode. Q1 body diode: red on J1 pin 1, black on TP6; then reversed. D2: red on TP3, black on TP6 | Q1 ~0.5–0.7V, reversed open. D2 a diode drop, not a short | Pending |
+| 10 | LCD cable direction | Cable fitted to J20 (bare contacts facing the board) and the LCD, nothing else connected. the LCD module's pin 1 (VCC) to TP1; its pin 2 (GND) to TP3 | Short the meter leads first and note their reading. Each a few ohms at most above that (a 30cm ribbon conductor is about 0.5Ω, plus FB1 and two contacts). Open or high: stop — the cable or J20 is reversed | Pending |
+| 11 | Cross-checks | Each sensor connector: SCL and SDA not joined to each other or to any other connector's. J10 pin 1 to pin 3 open; pin 2 to pin 4 open | All open | Pending |
+
+### C — Power and hardware
+
+| # | Test | Procedure | Pass criteria | Status |
+|---|---|---|---|---|
+| 12 | First power, 12V only | **U9 out, LCD and SD card out, nothing on J2–J18.** PSU current limit 0.5A. Meter TP6, TP1, TP2, TP8, TP9. Note the PSU current. Touch U8, U2–U4 and Q1 after a minute | TP6 ≈ 12V; **TP1 4.9–5.1V; TP2, TP8, TP9 each 3.23–3.37V**; current tens of mA; nothing warm | Pending |
+| 13 | EN and GPIO0, 12V only | No USB. Meter TP10, TP11 | Both above 3.0V | Pending |
+| 14 | USB isolation, powered | (a) 12V off, USB in from the Mac: meter TP1, TP2, TP8, TP9, TP6. (b) 12V on, USB out: meter J19's VBUS pad to TP3 (as test 3) | (a) All under 0.1V; no device seen by the Mac. (b) Under 0.1V | Pending |
+| 15 | First flash | 12V on, USB in. Flash `boot_state_test.cpp` (written for Rev Q: prints the reset reason and leaves every load pin undriven) — over USB, using BOOT and reset if the automatic entry fails | Flashes; serial banner on J23 (3.3V USB-serial cable, 3A.5) | Pending |
+| 16 | Boot state | Power off. U9 in its socket, pin 1 to the notch. Power on, `boot_state_test.cpp` running. Meter GPIO4–7 and GPIO17 (at their pull-down pads) and each gate to TP3; J10 pin 1 and pin 3; TP6 to TP12 with four blowers on J12–J15 | GPIO4–7, GPIO17 and every gate except Q7 low; J10 pin 1 ≈ 12V, pin 3 ≈ 0V (K1 de-energised); **blowers at full speed, TP6 to TP12 ≥ 11.5V; ion output off**; no other load runs | Pending |
+| 17 | Loads held in reset | Hold SW1. Meter each gate to TP3; TP6 to TP12 | Q2–Q6, Q11 gates under 0.1V; blowers ≥ 11.5V | Pending |
+| 18 | Each output alone | As BP test 12 (heater pad on J10 3–4, humidifier fan on J11, SSR +A1/−A2 on J10 1–2, no mains), sketch ported to the Rev Q pins. Then the ion generator (TFB-YD12102) on J16: before fitting it, meter its black lead to its case and to its needles; then GPIO17 off/on | As BP test 12. Ion generator's black lead open to case and needles; runs when on, off when off | Pending |
+| 19 | Interlock with real loads | As BP test 13, Rev Q pins | As BP test 13 — K1 alone keeps the unselected load off | Pending |
+| 20 | Full load and the 12V rail | As BP test 14 with the ion generator added. At full load also meter the 5V current (into U8's output), across R21/R22 and C12's + pad to TP7, WiFi connected and transmitting | As BP test 14; **R21/R22 drop about 3.4Ω × U8's input current** (about 0.5V at 0.3A on 5V, up to about 2V at 1.0A); **C12 + above 9.5V**. Record the 5V current | Pending |
+| 21 | 3.3V under WiFi | 12V only. Sketch: repeated WiFi connects and transmits, SD writing, fan at 100%. Meter on min-hold: TP2, then TP8, 10 minutes each. If a scope is available, look at TP2 and TP8 for ringing | **TP2 ≥ 3.2V**; TP8 ≥ 3.2V; no reset; no oscillation (if seen: remove C20 or C28, bench fix) | Pending |
+| 22 | Blower voltage | Four blowers on. `blower_test.cpp`: duty stepped 100% → 0% in 10% steps, typed command per step. Meter TP6 to TP12 at each; listen | 100%: ≥ 11.5V; 50%: about 6V; no ticking or whine at any step. **Record the duty-to-voltage table** (build log) | Pending |
+| 23 | Blower overshoot | Peak-hold across the blowers (diode + 1µF + meter from TP6 to TP12). Blowers at 50%; reset with SW1 ten times | Peak no higher than TP6 + 0.5V | Pending |
+| 24 | Hardware watchdog | Sketch toggling GPIO1 from its loop, with a `stall` command that stops the toggling. Stopwatch from `stall` | One reset 1.12–2.4s after `stall`, then a normal restart. With GPIO1 set to an input (both pulls off) instead: no reset | Pending |
+| 25 | Flashing with the watchdog fitted | R26 fitted. Flash the watchdog sketch over USB, while it runs, three times | All three complete | Pending |
+| 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V within about 5ms; remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
+| 27 | 12V sense | PSU at 12.0V, then 11.0V. Read GPIO8 against the meter on TP6 | Reading follows the meter; **record the scale factor** (build log); after it, within 0.1V at both | Pending |
+| 28 | Sensors and spare channels | All six sensors on J3–J8. Then one sensor moved to J17, then J18 | Every serial on its mux channel (3A.7); each read with CRC good; J17 and J18 read the moved sensor on channels 6 and 7 | Pending |
+| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC) | Pending |
+| 30 | RTC cell | Board powered 48 hours. Meter BT1 + to TP3. Then 12V off overnight; restore | Cell 2.8–3.2V (record with the date and TP8, build log; above 3.2V: 1MΩ across C49, 3A.8); time kept across the night, oscillator-stopped flag clear | Pending |
+
+### D — System
+
+| # | Test | Procedure | Pass criteria | Status |
+|---|---|---|---|---|
+| 31 | No USB | 12V only, no USB, the firmware's normal build (bench profile). Run 1 hour; then attach the J23 monitor cable and read the status line | Boots and runs; one boot only (uptime from the status line) | Pending |
+| 32 | USB and monitor never restart it | Running, 12V on. (a) USB in and out five times. (b) 3.3V USB-serial cable on J23 pins 1–3 (no VCC wire): monitor opened and closed ten times; cable plugged and unplugged five times | No restart — uptime continues, no boot banner; console text on J23 | Pending |
+| 32a | Monitor cable with the board off | Cable on J23, 12V off and USB out. Meter across R94 | Under 2.8V (under 0.6mA). TP2 is not a criterion: it reads above zero in this state | Pending |
+| 32b | Power-up with the cable attached | Cable still on J23; 12V on | Boots normally, once; console text appears; a key typed in the monitor is received | Pending |
+| 33 | Power in any order | (a) USB in, then 12V on and off twice. (b) 12V on, USB in and out twice. (c) With 12V off and USB in: no load moves | No damage; boots normally each time 12V comes on; (c) as stated | Pending |
+| 34 | Fast power cycling | 12V off and on 20 times at short, irregular intervals (from under a second to a few seconds) | Boots every time; every load quiet through boot; no hang. Afterwards R38–R40 still read 3.3Ω across the three | Pending |
+| 35 | Bulb surge | **USB out.** The 21W 12V bulb on J10 3–4 (K1 energised), switched on 50 times by a test sketch | No freeze — the failure Rev N showed (build log). Any reset is clean and the board restarts (the bulb's cold surge can outlast the hold-up; the heater pad has none) | Pending |
+| 36 | Supply dip | A short dip on the 12V (PSU output switched off and straight back on, then the lead pulled and replugged) while running | Either rides through, or a clean reset ending in a normal boot — never a hang | Pending |
+
+### E — Firmware and soak
+
+| # | Test | Procedure | Pass criteria | Status |
+|---|---|---|---|---|
+| 37 | B3 re-run | Every B3 test on Rev Q (every pin and bus moves), with the Rev Q exceptions below | As B3 | Pending |
+| 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures**; every buffered row and event written in order after the pull | Pending |
+| 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice) | **Never below 30 KB** | Pending |
+| 40 | Soak | As B4 test 1, on Rev Q with WiFi always on | As B4 test 1 | Pending |
+
+**Rev Q exceptions to the B3 tests:**
+- **Test 11 (watchdog):** with GPIO1 toggling, `stall` is caught by the **hardware watchdog**
+  first (1.12–2.4s). Run it twice: as written (hardware reset, then boot hold), and with the hardware
+  watchdog paused (GPIO1 an input, both pulls off) to prove the 5s software watchdog.
+- **Test 16 (RTC lost time):** the cell is soldered (3A.8). A test-build command sets the DS3231's
+  EOSC bit, which stops its oscillator once it is on the cell; cut the power for a minute, restore
+  it with WiFi; the command clears the bit afterwards. Same pass criteria. Test 24's lost-time event
+  is made the same way.
+- **The 12V-bulb rule (B3) does not apply:** Rev Q runs the bulb with USB out (test 35).
 
 ## B5 — Install in the cabinet
 
-Real profile, compile-time constants, serial interface. On the next board. Blocked on BP2.
+Real profile, compile-time constants, serial interface. On Rev Q. Blocked on BP2.
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
@@ -1865,7 +2414,11 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 
 | Item | Status |
 |---|---|
-| Enclosure | Final dimensions after the next board's layout (outline, mounting holes and connector positions may change) |
+| Rev Q PCB, JLCPCB Standard assembly (file set B4, **parts list as of 13 Nov with U5 MAX823SEUK+T**) | At order: in the placement preview check U5's pin-1 marker at the printed triangle; recheck stock and Basic/Extended of the 40 part numbers; edge rails added by JLCPCB on the **left and right edges only**, the right rail not joined beside J22 (8–24mm from the top) — remark and drawing in `jlcpcb/ORDER-NOTES.md`; **ENIG** finish; vias plugged ("Tented" not offered; every via is covered by mask in the files); select "Confirm Parts Placement"; layer order F_Cu, In1 (ground), In2 (12V/ground), B_Cu |
+| Spare LCD ribbons, 14-way 0.5mm, 30cm: one "reverse", one "same-side" | With the board order |
+| Rev Q hand-soldered parts, Farnell UK (3A.2) | **K1 now — low stock**; the rest with the board order |
+| USB-serial cable for J23, 3.3V logic (3A.2) | With the board order |
+| Enclosure | To Rev Q's final layout (3A.12) |
 | Trays | After final chamber depth is confirmed |
 
 ## 6.4 What the logging must answer

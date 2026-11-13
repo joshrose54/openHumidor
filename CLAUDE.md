@@ -1,8 +1,10 @@
 # Wineador controller firmware
 
 ESP32 firmware for Josh's wineador: an electriQ wine cooler converted into a cigar humidor, with a
-custom controller board. This project builds the **production firmware**, stage by stage, and runs
-the **B3 tests** that prove its safety logic on the bench.
+custom controller board. The production firmware was built stage by stage on the **Rev N** bench
+board and has passed **B3** (all 24 tests) and **B4** (soak). Rev N is no longer available: until
+Rev Q arrives there is **no board to flash** — build and native tests only. The job now is the **port to Rev Q**,
+the cabinet board (ESP32-S3), and the **BP2** test sketches for its bring-up.
 
 Josh is not a professional developer. Explain plainly, keep code readable, and ask when unsure:
 don't guess and don't answer with false confidence.
@@ -11,100 +13,124 @@ don't guess and don't answer with false confidence.
 
 | File | What it is | You may |
 |---|---|---|
-| `docs/wineador-spec.md` | **The design.** Sections 4 (control rules) and 5 (firmware) say what the firmware must do; Track B → **B3** is the test list and how tests are run; 2.3–2.4 and 3.1–3.3 describe the hardware and pins | Read only |
-| `docs/wineador-build-log.md` | **Measured facts**: sensor serials and RH calibration (gain, offset), fan duty curve, board measurements, gotchas | Read only |
+| `docs/wineador-spec.md` | **The design.** Chapter **3A** is Rev Q (parts, pin map 3A.4, circuits, firmware rules **3A.11**); 4 control rules; 5 firmware; **BP2** is Rev Q's bring-up test list. 2.3–2.4 and 3.1–3.3 are Rev P/N | Read only |
+| `docs/wineador-build-log.md` | **Measured facts** from Rev N: sensor serials and RH calibration, fan duty curve, board values, gotchas | Read only |
 | `docs/wineador-project-instructions.md` | How Josh likes to work | Read only |
-| `docs/reference/*.cpp` | Test sketches that **ran and passed on this exact board**. Proven driver code for the fan PWM and tach (pulse-width check), SHT40 + mux, mux reset, SD, RTC, the four load outputs and the relay | Copy and adapt code |
-| `docs/next-board-changes.md` | Josh's list of changes for the next board — context only | Read only |
+| `docs/revq/6-revQ-design-report.md` | Rev Q board notes from the PCB engineer: every part and connection | Read only |
+| `docs/revq/7-revQ-netlist-report.md` | Every Rev Q net and its pins | Read only |
+| `docs/revq/wineador-revQ-schematic.pdf` | Rev Q schematic | Read only |
+| `docs/reference/*.cpp` | Test sketches that ran and passed on **Rev N**: patterns for the serial format, go-ahead prompts, load tests | Copy and adapt |
 
 **Never edit the spec or the build log.** Another Claude chat owns them. If you find something
-wrong, missing or contradictory in the spec, **stop and report it** — what, where, and a proposed
-fix. Josh takes it to that chat, which updates the spec. Don't work around a spec problem silently.
+wrong, missing or contradictory, **stop and report it** — what, where, and a proposed fix. Josh
+takes it to that chat. Don't work around a spec problem silently. Where the spec and the design
+report disagree, the spec wins; report the difference.
 
-## Hardware on the bench
+## Boards
 
-- Board: **Rev N** (the design is Rev P; see the BP section of the spec and the build log's Rev N
-  note). Rev N has **no D7, no R17–R20, no TP7**. Pins and behaviour are otherwise as the spec.
-- ESP32 DevKit (ESP-WROOM-32D, CP2102, AMS1117), port `/dev/cu.SLAB_USBtoUART`. **Modified** with
-  2.2kΩ 3V3–EN and 2.2kΩ 3V3–P0 (spec 3.3): without them it can't run without USB.
-- Pins: spec 3.1. Loads switch through U9 (74HCT08) to IRLZ44N MOSFETs; K1 relay in the 12V feed is
-  the heat/cool interlock (spec 3.2).
+| | Rev N (**no longer available** — build only) | Rev Q (ordered, not yet arrived) |
+|---|---|---|
+| Module | ESP32 DevKit (ESP-WROOM-32D, CP2102), modified with 2.2kΩ 3V3–EN and 3V3–P0 | **ESP32-S3-WROOM-1-N8R2** on the board: 8MB flash, 2MB quad PSRAM |
+| Pins | Spec 3.1 | **Spec 3A.4** |
+| Console | CP2102 USB, `/dev/cu.SLAB_USBtoUART` | **UART0 on J23** (GPIO43 TX, GPIO44 RX) through a 3.3V USB-serial cable. **Native USB (GPIO19/20) is for flashing only** — a monitor on it can reset the chip (3A.5) |
+| Sensor mux channels | Wired to mux 2–7 | Wired to mux 0–5 |
 
-### Power rules — Rev N (spec 5.1)
+**Sensor channels are numbered 0–5 everywhere** (spec 2.3): control rules, settings, log columns
+(`ch0_t` …), tools. Rev Q wires channel n to mux channel n. Rev N's board settings map 0–5 to its
+mux 2–7. The firmware currently uses 2–7: renumbering is part of the port, with a **log schema
+bump** and `tools/check_logs.py` updated to match.
 
-- **Keep 12V on whenever USB is connected: 12V on before USB in, USB out before 12V off.** Flashing
-  on the board is then fine.
-- **Any test that cuts the 12V (B3 test 12) runs with USB unplugged first.** Tell Josh this
-  explicitly every time.
-- With the DevKit pull-ups fitted (above), plugging USB in or out doesn't restart the board, and it
-  runs with no USB.
-- **The 12V bulb only with USB connected.** With USB out its switch-on surge crashes or freezes the
-  ESP32; use the heater pad (spec B3).
-- Bench instructions to Josh always state the power-up order.
+## Power rules
 
-### Test sketches and test builds
+- **Rev N:** keep 12V on whenever USB is connected — 12V on before USB in, USB out before 12V off.
+  Any test that cuts the 12V runs with USB unplugged first. The 12V bulb only with USB connected.
+- **Rev Q:** USB powers nothing. **Any order is safe**; flashing and the monitor need **12V on**.
+  The monitor cable on J23 uses three wires only — GND, TX, RX — **never its VCC wire**.
+- Bench instructions to Josh always state the power-up order for the board in use.
 
-- Anything that switches loads **waits for Josh's go-ahead** ("type n to start") so he can meter
+## Test sketches and test builds
+
+- Anything that switches loads **waits for Josh's go-ahead** ("type g to start") so he can meter
   first. Every step is plain and says what to check and what to record.
-- **From stage 4, the `bench` and cabinet builds switch loads by themselves** from the real sensors.
-  On the bench, flash **test builds only** unless Josh has asked for a non-test build. Before
-  flashing one, say plainly what it will switch on and when, and wait for his go.
-- Serial output shows **what is live right now** after each step, never "next" before it's applied.
-  See `docs/reference/bp12_outputs_test.cpp` for the format Josh found clear.
+- The `bench` and cabinet builds switch loads by themselves from the real sensors. On the bench,
+  flash **test builds only** unless Josh has asked for a non-test build; before flashing one, say
+  plainly what it will switch on and when, and wait for his go.
+- Serial output shows **what is live right now** after each step. See
+  `docs/reference/bp12_outputs_test.cpp` for the format Josh found clear.
+- **BP2 sketches** name the test points by their **printed labels** as well as TP numbers (spec
+  3A.12: the board prints "5V", "3V3RF", "BLW−" …, not TP numbers).
 
 ## Build environment (spec 5.1)
 
-- pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5). Board
-  `esp32dev`. `platformio.ini` is set up for this, plus a `native` environment for the Mac-side tests.
-- `monitor_rts = 1` and `monitor_dtr = 1`: opening or closing the monitor must not reset the board
-  (proved on the bench; at 0 it resets). Any serial script of your own clears RTS before DTR.
+- pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5) for both boards.
+  Keep the existing `esp32dev` environment (Rev N) building, and the `native` environment for the
+  Mac-side tests.
+- **Rev Q environment: not yet defined in the spec** (5.1 says it is set when the port starts).
+  Propose one — ESP32-S3, 8MB flash, quad PSRAM, the console on UART0 (not USB CDC), a partition
+  table with OTA — and report it as a spec finding for Josh to take to the spec chat.
+- Rev N: `monitor_rts = 1`, `monitor_dtr = 1`. Rev Q: the monitor is on J23 (no RTS/DTR wires), so
+  it cannot reset the board.
 - `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
-- Arduino-ESP32 3.x attaches PWM by pin: `ledcAttach(25, 25000, 8)`, `ledcWrite(25, duty)`.
-- **Build and run the native tests before every hand-over.** Nothing goes to Josh that doesn't build.
+- Arduino-ESP32 3.x attaches PWM by pin: `ledcAttach(pin, freq, bits)`, `ledcWrite(pin, duty)`.
+- **Build both board environments and run the native tests before every hand-over.**
 
 ## WiFi credentials
 
 `include/wifi_time.h` holds Josh's WiFi name and password. **Never print, log, copy, quote or commit
-them.** It is in `.gitignore`. Test sketches may call its `syncTime()` (blocking, at boot only). The
-**production firmware must not block** (spec 5.2): write a background time module for it that reads
-the credentials from the same file.
+them.** It is in `.gitignore`. Never overwrite it.
 
-## Architecture rules (spec 5.2, 5.5, B3)
+## Architecture rules (spec 5.2, 5.5)
 
-- **Control logic is plain C++ with no hardware calls**: it takes the time and the readings and
-  returns what each load should do. Drivers (I²C, SD, PWM, outputs, RTC, WiFi) are separate.
-  **All pins in one header.** This is what makes the native tests possible and the next board
-  (ESP32-S3 module, on-board RTC, LCD with SD) a driver swap, not a rewrite.
-- **Nothing blocks. `delay()` is never used.** All timing from `millis()`; explicit, resumable
-  state machines. Relay settle (20ms, spec 3.2) is a state, not a delay.
-- **Watchdog: 5 s.**
-- **Minimum job every pass**: evaluate compressor, heater and humidifier guards, and turn off any
-  load whose guards fail — never dependent on a sensor read, a log write or the network.
-- **One settings struct**; logic reads the struct, never a literal. Safety values fixed; user and
-  tuning values with the **starting values in spec 5.5**.
-- **Profiles:** real and bench (spec B3's table). The bench profile prints an unmissable banner,
-  appears on every status line and in the version string.
-- **Test builds** (spec B3, "How the tests are run"): scripted readings replace the sensor values,
-  driven by a **simple cabinet model** that responds to the loads; bus checks (CRC, timeout, absent,
-  serial) stay real. Compiled out of the cabinet build entirely; a test build says so on its banner
-  and every status line.
-- I²C internal pull-ups **disabled** (spec 5.3) — the Arduino core enables them by default.
+- **Control logic is plain C++ with no hardware calls** (lib/core, native tests). Drivers are
+  separate. **All pins in one header; per-board settings in `include/board.h`.** Rev Q is a driver
+  and board-file change, not a rewrite of the control logic.
+- **Nothing blocks. `delay()` is never used.** All timing from `millis()`; explicit state machines.
+- **Software watchdog 5s** (5.2). **Rev Q also has a hardware watchdog** (3A.11, below).
+- **Minimum job every pass**: evaluate the guards and turn off any load whose guards fail, never
+  dependent on a sensor read, a log write or the network.
+- **One settings struct**; logic reads the struct, never a literal.
+- Profiles real and bench; test builds with the cabinet model — as now.
+- I²C internal pull-ups **disabled** after every bus step (5.3).
+- **Free internal heap never below 30 KB** (5.2) — on Rev Q **at all times**, WiFi connects included.
 
-## The plan — six stages, in the spec's build order
+## Rev Q firmware rules (spec 3A.11 — read it in full; the key ones)
 
-| Stage | Adds | B3 tests |
+- **Hardware watchdog, GPIO1:** an input until the control loop runs, then change its level every
+  pass, from the loop, never a timer; never more than 0.9s between changes. To pause it, set GPIO1
+  to an input with **both internal pulls off** (never pad hold) — and pause it for an OTA erase.
+- **SD card on SPI3, power on GPIO39:** high cuts power; to switch back on, set GPIO39 to an
+  **input with its pull-up off** (never drive it low); SD lines low or inputs before cutting; wait
+  at least 100ms before switching back on.
+- **Blowers, GPIO15:** PWM about 100kHz, high = on, duty = speed. Their rules are spec 4.6b;
+  **in stages Q1–Q3 run them at full speed.**
+- **Ion generator, GPIO17:** high = on. Its rules are spec 4.6c; **in stages Q1–Q3 keep it off.**
+- **LCD on SPI2 (GPIO10–12, 9), 15MHz or less.** GPIO48 resets LCD and touch together: low at
+  least 5ms, then 120ms before Sleep Out and 300ms before the first touch read. Backlight GPIO13.
+  The screens are in spec 5.5 but come later (B7): in this phase build only what BP2 test 29 needs.
+- **12V sense, GPIO8, ADC1 at 12dB attenuation.**
+- I²C0 (GPIO35/36) mux only, 25kHz; I²C1 (GPIO21 SDA / GPIO14 SCL) RTC and touch, 100kHz. The
+  DS3231 has no EEPROM on Rev Q.
+- **WiFi stays connected** (5.4); card writes are not paused for it; outage buffers in PSRAM.
+- 32kHz crystal stays disabled (GPIO15/16 are its pins).
+
+## The plan for this phase
+
+| Stage | Adds | Proven by |
 |---|---|---|
-| 1 | Drivers from the reference sketches, settings struct, real/bench profiles, test-build switch, boot banner, non-blocking loop, watchdog | 11, 14 (11 logged at stage 2) |
-| 2 | Runtime guards, interlock switching sequence, relay exercise | 1, 2, 3, 13, plus 11 (a load held off) and 12 (new method) |
-| 3 | Sensor health, serial check, calibration, fan monitoring, I²C bus recovery, RTC lost-time and NTP | 4, 5, 6, 15, 16 |
-| 4 | Temperature control: deadband, run-end rules, crossover, harvest, RH stripping, ineffective checks | 7, 8, 9, 10, 17, 23 |
-| 5 | Humidifier | 19, 20, 21, 22 |
-| 6 | SD logging per 5.4, serial interface, soak scenario for B4 | 18, 24, then B4 |
+| Q1 | Rev Q build environment and board files; pins per 3A.4; channels renumbered 0–5 everywhere, log schema bump, `check_logs.py`; Rev N still builds and behaves as before | Both builds; native tests; `check_logs.py` on the B4 card copies |
+| Q2 | Rev Q drivers: hardware watchdog, SD power switch and SPI3, both I²C buses, 12V sense, blower PWM (full speed), ion output (off), backlight, minimal LCD and touch for test 29, UART0 console, WiFi always on with PSRAM buffers | Native tests; builds |
+| Q3 | BP2 test sketches for tests 15–30, and the test-build commands BP2 needs (`stall`, the DS3231 EOSC lost-time command for B3 test 16) | Builds; Josh's review of each sketch's steps |
 
-"Logged" in a B3 pass criterion is proven once, in test 24; earlier tests pass on the serial
-event (spec B3). **Guards before control logic.** One stage at a time: build it, run its native tests, then hand
-Josh the on-board tests step by step. Don't start the next stage until Josh says the current one
-passed.
+Then, when the board arrives: BP2 on the bench with Josh, test by test. **One stage at a time**:
+don't start the next until Josh says the current one is done. The blower and ion rules (4.6b, 4.6c),
+OTA behaviour (5.2), the LCD screens and the web dashboard (5.5) come after BP2 — not in this phase.
+Where the spec leaves something open, **don't invent it**: report it.
+
+## Git
+
+**Commit at the end of every stage Josh accepts**, as its own commit, before starting the next.
+Updated docs from Josh (spec, build log, CLAUDE.md) go in their own commit. Never commit
+`include/wifi_time.h` (it is in `.gitignore`); check before every commit.
 
 ## Reporting back at the end of each stage
 
@@ -112,8 +138,7 @@ Give Josh a short report he can paste to the spec chat:
 
 1. **Built:** what the stage added, in a few lines.
 2. **Native tests:** which ran, pass/fail.
-3. **B3 tests on the board:** for each, in spec order — the test number, what was done, the
-   readings or serial output that show the pass criteria were met. Only tests that passed are
-   logged; say plainly if one failed and what was changed (code or hardware) before it passed.
+3. **Bench tests** (if any): test number, what was done, the readings that show the pass criteria
+   were met. Say plainly if one failed and what was changed before it passed.
 4. **Spec findings:** anything wrong, missing or contradictory, with a proposed fix.
 5. **Gotchas** worth adding to the build log.
