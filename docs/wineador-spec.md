@@ -1627,7 +1627,17 @@ applies.
 - After the restart the normal boot rules apply (boot hold; 4.4's timing state, so the compressor
   waits its full minimum off).
 - **An upload that stalls** (no data for 60s) is abandoned: the half-written image is discarded,
-  normal control resumes, and an event is logged.
+  normal control resumes, and an event is logged. If the writing stops moving for 70s, the loop
+  ends Updating by itself, so the loads are never left off.
+- **"First full sensor read"** = the first sweep of all six channels has finished, whatever its
+  results — a dead sensor never rolls back a good image.
+- **Not marked good within 5 minutes of boot** (running, but never meeting the rule): the image
+  rolls itself back, logged.
+- **During an update** no sensor sweeps and no fan-stall check (the flash pauses would cause false
+  timeouts and stalls; every load is off); both resume after the restart.
+- **While a new image is still being checked** (not yet marked good), a further upload is refused:
+  "the last update is still being checked: try again in N s".
+- **Rev Q only:** the identity block is in Rev Q builds; a Rev N image is refused by its chip ID.
 
 ## 5.3 Sensor handling
 
@@ -1712,7 +1722,7 @@ lost time at boot and the NTP correction · crossover · RH stripping start and 
 disturbance detected with direction, magnitude, hold-off and cap · relay exercise · door test, with its note · OTA update started, done, refused (with the reason), abandoned, rolled back · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
 time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
-(Rev Q). **12V dips and WiFi events:** up to 10 an hour each (a dip with its recovery, or an outage with its
+(Rev Q). **12V dips, WiFi events and refused OTA uploads:** up to 10 an hour each (a dip with its recovery, or an outage with its
 "back", counts as one), then one "N more this hour" line. **Guard blocks:** one event when
 an asked-for load becomes blocked, another when the reason changes or clears — not every pass.
 **CRC failures and timeouts:** up to 10 per channel per hour, then one "N more this hour" line.
@@ -1873,7 +1883,8 @@ normal and the LCD still works.
     logged text in small print beneath; the card keeps the logged text, which tools read.
   - **Door test:** a button on the Events page logs a "door test" event, with an optional note.
   - **Allow update window, at the edges:** a refused upload (wrong build, compressor running)
-    doesn't use the window up; an upload started inside it finishes even if the 5 minutes run
+    doesn't use the window up, but one that started and then failed (its image check at the end)
+    does — press Allow update again; an upload started inside it finishes even if the 5 minutes run
     out; settings writes are refused while Updating, as on the LCD.
   - **OTA accepts only a Rev Q cabinet build** (real profile, not a test build); a bench, test or
     Rev N image is refused before anything is written. The image carries its build identity and
@@ -1886,7 +1897,7 @@ normal and the LCD still works.
     transfer is refused when free internal RAM is near the floor**, the margin set from BP2 test 39.
     Downloads run at the card's normal clock: a month of readings takes a few minutes.
   - **At most one saved dashboard change every 10s** (settings and the manual exclude): one that
-    comes too soon is refused with "try again in N s", so a faulty page or script can't keep writing
+    comes too soon is refused with "try again in N s" (and the wait in a Retry-After header), so a faulty page or script can't keep writing
     to flash or pausing the loop. The LCD and the serial console are not limited.
   - **Writes only as JSON** (an OTA image as a raw file), and the board grants no other website
     permission to send to it — so, with no password, a web page open elsewhere can't quietly change
@@ -2548,7 +2559,7 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 | 3 | Defaults | NVS defaults against the B6 findings | Match | Pending |
 | 4 | Persistence | Change settings, cut power, restore | Settings survive | Pending |
 | 5 | Final soak | One week unattended | Comparable to the B6 baseline | Pending |
-| 6 | OTA (Rev Q) | **Loads unplugged; Josh's go before each flash** (the cabinet build switches loads by itself). Allow update on the LCD, then from the dashboard: a cabinet build; a bench, a test and a Rev N image; an upload outside the window; one with the compressor running (cabinet model, or a forced state in a test build); an upload stopped part way; a deliberately broken image | The cabinet build installs, restarts, passes the boot hold and is marked good. Every other case refused with its reason and nothing written; the stopped upload abandoned after 60s; the broken image rolls back by itself, logged and shown on the Update page | Pending |
+| 6 | OTA (Rev Q) | **Loads unplugged; Josh's go before each flash** (the cabinet build switches loads by itself). Allow update on the LCD, then from the dashboard: a cabinet build; a bench, a test and a Rev N image; an upload outside the window; one with the compressor running (cabinet model, or a forced state in a test build); an upload stopped part way (a curl command that sends part of an image, then waits); a corrupt image (`tools/make_bad_image.py`); the **rollback test image** — its own build only (`revq_rollback_test`, version `2.0.0-ROLLBACK-TEST`, never the default), which holds the loads off and stops toggling so it resets before it is marked good. **Sent by OTA only**: if it finds no older image to fall back to (e.g. flashed by USB by mistake), it holds every load off and says so rather than resetting over and over. Record the worst loop pass during an update | The cabinet build installs, restarts, passes the boot hold and is marked good. Every other case refused with its reason and nothing written; the stopped upload abandoned after 60s; the corrupt image refused at its check, nothing changed; the rollback test image rolls back by itself to the previous image, logged and shown on the Update page | Pending |
 
 ---
 
