@@ -1343,6 +1343,7 @@ little ozone, which cigars must not be exposed to for long.
 | Minutes per run | **2** |
 | Hard cap | **10 minutes in any 24 hours** — never exceeded, whatever the settings |
 | Not during | The boot hold, an OTA update, or any fault state |
+| Switched off | **Ion generator enable** (user setting, 5.5) off: no runs at all; the run settings keep their values for when it is switched back on |
 
 A sharp, chlorine-like smell when the door is opened means too much: reduce the runs.
 
@@ -1863,8 +1864,13 @@ normal and the LCD still works.
   - **Weekly counts** (crossovers, RH strips, humidifier runs, disturbances) are counted from the
     last 7 days of event files at boot, then kept up live — no log change.
   - **Times** are UK local time from the board, as on the LCD, never the browser's own zone.
-  - **Overview** also shows the blower speed and the ion generator's state. The ion settings
-    appear on Settings once 4.6c is built.
+  - **Overview** also shows the blower speed and the ion generator's state. **Ion generator
+    enable** is on Settings now (until 4.6c is built the generator stays off, and the page says
+    so); the runs-per-day and minutes settings appear once 4.6c is built.
+  - **Board** section on Overview: firmware version, uptime, the last restart reason, 12V now and
+    its lowest today, WiFi signal strength, free internal memory, card space.
+  - **Events** read as a plain sentence (e.g. "Humidifier called: RH 59.4%, below 60%"), with the
+    logged text in small print beneath; the card keeps the logged text, which tools read.
   - **Door test:** a button on the Events page logs a "door test" event, with an optional note.
   - **Allow update window, at the edges:** a refused upload (wrong build, compressor running)
     doesn't use the window up; an upload started inside it finishes even if the 5 minutes run
@@ -1913,6 +1919,7 @@ refused, and a stored value off the step is rounded to the nearest step at boot,
 | RH setpoint (1-point steps) | 62% | 55% | 70% |
 | Heater enable | On | — | — |
 | Humidifier enable | On | — | — |
+| Ion generator enable (Rev Q, 4.6c) — off stops every run | On | — | — |
 | Manual sensor override — force-excludes a channel for maintenance | None | — | — |
 | Ion generator runs per day (Rev Q, 4.6c) | 2 | 0 | 4 |
 | Ion generator minutes per run (Rev Q) | 2 | 0 | 5 |
