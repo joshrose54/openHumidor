@@ -99,9 +99,9 @@ them.** It is in `.gitignore`. Never overwrite it.
 - **SD card on SPI3, power on GPIO39:** high cuts power; to switch back on, set GPIO39 to an
   **input with its pull-up off** (never drive it low); SD lines low or inputs before cutting; wait
   at least 100ms before switching back on.
-- **Blowers, GPIO15:** PWM about 100kHz, high = on, duty = speed. Their rules are spec 4.6b;
-  **in stages Q1–Q3 run them at full speed.**
-- **Ion generator, GPIO17:** high = on. Its rules are spec 4.6c; **in stages Q1–Q3 keep it off.**
+- **Blowers, GPIO15:** PWM about 100kHz, high = on, duty = speed. Their rules are spec 4.6b, built in
+  stage Q6; **the idle speed stays full speed until BP2 test 22 chooses it.**
+- **Ion generator, GPIO17:** high = on. Its rules are spec 4.6c, built in stage Q6.
 - **LCD on SPI2 (GPIO10–12, 9), 15MHz or less.** GPIO48 resets LCD and touch together: low at
   least 5ms, then 120ms before Sleep Out and 300ms before the first touch read. Backlight GPIO13.
   **Screens: spec 5.5** (walk-past, settings, alerts), built in stage Q4. **Drawing never holds the
@@ -121,10 +121,11 @@ them.** It is in `.gitignore`. Never overwrite it.
 | Q3 | BP2 test sketches for tests 15–30, and the test-build commands BP2 needs (`stall`, the DS3231 EOSC lost-time command for B3 test 16) | Builds; Josh's review of each sketch's steps |
 | Q4 | The LCD screens (spec 5.5): walk-past, settings and alerts, touch, backlight dimming, the **Allow update** window. **What the screen shows** — modes, alerts and their order, the countdown, local time, settings steps and bounds, timeouts — **is plain C++ in lib/core with native tests**; drawing and touch are the driver side. Rev Q builds only | Native tests; builds; **every screen rendered to a PNG on the Mac by the same drawing code** for Josh's review; checked on the board at BP2 |
 | Q5 | The web dashboard and its JSON API (spec 5.5): the seven pages, the documented and versioned API, OTA from the browser inside the LCD's Allow update window, build-identity check on every image. **What the API accepts and refuses** (bounds, the window, the build check) **is plain C++ in lib/core with native tests**. Web pages designed with the **impeccable** skill, within the flash and no-internet limits | Native tests; builds; the pages served from a native or Mac-side build for Josh's review on his Mac and phone; checked on the board after BP2 |
+| Q6 | The blower and ion generator rules (spec 4.6b, 4.6c): blower idle and boost on the cabinet spread, full speed on too few sensors or a fault; ion runs per day, minutes per run, the 10-minute cap in any 24 hours, the enable setting, and not during the boot hold, an update or a fault. **The rules are plain C++ in lib/core with native tests**; the outputs and their settings on the LCD, dashboard and serial as the spec says. Blower idle stays full speed until BP2 test 22 | Native tests; builds; dashboard_sim showing both through their states |
 
 Then, when the board arrives: BP2 on the bench with Josh, test by test. **One stage at a time**:
-don't start the next until Josh says the current one is done. The blower and ion rules (4.6b, 4.6c)
-come after BP2 (blower idle speed needs test 22). OTA behaviour (5.2) is built with Q5.
+don't start the next until Josh says the current one is done. The blower idle speed is the one
+figure Q6 can't set: it stays full speed until BP2 test 22 chooses it.
 Where the spec leaves something open, **don't invent it**: report it.
 
 ## Web pages (Q5)
