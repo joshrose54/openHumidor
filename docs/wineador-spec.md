@@ -998,7 +998,8 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
 - **LCD:** GPIO48 resets the LCD and the touch controller together: hold it low at least 5ms, then
   wait at least 120ms before Sleep Out and 300ms before the first touch read. SPI2 at 15MHz or less.
   Backlight on until the firmware drives GPIO13; PWM dims it.
-- **LCD before the 5.5 screens are built:** initialised at boot and cleared to black, backlight off.
+- **LCD at boot:** cleared to black, backlight off until the first walk-past screen has been sent;
+  then full, dimmed per 5.5. The BP2 test sketches keep their own behaviour.
 - **LCD drawing never holds up the loop:** screens are drawn in pieces across passes, and no drawing
   step holds the loop for more than **50ms** (a full screen at 15MHz takes about 165ms, so redraw
   only what changed, or send it by DMA in the background).
@@ -1770,41 +1771,59 @@ from outside. **Control never depends on WiFi or the dashboard**: with WiFi down
 normal and the LCD still works.
 
 **Two interfaces** (Rev Q):
-- **LCD** on the enclosure — **landscape, 480 × 320, fixed** (no rotation setting). Three screens:
+- **LCD** on the enclosure — **landscape, 480 × 320, fixed** (no rotation setting). Which of the two
+  landscape ways is up is one fixed constant, set at BP2 test 29 to suit the enclosure (build log).
+  Three screens:
   - **Walk-past screen:**
     - cabinet temperature and RH, large (the mean of the healthy cabinet sensors; "--" when too few
-      are healthy);
+      are healthy — fewer than 3, the 4.3 minimum — or no fresh reading for twice the sensor read rate);
     - **what it is doing, as icons** — one per active mode, so two can show at once (e.g. heating
       and humidifying): **Cooling**, **Heating**, **Humidifying**, **Drying** (RH stripping; shown
       instead of Cooling while it runs), **Standby** (nothing running), **Starting** (the boot hold,
       with its countdown, m:ss), **Updating** (an OTA update, with its progress). **Fault**
       replaces every other icon;
+    - **icons show loads actually running**, not what is asked for: the heater counts as on through
+      its PWM off-phase; a call held by a guard, and the relay exercise, show Standby. Priority:
+      Fault, then Updating, then Starting (shown alone during the boot hold), then the running
+      modes, then Standby;
+    - **Fault** = the sensor requirement of 4.3 not met (including its 5-minute recovery hold), the
+      plenum fan stalled (5.6, until loads resume), or the settings failing their check at boot. Its
+      alert names the cause;
+    - a small **BENCH** or **TEST** tag on any build that is not the cabinet build;
     - the two setpoints, small; the time; a WiFi icon (connected or not);
     - an **alert line**, only when an alert is active: the most serious one, plus "+N more" when
       there are others. **Tapping it opens the alerts screen;**
     - a **Settings button**.
   - **Settings:** target temperature (0.5°C steps) and RH setpoint (1-point steps), within the
     user bounds below, with Save and Cancel; and an **Allow update** button (below). Nothing else.
-    Not available while Updating.
-  - **Alerts:** every active alert, most serious first, each with when it started. **An alert
-    leaves the list by itself once resolved**; with none left the screen says "No active alerts".
-    A Back button.
+    Not available while Updating; if an update starts while settings or alerts are open, both
+    close and unsaved settings are dropped (the alerts screen can still be opened while Updating).
+  - **Alerts:** every active alert, most serious first (oldest first within the same rank), each
+    with when it started — "14:32" today, "13 Nov 14:32" otherwise, "for 12 min" while the clock is
+    not trusted. Page buttons when they don't fit. Each excluded sensor is its own alert, named by
+    position. **An alert leaves the list by itself once resolved**; with none left the screen says
+    "No active alerts". The list is rebuilt from the current state after a reboot. A Back button.
   - **Allow update:** opens a 5-minute window in which the dashboard may send one OTA update; the
     walk-past screen shows the window and its countdown. It closes after one update, at 5 minutes,
-    or on a reboot. **An update sent outside the window is refused.**
+    or on a reboot. **An update sent outside the window is refused.** Pressing it again while open
+    restarts the 5 minutes; there is no cancel. It opens with the compressor running (the update
+    itself is refused then, 5.2). The countdown has its own line on the walk-past screen.
   - **Leaving a screen:** settings and alerts return to the walk-past screen after 60s without a
     touch; unsaved settings are dropped.
   - **Alerts, most serious first:** an active fault (5.6) · a 12V dip in progress (Rev Q) · heater,
-    cooling or humidifier ineffective · a sensor excluded, automatic or manual · the plenum fan
-    stalled · SD card failure · the clock lost or not yet set. WiFi is shown only by its icon, never
+    cooling or humidifier ineffective · a sensor excluded, automatic or manual · SD card failure ·
+    the clock lost or not yet set (timestamps untrusted: the DS3231 lost time and NTP has not yet
+    corrected it, or the RTC can't be read and there has been no NTP sync since boot). WiFi is shown only by its icon, never
     as an alert.
   - **Time:** UK local time (Europe/London, summer time included), 24-hour; "--:--" while the
-    clock is not trusted. Logs stay in UTC.
+    clock is not trusted (the same cases as that alert). Logs stay in UTC.
   - **Backlight:** dims to about **20%** 60s after the last touch — never off, so the walk-past
     screen stays readable; the exact level is set at BP2 test 29 (build log). A touch brings it
     back to full, and that first touch only wakes the screen.
-  - **Icons** are drawn by the firmware or come from an openly licensed set, with the licence noted
-    in the source.
+  - **Icons and fonts** are drawn by the firmware or come from openly licensed sets, with the licence
+    noted in the source.
+  - **Colours:** the palette Josh approves from the stage Q4 screen pictures, recorded here then;
+    the web dashboard uses the same.
 - **Web dashboard** — everything else: graphs, events, log downloads, OTA updates. **It changes user
   settings only**; tuning settings are shown read-only (changed only on the B6 tuning dashboard);
   safety values are never shown.
@@ -1841,12 +1860,14 @@ over the last week · active faults · sensor health per channel.
 
 A setting you would never correctly change is only a way to make a mistake.
 
-**User settings** — persisted to NVS; firmware clamps to bounds and rejects out-of-range input:
+**User settings** — persisted to NVS; firmware clamps to bounds and rejects out-of-range input. The
+two setpoints keep their steps everywhere (LCD, dashboard, API, serial): a value off the step is
+refused, and a stored value off the step is rounded to the nearest step at boot, with an event:
 
 | Setting | Default | Min | Max |
 |---|---|---|---|
-| Target temperature | 20°C | 15°C | 22°C |
-| RH setpoint | 62% | 55% | 70% |
+| Target temperature (0.5°C steps) | 20°C | 15°C | 22°C |
+| RH setpoint (1-point steps) | 62% | 55% | 70% |
 | Heater enable | On | — | — |
 | Humidifier enable | On | — | — |
 | Manual sensor override — force-excludes a channel for maintenance | None | — | — |
@@ -2346,7 +2367,7 @@ on the top range unless stated; "open" means OL.
 | 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V within about 5ms; remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
 | 27 | 12V sense | PSU at 12.0V, then 11.0V. Read GPIO8 against the meter on TP6 | Reading follows the meter; **record the scale factor** (build log); after it, within 0.1V at both | Pending |
 | 28 | Sensors and spare channels | All six sensors on J3–J8. Then one sensor moved to J17, then J18 | Every serial on its mux channel (3A.7); each read with CRC good; J17 and J18 read the moved sensor on channels 6 and 7 | Pending |
-| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC) | Pending |
+| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. **Landscape check:** an UP arrow drawn and a touch in each corner; choose which landscape way is up for the enclosure Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC); **the arrow up and each corner touch reported at that corner in the chosen landscape way — record the choice** (build log) | Pending |
 | 30 | RTC cell | Board powered 48 hours. Meter BT1 + to TP3. Then 12V off overnight; restore | Cell 2.8–3.2V (record with the date and TP8, build log; above 3.2V: 1MΩ across C49, 3A.8); time kept across the night, oscillator-stopped flag clear | Pending |
 
 ### D — System
