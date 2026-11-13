@@ -999,6 +999,8 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   **Backlight PWM 5kHz, 8-bit.**
 - **SD card recovery (Rev Q):** when the remount for a failed write's retry (5.4) fails, power-cycle
   the card once (off, at least 100ms, on, remount) before setting SD FAIL.
+- **DS3231 EOSC:** every build clears the EOSC bit at boot if it finds it set, and logs an event (a
+  test command sets it for B3 test 16; this stops a forgotten bit stopping the clock at every power cut).
 - **32kHz crystal stays disabled** (GPIO15/16 are its pins; the default).
 - **SHT40 heaters: never used** (3A.7).
 - **12V sense (GPIO8, ADC1):** read every 100ms, averaged over 1s, logged (5.4). **A dip** — ten 100ms
@@ -2241,6 +2243,10 @@ and B4.
 **Power order:** USB powers nothing on Rev Q, so **USB and 12V are safe in any order**; flashing
 and the serial monitor need **12V on**. Bench PSU 12.0V through the 4A fuse into J1.
 
+**Sketches:** one per test, `bp2_NN_name` (e.g. `bp2_15_boot_state`), each built and flashed on its
+own. Where a test says "as BP test n", use that test's steps with Rev Q's pins and test points;
+items Rev Q does not have (D7, the board's underside) are skipped.
+
 **Five phases, in order:** A as delivered · B hand-soldered parts fitted, no power · C power and
 hardware · D system · E firmware and soak. **Nothing is powered until every step of B passes.** U9
 is socketed and goes in after the rails are proven without it.
@@ -2277,15 +2283,15 @@ on the top range unless stated; "open" means OL.
 | 12 | First power, 12V only | **U9 out, LCD and SD card out, nothing on J2–J18.** PSU current limit 0.5A. Meter TP6, TP1, TP2, TP8, TP9. Note the PSU current. Touch U8, U2–U4 and Q1 after a minute | TP6 ≈ 12V; **TP1 4.9–5.1V; TP2, TP8, TP9 each 3.23–3.37V**; current tens of mA; nothing warm | Pending |
 | 13 | EN and GPIO0, 12V only | No USB. Meter TP10, TP11 | Both above 3.0V | Pending |
 | 14 | USB isolation, powered | (a) 12V off, USB in from the Mac: meter TP1, TP2, TP8, TP9, TP6. (b) 12V on, USB out: meter J19's VBUS pad to TP3 (as test 3) | (a) All under 0.1V; no device seen by the Mac. (b) Under 0.1V | Pending |
-| 15 | First flash | 12V on, USB in. Flash `boot_state_test.cpp` (written for Rev Q: prints the reset reason and leaves every load pin undriven) — over USB, using BOOT and reset if the automatic entry fails | Flashes; serial banner on J23 (3.3V USB-serial cable, 3A.5) | Pending |
-| 16 | Boot state | Power off. U9 in its socket, pin 1 to the notch. Power on, `boot_state_test.cpp` running. Meter GPIO4–7 and GPIO17 (at their pull-down pads) and each gate to TP3; J10 pin 1 and pin 3; TP6 to TP12 with four blowers on J12–J15 | GPIO4–7, GPIO17 and every gate except Q7 low; J10 pin 1 ≈ 12V, pin 3 ≈ 0V (K1 de-energised); **blowers at full speed, TP6 to TP12 ≥ 11.5V; ion output off**; no other load runs | Pending |
+| 15 | First flash | 12V on, USB in. Flash `bp2_15_boot_state` (written for Rev Q: prints the reset reason and leaves every load pin undriven) — over USB, using BOOT and reset if the automatic entry fails | Flashes; serial banner on J23 (3.3V USB-serial cable, 3A.5) | Pending |
+| 16 | Boot state | Power off. U9 in its socket, pin 1 to the notch. Power on, `bp2_15_boot_state` running. Meter GPIO4–7 and GPIO17 (at their pull-down pads) and each gate to TP3; J10 pin 1 and pin 3; TP6 to TP12 with four blowers on J12–J15 | GPIO4–7, GPIO17 and every gate except Q7 low; J10 pin 1 ≈ 12V, pin 3 ≈ 0V (K1 de-energised); **blowers at full speed, TP6 to TP12 ≥ 11.5V; ion output off**; no other load runs | Pending |
 | 17 | Loads held in reset | Hold SW1. Meter each gate to TP3; TP6 to TP12 | Q2–Q6, Q11 gates under 0.1V; blowers ≥ 11.5V | Pending |
 | 18 | Each output alone | As BP test 12 (heater pad on J10 3–4, humidifier fan on J11, SSR +A1/−A2 on J10 1–2, no mains), sketch ported to the Rev Q pins. Then the ion generator (TFB-YD12102) on J16: before fitting it, meter its black lead to its case and to its needles; then GPIO17 off/on | As BP test 12. Ion generator's black lead open to case and needles; runs when on, off when off | Pending |
 | 19 | Interlock with real loads | As BP test 13, Rev Q pins | As BP test 13 — K1 alone keeps the unselected load off | Pending |
-| 20 | Full load and the 12V rail | As BP test 14 with the ion generator added. At full load also meter the 5V current (into U8's output), across R21/R22 and C12's + pad to TP7, WiFi connected and transmitting | As BP test 14; **R21/R22 drop about 3.4Ω × U8's input current** (about 0.5V at 0.3A on 5V, up to about 2V at 1.0A); **C12 + above 9.5V**. Record the 5V current | Pending |
-| 21 | 3.3V under WiFi | 12V only. Sketch: repeated WiFi connects and transmits, SD writing, fan at 100%. Meter on min-hold: TP2, then TP8, 10 minutes each. If a scope is available, look at TP2 and TP8 for ringing | **TP2 ≥ 3.2V**; TP8 ≥ 3.2V; no reset; no oscillation (if seen: remove C20 or C28, bench fix) | Pending |
-| 22 | Blower voltage | Four blowers on. `blower_test.cpp`: duty stepped 100% → 0% in 10% steps, typed command per step. Meter TP6 to TP12 at each; listen | 100%: ≥ 11.5V; 50%: about 6V; no ticking or whine at any step. **Record the duty-to-voltage table** (build log) | Pending |
-| 23 | Blower overshoot | Peak-hold across the blowers (diode + 1µF + meter from TP6 to TP12). Blowers at 50%; reset with SW1 ten times | Peak no higher than TP6 + 0.5V | Pending |
+| 20 | Full load and the 12V rail | Four blowers on J12–J15, heater pad on J10 3–4, SSR input on J10 1–2 (no mains), humidifier fan on J11, ion generator on J16, plenum fan on J2. `bp2_20_full_load`, loads added one at a time (heater with K1 energised; the SSR off — the interlock); PSU current at each step. With everything on and WiFi connected and transmitting: meter J1's + pin to TP6 (12V), TP6 and TP1 (5V) to TP7, across R21/R22, and C12's + pad to TP7. Touch Q1, Q3, Q11, U8, D1 after two minutes | **J1 + to TP6 drops ≤ 0.1V**; TP6 ≥ 11.4V; TP1 4.9–5.1V; **R21/R22 drop ≤ 2.0V** — record it: U8's input current = drop ÷ 3.4Ω; **C12 + above 9.5V**; everything warm at most | Pending |
+| 21 | 3.3V under WiFi | 12V only. Sketch: repeated WiFi connects and transmits (small packets to a host on the home network), SD writing, fan at 100%. Meter on min-hold: TP2, then TP8, 10 minutes each. If a scope is available, look at TP2 and TP8 for ringing | **TP2 ≥ 3.2V**; TP8 ≥ 3.2V; no reset; no oscillation (if seen: remove C20 or C28, bench fix) | Pending |
+| 22 | Blower voltage | Four blowers on. `bp2_22_blowers`: duty stepped 100% → 0% in 10% steps, typed command per step. Meter TP6 to TP12 at each; listen | 100%: ≥ 11.5V; 50%: about 6V; no ticking or whine at any step. **Record the duty-to-voltage table** (build log) | Pending |
+| 23 | Blower overshoot | Peak-hold across the blowers (diode + 1µF + meter from TP6 to TP12). Blowers at 50%; reset with SW1 ten times — after each reset they come up at full speed, and `g` sets 50% again | Peak no higher than TP6 + 0.5V | Pending |
 | 24 | Hardware watchdog | Sketch toggling GPIO1 from its loop, with a `stall` command that stops the toggling. Stopwatch from `stall` | One reset 1.12–2.4s after `stall`, then a normal restart. With GPIO1 set to an input (both pulls off) instead: no reset | Pending |
 | 25 | Flashing with the watchdog fitted | R26 fitted. Flash the watchdog sketch over USB, while it runs, three times | All three complete | Pending |
 | 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V within about 5ms; remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
@@ -2298,13 +2304,13 @@ on the top range unless stated; "open" means OL.
 
 | # | Test | Procedure | Pass criteria | Status |
 |---|---|---|---|---|
-| 31 | No USB | 12V only, no USB, the firmware's normal build (bench profile). Run 1 hour; then attach the J23 monitor cable and read the status line | Boots and runs; one boot only (uptime from the status line) | Pending |
+| 31 | No USB | 12V only, no USB, the firmware's normal build (bench profile), **loads unplugged** (sensors and plenum fan only — this build switches loads by itself). Run 1 hour; then attach the J23 monitor cable and read the status line | Boots and runs; one boot only (uptime from the status line) | Pending |
 | 32 | USB and monitor never restart it | Running, 12V on. (a) USB in and out five times. (b) 3.3V USB-serial cable on J23 pins 1–3 (no VCC wire): monitor opened and closed ten times; cable plugged and unplugged five times | No restart — uptime continues, no boot banner; console text on J23 | Pending |
 | 32a | Monitor cable with the board off | Cable on J23, 12V off and USB out. Meter across R94 | Under 2.8V (under 0.6mA). TP2 is not a criterion: it reads above zero in this state | Pending |
 | 32b | Power-up with the cable attached | Cable still on J23; 12V on | Boots normally, once; console text appears; a key typed in the monitor is received | Pending |
 | 33 | Power in any order | (a) USB in, then 12V on and off twice. (b) 12V on, USB in and out twice. (c) With 12V off and USB in: no load moves | No damage; boots normally each time 12V comes on; (c) as stated | Pending |
 | 34 | Fast power cycling | 12V off and on 20 times at short, irregular intervals (from under a second to a few seconds) | Boots every time; every load quiet through boot; no hang. Afterwards R38–R40 still read 3.3Ω across the three | Pending |
-| 35 | Bulb surge | **USB out.** The 21W 12V bulb on J10 3–4 (K1 energised), switched on 50 times by a test sketch | No freeze — the failure Rev N showed (build log). Any reset is clean and the board restarts (the bulb's cold surge can outlast the hold-up; the heater pad has none) | Pending |
+| 35 | Bulb surge | **USB out.** The 21W 12V bulb on J10 3–4 (K1 energised), switched on 50 times by `bp2_35_bulb` (on 2s, off 3s, after `g`) | No freeze — the failure Rev N showed (build log). Any reset is clean and the board restarts (the bulb's cold surge can outlast the hold-up; the heater pad has none) | Pending |
 | 36 | Supply dip | A short dip on the 12V (PSU output switched off and straight back on, then the lead pulled and replugged) while running | Either rides through, or a clean reset ending in a normal boot — never a hang | Pending |
 
 ### E — Firmware and soak
