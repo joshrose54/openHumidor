@@ -30,6 +30,7 @@
 #include "esp_timer.h"
 
 #include "wineador/build_info.h"
+#include "wineador/event_text.h"
 #include "wineador/settings.h"
 #include "wineador/controller.h"
 #include "wineador/fan_controller.h"
@@ -274,14 +275,16 @@ static void applyUser(const UserSettings& was, const char* what) {
   gHealth.setUser(u);
   const bool saved = userstore::save(u);
   char d[200];
-  int k = snprintf(d, sizeof(d), "settings changed (%s): ", what);   // where from (5.4): "LCD" or "serial: ..."
+  int k = snprintf(d, sizeof(d), "%s (%s): ", kEvSettingsChanged, what);   // where from (5.4): "LCD" or "serial: ..."
   auto add = [&](const char* fmt, auto... a) { if (k > 0 && (size_t)k < sizeof(d)) k += snprintf(d + k, sizeof(d) - k, fmt, a...); };
-  if (was.targetTempC != u.targetTempC) add("target %.1f -> %.1f C; ", was.targetTempC, u.targetTempC);
-  if (was.rhSetpointPct != u.rhSetpointPct) add("RH setpoint %.0f -> %.0f%%; ", was.rhSetpointPct, u.rhSetpointPct);
-  if (was.heaterEnable != u.heaterEnable) add("heater %s -> %s; ", was.heaterEnable ? "on" : "off", u.heaterEnable ? "on" : "off");
+  const char* to = kEvChangeArrow;   // " -> " (event_text.h)
+  if (was.targetTempC != u.targetTempC) add("target %.1f%s%.1f C; ", was.targetTempC, to, u.targetTempC);
+  if (was.rhSetpointPct != u.rhSetpointPct) add("RH setpoint %.0f%s%.0f%%; ", was.rhSetpointPct, to, u.rhSetpointPct);
+  if (was.heaterEnable != u.heaterEnable) add("heater %s%s%s; ", was.heaterEnable ? "on" : "off", to, u.heaterEnable ? "on" : "off");
   if (was.humidifierEnable != u.humidifierEnable)
-    add("humidifier %s -> %s; ", was.humidifierEnable ? "on" : "off", u.humidifierEnable ? "on" : "off");
-  if (was.manualExcludeMask != u.manualExcludeMask) add("manual excludes 0x%02X -> 0x%02X; ", was.manualExcludeMask, u.manualExcludeMask);
+    add("humidifier %s%s%s; ", was.humidifierEnable ? "on" : "off", to, u.humidifierEnable ? "on" : "off");
+  if (was.manualExcludeMask != u.manualExcludeMask)
+    add("manual excludes 0x%02X%s0x%02X; ", was.manualExcludeMask, to, u.manualExcludeMask);
   add("%s", saved ? "saved" : "NOT SAVED (NVS write failed) - lost at the next boot");
   eventlog::log("settings", "%s", d);
 }
@@ -596,7 +599,7 @@ void setup() {
 #if defined(WINEADOR_TEST_BUILD)
   resetrec::begin((int)esp_reset_reason());   // BOOT ONLY: one flash write (reset record, test builds)
 #endif
-  gBoot.version = makeVersionString(gVersion, sizeof(gVersion), kFirmwareStage, kBuildProfile, kTestBuild);
+  gBoot.version = makeVersionString(gVersion, sizeof(gVersion), board::kFirmwareVersion, kBuildProfile, kTestBuild);
   // BOOT ONLY: the saved user settings (NVS, 5.5) — before anything takes a copy of the settings.
   backlight::begin();      // Rev Q: 5 kHz PWM, backlight OFF at once (the LCD pulls it on until driven; 3A.11)
   gBoot.userNote = userstore::load(gSettings.user);
@@ -878,8 +881,8 @@ static void afterSweep(uint32_t now) {
       Serial.println("\n  !! RTC LOST TIME: the DS3231's oscillator stopped while unpowered (OSF set).");
       Serial.println("  !! Timestamps are UNTRUSTED until NTP corrects the clock. Control is unaffected.");
       Serial.println("  !! If this repeats, replace the RTC cell (spec 2.4).\n");
-      eventlog::logQuiet("rtc", "RTC LOST TIME at boot: DS3231 oscillator stopped while unpowered (OSF set); "
-                                "timestamps untrusted until NTP corrects the clock");
+      eventlog::logQuiet(kEvTypeRtc, "%s at boot: DS3231 oscillator stopped while unpowered (OSF set); "
+                                     "timestamps untrusted until NTP corrects the clock", kEvRtcLostTime);
     }
   }
 }
@@ -895,10 +898,11 @@ static void logBoardEvents(uint32_t now) {
   while (supplysense::logic().takeEvent(e)) {
     if (e.kind == SupplySense::Event::Kind::Dip) {
       gDipLogged = gDipLimit.allow(0, now);
-      if (gDipLogged) eventlog::log("12v", "12V DIP: below %.1f V for 1 s (%.2f V now)", (double)SupplySense::kDipBelowV,
-                                    (double)e.lowestV);
+      if (gDipLogged) eventlog::log(kEvTypeSupply12v, "%s: below %.1f V for 1 s (%.2f V now)", kEvDip12v,
+                                    (double)SupplySense::kDipBelowV, (double)e.lowestV);
     } else if (gDipLogged) {
-      eventlog::log("12v", "12V recovered: back above %.1f V after %lu ms; lowest %.2f V", (double)SupplySense::kDipBelowV,
+      eventlog::log(kEvTypeSupply12v, "%s: back above %.1f V after %lu ms; lowest %.2f V", kEvRecovered12v,
+                    (double)SupplySense::kDipBelowV,
                     (unsigned long)e.durationMs, (double)e.lowestV);
       gDipLogged = false;
     }
@@ -908,9 +912,9 @@ static void logBoardEvents(uint32_t now) {
   const int w = timesync::takeWifiEvent(&outMs);
   if (w < 0) {
     wifiLogged = gWifiLimit.allow(0, now);
-    if (wifiLogged) eventlog::log("wifi", "WiFi lost");
+    if (wifiLogged) eventlog::log(kEvTypeWifi, "%s", kEvWifiLost);
   } else if (w > 0 && wifiLogged) {
-    eventlog::log("wifi", "WiFi back after %lu s", (unsigned long)((outMs + 500) / 1000));
+    eventlog::log(kEvTypeWifi, "%s %lu s", kEvWifiBack, (unsigned long)((outMs + 500) / 1000));
     wifiLogged = false;
   }
   int idx;
@@ -931,8 +935,8 @@ static void checkHeapFloor() {
   const uint32_t lowest = heap::lowest();         // internal RAM only (5.2)
   if (lowest >= wineador::kHeapFloorBytes) return;
   logged = true;
-  eventlog::log("heap", "FREE HEAP BELOW THE %lu KB FLOOR: lowest since boot %lu bytes; now %lu, largest block %lu",
-                (unsigned long)(wineador::kHeapFloorBytes / 1024), (unsigned long)lowest, (unsigned long)heap::freeNow(),
+  eventlog::log(kEvTypeHeap, "%s %lu KB FLOOR: lowest since boot %lu bytes; now %lu, largest block %lu",
+                kEvHeapFloor, (unsigned long)(wineador::kHeapFloorBytes / 1024), (unsigned long)lowest, (unsigned long)heap::freeNow(),
                 (unsigned long)heap::largestBlock());
 }
 
@@ -988,7 +992,7 @@ static bool afterNtp(uint32_t now) {
       eventlog::setClock(gClockSet, gClock.trusted());   // the correction itself carries trusted time
       char ts[24];
       timestamp(ts, sizeof(ts));
-      eventlog::log("ntp", "NTP correction: DS3231 was %+lld s out; set to %s%s", (long long)gRtcErrorS, ts,
+      eventlog::log(kEvTypeNtp, "%s: DS3231 was %+lld s out; set to %s%s", kEvNtpCorrection, (long long)gRtcErrorS, ts,
                     hadOsf ? ". OSF cleared; timestamps trusted again" : "");
     } else {
       eventlog::log("ntp", "NTP: DS3231 write FAILED; trying again after the next sweep");
@@ -1009,13 +1013,14 @@ static void startLogging() {
   struct tm tmv;
   gmtime_r(&t, &tmv);
   sdlog::start(tmv.tm_year + 1900, tmv.tm_mon + 1);
-  eventlog::log("boot", "BOOT: reason %s; firmware %s; board %s; profile %s%s; user settings %s; clock %s", gBoot.bootReason,
-                gVersion, board::kName,
+  eventlog::log(kEvTypeBoot, "%s %s; firmware %s; board %s%s%s%s; user settings %s; clock %s", kEvBootLine,
+                gBoot.bootReason, gVersion, board::kName, kEvBootProfile,
                 kBuildProfile == Profile::Bench ? "BENCH" : "REAL", kTestBuild ? " TEST-BUILD" : "", gBoot.userNote,
                 !gClockSet ? "NOT SET (RTC unreadable)" : gClock.trusted() ? "set from the RTC" : "set from the RTC, LOST TIME");
   if (gStepRounded)
-    eventlog::log("settings", "settings changed (boot): stored setpoints off their steps rounded (5.5): target %.2f -> %.1f C; "
-                  "RH setpoint %.2f -> %.0f%%; saved", (double)gWasTemp, (double)gSettings.user.targetTempC, (double)gWasRh,
+    eventlog::log(kEvTypeSettings, "%s (boot): stored setpoints off their steps rounded (5.5): target %.2f%s%.1f C; "
+                  "RH setpoint %.2f%s%.0f%%; saved", kEvSettingsChanged, (double)gWasTemp, kEvChangeArrow,
+                  (double)gSettings.user.targetTempC, (double)gWasRh, kEvChangeArrow,
                   (double)gSettings.user.rhSetpointPct);
   if (!screen::running() && lcd::fitted())
     eventlog::log("lcd", "LCD SCREENS OFF: %s. Control is unaffected.", screen::problem());
@@ -1108,6 +1113,7 @@ static void logLoadChanges(const LoadOutputs& was, const LoadOutputs& now) {
 #endif
   const CabinetSummary c = gHealth.summary();
   char why[80];
+  char line[120];
   if (was.cool != now.cool) {
     if (now.cool) {
       if (scripted) snprintf(why, sizeof(why), "scenario asks directly");
@@ -1117,13 +1123,15 @@ static void logLoadChanges(const LoadOutputs& was, const LoadOutputs& now) {
       snprintf(why, sizeof(why), "%s", d.cool.block != GuardBlock::None ? guardBlockName(d.cool.block) : "demand ended");
       gLastCompressorStopMs = uptimeMs();
     }
-    eventlog::logQuiet("compressor", "compressor %s (%s)", now.cool ? "ON" : "OFF", why);
+    formatLoadEvent(line, sizeof(line), 0, now.cool, why);
+    eventlog::logQuiet(loadEventType(0), "%s", line);
   }
   if (was.heat != now.heat) {
     if (now.heat) snprintf(why, sizeof(why), "%s", scripted ? "scenario asks directly" : "temperature call");
     else snprintf(why, sizeof(why), "%s", d.heat.block != GuardBlock::None ? guardBlockName(d.heat.block) : "demand ended");
     if (now.heat && !scripted) snprintf(why, sizeof(why), "temperature call, control %.2f C", c.controlC);
-    eventlog::logQuiet("heater", "heater %s (%s)", now.heat ? "ON" : "OFF", why);
+    formatLoadEvent(line, sizeof(line), 1, now.heat, why);
+    eventlog::logQuiet(loadEventType(1), "%s", line);
   }
   if (was.humid != now.humid) {
     if (now.humid) {
@@ -1131,10 +1139,11 @@ static void logLoadChanges(const LoadOutputs& was, const LoadOutputs& now) {
       else if (gHc.call()) snprintf(why, sizeof(why), "humidify call, mean RH %.1f%%", c.meanRhPct);
       else snprintf(why, sizeof(why), "demanded directly (test)");
     } else snprintf(why, sizeof(why), "%s", d.humid.block != GuardBlock::None ? guardBlockName(d.humid.block) : "demand ended");
-    eventlog::logQuiet("humidifier", "humidifier %s (%s)", now.humid ? "ON" : "OFF", why);
+    formatLoadEvent(line, sizeof(line), 2, now.humid, why);
+    eventlog::logQuiet(loadEventType(2), "%s", line);
   }
   if (was.relayHeating != now.relayHeating)
-    eventlog::logQuiet("interlock", "K1 to the %s side%s", now.relayHeating ? "heating" : "cooling",
+    eventlog::logQuiet(kEvTypeInterlock, "%s%s", now.relayHeating ? kEvK1Heating : kEvK1Cooling,
                   gCtl.exercise().cycling() ? " (relay exercise)" : "");
 }
 
@@ -1149,9 +1158,10 @@ static void watchSd(uint32_t now) {
     static bool wasActive = false;
     const sdlog::StressStats& x = st.stress;
     auto line = [&](const char* what) {
-      eventlog::log("sd", "SD STRESS %s: %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt "
+      eventlog::log(kEvTypeSd, "%s %lu kHz, retry %s: %lu of %lu writes, %lu failures, %lu retries (first attempt "
                           "failed at: folder %lu, open %lu, header %lu, data %lu, verify %lu); worst write %lu ms",
-                    what, (unsigned long)x.khz, x.retry ? "on" : "off", (unsigned long)x.writes, (unsigned long)x.target,
+                    strcmp(what, "DONE") == 0 ? kEvSdStressDone : "SD STRESS progress:", (unsigned long)x.khz,
+                    x.retry ? "on" : "off", (unsigned long)x.writes, (unsigned long)x.target,
                     (unsigned long)x.failures, (unsigned long)x.retries, (unsigned long)x.atFolder, (unsigned long)x.atOpen,
                     (unsigned long)x.atHeader, (unsigned long)x.atData, (unsigned long)x.atVerify,
                     (unsigned long)x.worstMs);
@@ -1160,14 +1170,14 @@ static void watchSd(uint32_t now) {
     if (wasActive && !x.active) {
       line("DONE");
       shown = 0;
-      eventlog::log("sd", "SD STRESS DONE checks: size mismatches %lu; heap lowest after a write %lu (largest block then "
+      eventlog::log(kEvTypeSd, "%s size mismatches %lu; heap lowest after a write %lu (largest block then "
                           "%lu), lowest since boot %lu; paused for WiFi %lu s",
-                    (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
+                    kEvSdStressChecks, (unsigned long)x.sizeMismatch, (unsigned long)x.heapMin, (unsigned long)x.heapMinLargest,
                     (unsigned long)x.heapMinEver, (unsigned long)(x.pausedMs / 1000));
     }
     if (!wasActive && x.active) {
       shown = 0;
-      eventlog::log("sd", "SD STRESS START: %lu batches at %lu kHz, retry %s", (unsigned long)x.target, (unsigned long)x.khz,
+      eventlog::log(kEvTypeSd, "%s: %lu batches at %lu kHz, retry %s", kEvSdStressStart, (unsigned long)x.target, (unsigned long)x.khz,
                     x.retry ? "on" : "off");   // where the run begins, for check_logs.py --stress (BP2 test 38)
     }
     wasActive = x.active;
@@ -1179,15 +1189,15 @@ static void watchSd(uint32_t now) {
     char where[32];
     if (r.stress) snprintf(where, sizeof(where), "stress write %lu", (unsigned long)r.writeNo);
     else snprintf(where, sizeof(where), "logging");
-    eventlog::log("sd", "SD FAIL #%lu %s at %s, %s; took %lu ms; offset %lu +%lu B; heap %lu, largest %lu; wifi %s",
-                  (unsigned long)r.seq, where, r.stage, r.recovered ? "retry OK" : r.retried ? "retry FAILED" : "no retry",
+    eventlog::log(kEvTypeSd, "%s%lu %s at %s, %s; took %lu ms; offset %lu +%lu B; heap %lu, largest %lu; wifi %s",
+                  kEvSdFailNo, (unsigned long)r.seq, where, r.stage, r.recovered ? "retry OK" : r.retried ? "retry FAILED" : "no retry",
                   (unsigned long)r.attemptMs, (unsigned long)r.fileOffset, (unsigned long)r.len, (unsigned long)r.heapFree,
                   (unsigned long)r.heapLargest, r.wifiUp ? "up" : "down");
   }
   if (st.failed && !gSdFailedShown && gLogStarted) {
     gSdFailedShown = true;
-    eventlog::log("sd", "SD FLUSH FAILURE: %s. Logging paused (events, readings and hourly rows kept in RAM); control "
-                        "unaffected; remount tried every 30 s", st.lastError[0] ? st.lastError : "card not mounted");
+    eventlog::log(kEvTypeSd, "%s: %s. Logging paused (events, readings and hourly rows kept in RAM); control "
+                             "unaffected; remount tried every 30 s", kEvSdFlushFailure, st.lastError[0] ? st.lastError : "card not mounted");
   } else if (!st.failed && gSdFailedShown) {
     gSdFailedShown = false;
     Serial.println("  SD card back: remounted, logging resumed (details in the card's events file).");

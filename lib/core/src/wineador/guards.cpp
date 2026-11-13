@@ -1,4 +1,5 @@
 #include "wineador/guards.h"
+#include "wineador/event_text.h"
 
 namespace wineador {
 
@@ -18,7 +19,7 @@ const char* guardBlockName(GuardBlock b) {
     case GuardBlock::HumidIneffective: return "humid-ineffective";
     case GuardBlock::Stripping:       return "stripping";
     case GuardBlock::CompressorRun:   return "compressor-run";
-    case GuardBlock::MaxRun:          return "max-run";
+    case GuardBlock::MaxRun:          return kEvMaxRun;
     case GuardBlock::MinOff:          return "min-off";
     case GuardBlock::Crossover:       return "crossover";
     case GuardBlock::OtherLoad:       return "other-load";

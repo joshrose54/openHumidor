@@ -5,8 +5,8 @@ namespace wineador {
 
 const char* profileName(Profile p) { return p == Profile::Bench ? "BENCH" : "REAL"; }
 
-const char* makeVersionString(char* out, size_t n, uint8_t stage, Profile p, bool testBuild) {
-  snprintf(out, n, "0.1.0-stage%u%s%s", (unsigned)stage,
+const char* makeVersionString(char* out, size_t n, const char* base, Profile p, bool testBuild) {
+  snprintf(out, n, "%s%s%s", base,
            p == Profile::Bench ? "-BENCH" : "", testBuild ? "-TEST" : "");
   return out;
 }

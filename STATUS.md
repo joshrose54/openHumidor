@@ -2,6 +2,41 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q5a (accepted 2026-11-13)
+
+**The dashboard's JSON API, plain-logic half** (spec 5.5, 5.2). No web server or pages yet (Q5b
+pages on the Mac, Q5c the board's server, Q5d OTA).
+- **`docs/api.md`, API version 1:** every endpoint, its JSON, what each write accepts and refuses,
+  every error code, the image-check reasons. `test_web_api` fails if the document and the firmware
+  disagree (version, endpoints, error codes, image reasons, graph columns, mode and tuning names).
+- **lib/core (native tests):** `json_out` (JSON written in pieces: a reply is a JsonPump that never
+  needs one big buffer), `json_in` (one flat object, strict), `web_api` (endpoints, refusals and
+  their HTTP status, writes: settings all-or-nothing with the 5.5 bounds and steps, tuning
+  read-only, safety never named, nothing while Updating; manual exclude by number, name or probe
+  label; door test; JSON-only writes; query strings; settings and info replies), `web_status`
+  (the status reply; mode icons and alerts copied from the LCD's own logic), `web_lists` (events,
+  logs, update replies), `history` (hour/day/week-month rings fed from the logger's own CSV lines;
+  the boot refill with new rows waiting; breaks at gaps; duty over the range), `log_read` (CSV,
+  lines from pieces forwards and backwards, event rows, the weekly counts, log names and the
+  download path check, event cursors), `image_identity` (the 64-byte identity block at 0x120 and
+  the check: only a Rev Q cabinet build), `ota_rules` (the Allow update gate, the 60 s stall,
+  "started properly", the one-long-transfer gate with the RAM margin).
+- **Version strings:** Rev Q `2.0.0`, Rev N `1.0.0`, -BENCH and -TEST added (spec B3);
+  `board::kFirmwareVersion`, `board::kIdentityBoard`.
+- **Sizes:** history rings 227,392 bytes (PSRAM, Q5c); status reply ~1.9 KB; hour graph ~20 KB;
+  month ~82 KB (sent in pieces). While a graph reply is open, new rows wait and no refill starts.
+
+- **Event wording defined once** (`lib/core event_text.h`): every phrase anything reads an event
+  by (types, "RH STRIP START", "humidifier ON", "12V DIP", "SD FLUSH FAILURE" ...). The firmware's
+  writers, the weekly counts and the tests use the constants; `tools/check_logs.py` reads
+  `tools/event_text.json`, made from them by `python3 tools/make_event_text.py`
+  (`test_event_text` fails if it is out of date). check_logs.py gives the same results as before
+  on the B4 soak card.
+- **Events page with the card out:** the newest events kept in RAM (`RecentEvents`, up to 50),
+  `"source":"ram"`, "card unavailable: recent events only".
+
+Native tests **404/404**; 24 builds without warnings.
+
 ## Port to Rev Q: stage Q4 (accepted 2026-11-13)
 
 **The LCD screens (spec 5.5), Rev Q builds.** Three layers:

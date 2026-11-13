@@ -1,5 +1,6 @@
 #include "wineador/humid_control.h"
 #include "wineador/psychro.h"
+#include "wineador/event_text.h"
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -147,12 +148,12 @@ int formatHumidEvent(char* out, size_t n, const HumidEvent& e, const Settings& s
   switch (e.type) {
     case HumidEvent::Type::None: break;
     case HumidEvent::Type::CallStart:
-      o.add("HUMIDIFY CALL START (%lu since boot): mean RH %.1f%% <= %.1f%% for %lu s; humidifier asked for until %.0f%%",
-            (unsigned long)e.count, e.rh, s.user.rhSetpointPct - t.humidifyBandPct,
+      o.add("%s (%lu since boot): mean RH %.1f%% <= %.1f%% for %lu s; humidifier asked for until %.0f%%",
+            kEvHumidifyStart, (unsigned long)e.count, e.rh, s.user.rhSetpointPct - t.humidifyBandPct,
             (unsigned long)(t.humidifyPersistMs / 1000), s.user.rhSetpointPct);
       break;
     case HumidEvent::Type::CallEnd:
-      o.add("HUMIDIFY CALL END: mean RH %.1f%% reached the %.0f%% setpoint", e.rh, s.user.rhSetpointPct);
+      o.add("%s: mean RH %.1f%% reached the %.0f%% setpoint", kEvHumidifyEnd, e.rh, s.user.rhSetpointPct);
       break;
     case HumidEvent::Type::Ineffective:
       o.add("HUMIDIFIER INEFFECTIVE: vapour pressure changed %+.4f kPa in %lu s (needs +%.4f). Humidifier off, flagged; "

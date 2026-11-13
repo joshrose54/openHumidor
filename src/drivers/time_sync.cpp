@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_sntp.h"
+#include "wineador/event_text.h"
 #include "wineador/clock_state.h"
 #include "wineador/ntp_window.h"
 #include "wineador/wifi_watch.h"
@@ -132,17 +133,19 @@ void update(uint32_t nowMs) {
   switch (gWindow.update(nowMs, vSyncs)) {
     case wineador::NtpWindow::Action::Open:
       want(true);
-      snprintf(gNote, sizeof(gNote), revN ? "WiFi on for the NTP sync (Rev N: WiFi only for NTP; off after the sync or 2 min)"
-                                          : "NTP sync started (WiFi stays on; SNTP stops after the sync or 2 min)");
+      if (revN) snprintf(gNote, sizeof(gNote), "%s (Rev N: WiFi only for NTP; off after the sync or 2 min)",
+                         wineador::kEvNtpWifiOn);
+      else snprintf(gNote, sizeof(gNote), "NTP sync started (WiFi stays on; SNTP stops after the sync or 2 min)");
       break;
     case wineador::NtpWindow::Action::CloseSynced:
       want(false);
-      snprintf(gNote, sizeof(gNote), revN ? "WiFi off: NTP synced after %lu s; next sync in 24 h"
-                                          : "NTP synced after %lu s; next sync in 24 h", (unsigned long)(openMs / 1000));
+      if (revN) snprintf(gNote, sizeof(gNote), "%s NTP synced after %lu s; next sync in 24 h", wineador::kEvNtpWifiOff,
+                         (unsigned long)(openMs / 1000));
+      else snprintf(gNote, sizeof(gNote), "NTP synced after %lu s; next sync in 24 h", (unsigned long)(openMs / 1000));
       break;
     case wineador::NtpWindow::Action::CloseTimedOut:
       want(false);
-      if (revN) snprintf(gNote, sizeof(gNote), "WiFi off: no NTP sync within 2 min; next try in 1 h");
+      if (revN) snprintf(gNote, sizeof(gNote), "%s no NTP sync within 2 min; next try in 1 h", wineador::kEvNtpWifiOff);
       else snprintf(gNote, sizeof(gNote), "no NTP sync within 2 min (WiFi %s); next try in 1 h",
                     WiFi.status() == WL_CONNECTED ? "connected" : "not connected");
       break;

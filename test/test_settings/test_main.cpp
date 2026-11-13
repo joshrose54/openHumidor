@@ -172,10 +172,12 @@ void test_stored_setpoints_rounded_at_boot() {
 
 void test_version_strings() {
   char v[40];
-  TEST_ASSERT_EQUAL_STRING("0.1.0-stage1", makeVersionString(v, sizeof(v), 1, Profile::Real, false));
-  TEST_ASSERT_EQUAL_STRING("0.1.0-stage1-BENCH", makeVersionString(v, sizeof(v), 1, Profile::Bench, false));
-  TEST_ASSERT_EQUAL_STRING("0.1.0-stage1-TEST", makeVersionString(v, sizeof(v), 1, Profile::Real, true));
-  TEST_ASSERT_EQUAL_STRING("0.1.0-stage1-BENCH-TEST", makeVersionString(v, sizeof(v), 1, Profile::Bench, true));
+  // Spec B3 "Version string": Rev Q's cabinet build is 2.0.0, Rev N 1.0.0; -BENCH and -TEST added.
+  TEST_ASSERT_EQUAL_STRING("2.0.0", makeVersionString(v, sizeof(v), "2.0.0", Profile::Real, false));
+  TEST_ASSERT_EQUAL_STRING("2.0.0-BENCH", makeVersionString(v, sizeof(v), "2.0.0", Profile::Bench, false));
+  TEST_ASSERT_EQUAL_STRING("2.0.0-TEST", makeVersionString(v, sizeof(v), "2.0.0", Profile::Real, true));
+  TEST_ASSERT_EQUAL_STRING("2.0.0-BENCH-TEST", makeVersionString(v, sizeof(v), "2.0.0", Profile::Bench, true));
+  TEST_ASSERT_EQUAL_STRING("1.0.0-BENCH", makeVersionString(v, sizeof(v), "1.0.0", Profile::Bench, false));
   TEST_ASSERT_EQUAL_STRING("REAL", profileName(Profile::Real));
   TEST_ASSERT_EQUAL_STRING("BENCH", profileName(Profile::Bench));
 }

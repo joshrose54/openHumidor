@@ -37,12 +37,34 @@ What it checks
 """
 import argparse
 import csv
+import json
 import datetime as dt
 import os
 import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# The events' wording, defined once in lib/core/src/wineador/event_text.h and written to
+# tools/event_text.json by tools/make_event_text.py (a native test fails if the file is out of
+# date). Nothing below types an event's words itself.
+with open(os.path.join(ROOT, "tools", "event_text.json"), encoding="utf-8") as _f:
+    _EVT = json.load(_f)
+TYPE = _EVT["types"]                    # TYPE["Rtc"] == "rtc"
+
+
+def TXT(name):
+    """The words for event text `name` (e.g. "RtcLostTime")."""
+    return _EVT["texts"][name]["text"]
+
+
+def ev_is(e, name):
+    """Is event e (type, detail) the text `name`, by its rule (starts / contains)?"""
+    t = _EVT["texts"][name]
+    if e["type"] != t["type"]:
+        return False
+    return e["detail"].startswith(t["text"]) if t["match"] == "starts" else t["text"] in e["detail"]
+
 
 # Safety timers, ms (spec 5.5 real; B3 table bench)
 TIMERS = {
@@ -54,8 +76,10 @@ TIMERS = {
 SLACK_MS = 1500
 HEAP_FLOOR = 30 * 1024          # spec 5.2: free heap never below 30 KB
 
-EVENT_TYPES = ["compressor", "heater", "humidifier", "interlock", "harvest", "guard", "crc", "timeout", "sensor",
-               "fan", "settings", "boot", "sd", "i2c", "rtc", "ntp", "crossover", "strip", "exercise", "ineffective"]
+EVENT_TYPES = [TYPE[k] for k in ("Compressor", "Heater", "Humidifier", "Interlock", "Harvest", "Guard", "Crc", "Timeout",
+                                 "Sensor", "Fan", "Settings", "Boot", "Sd", "I2c", "Rtc", "Ntp", "Crossover", "Strip",
+                                 "Exercise", "Ineffective")]
+LOADS = {TYPE["Compressor"]: "CompressorOn", TYPE["Heater"]: "HeaterOn", TYPE["Humidifier"]: "HumidifierOn"}
 
 results = []
 
@@ -139,7 +163,8 @@ def check_header(path, comments, kind, profile, table):
         # appends to it. Only fail when no boot in the file is from the expected profile.
         boots = []
         if kind == "events":
-            boots = [e for e in load_events([path]) if e["type"] == "boot" and f"profile {profile.upper()}" in e["detail"]]
+            boots = [e for e in load_events([path]) if e["type"] == TYPE["Boot"] and
+                     f"{TXT('BootProfile')}{profile.upper()}" in e["detail"]]
         if boots:
             report(None, f"{os.path.basename(path)}: made by an earlier build ({prof[0][2:] if prof else 'none'}); "
                          f"{len(boots)} later boot(s) as {profile}")
@@ -324,43 +349,42 @@ def load_events(paths):
 
 def audit(events, t):
     """Guard audit from load ON/OFF events, per boot (uptime restarts at each boot)."""
-    breaches, starts, maxstops = [], {"compressor": 0, "heater": 0, "humidifier": 0}, {"compressor": 0, "heater": 0, "humidifier": 0}
-    min_off = {"compressor": t["c_off"], "heater": t["h_off"], "humidifier": t["u_off"]}
-    min_on = {"compressor": t["c_on"], "heater": t["h_on"], "humidifier": 0}
-    max_run = {"compressor": t["c_max"], "heater": t["h_max"], "humidifier": t["u_max"]}
+    breaches, starts, maxstops = [], {L: 0 for L in LOADS}, {L: 0 for L in LOADS}
+    min_off = {TYPE["Compressor"]: t["c_off"], TYPE["Heater"]: t["h_off"], TYPE["Humidifier"]: t["u_off"]}
+    min_on = {TYPE["Compressor"]: t["c_on"], TYPE["Heater"]: t["h_on"], TYPE["Humidifier"]: 0}
+    max_run = {TYPE["Compressor"]: t["c_max"], TYPE["Heater"]: t["h_max"], TYPE["Humidifier"]: t["u_max"]}
     on_at, off_at, k1 = {}, {}, "cool"
     for e in events:
-        if e["type"] == "boot":
+        if e["type"] == TYPE["Boot"]:
             on_at, off_at, k1 = {}, {}, "cool"
             continue
-        if e["type"] == "interlock":
-            k1 = "heat" if "heating side" in e["detail"] else "cool"
+        if e["type"] == TYPE["Interlock"]:
+            k1 = "heat" if ev_is(e, "K1Heating") else "cool"
             continue
         L = e["type"]
         if L not in starts:
             continue
         up = e["up"]
-        words = e["detail"].split(" ")
-        if len(words) > 1 and words[1] == "ON":
+        if ev_is(e, LOADS[L]):
             starts[L] += 1
             if L in off_at and up - off_at[L] + SLACK_MS < min_off[L]:
                 breaches.append(f"{e['ts']} {L} started {up - off_at[L]} ms after stopping (min off {min_off[L]})")
-            other = {"compressor": "heater", "heater": "compressor"}.get(L)
+            other = {TYPE["Compressor"]: TYPE["Heater"], TYPE["Heater"]: TYPE["Compressor"]}.get(L)
             if other and other in off_at and up - off_at[other] + SLACK_MS < t["xover"]:
                 breaches.append(f"{e['ts']} {L} started {up - off_at[other]} ms after the {other} stopped (crossover {t['xover']})")
-            if L == "compressor" and k1 != "cool":
+            if L == TYPE["Compressor"] and k1 != "cool":
                 breaches.append(f"{e['ts']} compressor ON with K1 on the heating side")
-            if L == "heater" and k1 != "heat":
+            if L == TYPE["Heater"] and k1 != "heat":
                 breaches.append(f"{e['ts']} heater ON with K1 on the cooling side")
             on_at[L] = up
         else:
             if L in on_at:
                 ran = up - on_at.pop(L)
-                if ran + SLACK_MS < min_on[L] and "max-run" not in e["detail"]:
+                if ran + SLACK_MS < min_on[L] and TXT("MaxRun") not in e["detail"]:
                     breaches.append(f"{e['ts']} {L} stopped after {ran} ms (min on {min_on[L]})")
                 if ran > max_run[L] + SLACK_MS:
                     breaches.append(f"{e['ts']} {L} ran {ran} ms (max run {max_run[L]})")
-                if "(max-run)" in e["detail"]:
+                if f"({TXT('MaxRun')})" in e["detail"]:
                     maxstops[L] += 1
             off_at[L] = up
     return breaches, starts, maxstops
@@ -492,17 +516,17 @@ def main():
         missing = [t for t in EVENT_TYPES if t not in types]
         report(not missing, "every 5.4 event type present (disturbance exempt until B6)",
                f"missing: {', '.join(missing)}" if missing else "")
-        report(any(e["type"] == "rtc" and "LOST TIME" in e["detail"] for e in events), "RTC lost time at boot logged")
-        report(any(e["type"] == "ntp" and "correction" in e["detail"] for e in events), "NTP correction logged")
-        report(any(e["type"] == "sd" and "deleted" in e["detail"] for e in events), "retention: oldest month deleted at boot")
-        report(any(e["type"] == "sd" and "FAILURE" in e["detail"] for e in events), "SD flush failure logged")
-        report(any(e["type"] == "settings" and "->" in e["detail"] for e in events), "settings change logged with old and new")
+        report(any(ev_is(e, "RtcLostTime") for e in events), "RTC lost time at boot logged")
+        report(any(ev_is(e, "NtpCorrection") for e in events), "NTP correction logged")
+        report(any(ev_is(e, "SdRetention") for e in events), "retention: oldest month deleted at boot")
+        report(any(ev_is(e, "SdFlushFailure") for e in events), "SD flush failure logged")
+        report(any(ev_is(e, "ChangeArrow") for e in events), "settings change logged with old and new")
         if revq:
             # B3 test 24 on Rev Q (BP2, Rev Q exceptions): both Rev Q events are required.
             # 12V dip: the PSU at 10.5V for ~5 s, by hand -> a dip, then its recovery, lowest near 10.5V,
             # lasting 2-20 s (wide: the PSU is turned by hand).
-            dips = [i for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V DIP")]
-            recs = [(i, e) for i, e in enumerate(events) if e["type"] == "12v" and e["detail"].startswith("12V recovered")]
+            dips = [i for i, e in enumerate(events) if ev_is(e, "Dip12v")]
+            recs = [(i, e) for i, e in enumerate(events) if ev_is(e, "Recovered12v")]
             pair = next(((d, r) for d in dips for r in recs if r[0] > d), None)
             report(pair is not None, "12V dip logged, then its recovery (test 24, Rev Q)",
                    "" if pair else f"{len(dips)} dip and {len(recs)} recovered events")
@@ -514,8 +538,8 @@ def main():
                            "the recovery's lowest reading near 10.5V and duration near 5 s (10.0-10.9V, 2-20 s: the PSU is turned by hand)",
                            f"lowest {low:.2f} V, {ms / 1000:.1f} s")
             # WiFi: the router off for ~1 minute -> "WiFi lost", then "WiFi back after N s", N about 60.
-            lost = [i for i, e in enumerate(events) if e["type"] == "wifi" and e["detail"].startswith("WiFi lost")]
-            backs = [(i, e) for i, e in enumerate(events) if e["type"] == "wifi" and e["detail"].startswith("WiFi back after")]
+            lost = [i for i, e in enumerate(events) if ev_is(e, "WifiLost")]
+            backs = [(i, e) for i, e in enumerate(events) if ev_is(e, "WifiBack")]
             wp = next(((l, b) for l in lost for b in backs if b[0] > l), None)
             report(wp is not None, "WiFi lost logged, then back (test 24, Rev Q)",
                    "" if wp else f"{len(lost)} lost and {len(backs)} back events")
@@ -527,8 +551,8 @@ def main():
                            f"back after {sec} s")
 
     if a.stress:
-        done = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD STRESS DONE:")]
-        checks = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD STRESS DONE checks:")]
+        done = [e for e in events if ev_is(e, "SdStressDone")]
+        checks = [e for e in events if ev_is(e, "SdStressChecks")]
         if not done:
             report(False, "the SD stress run's result is in the events file", "no 'SD STRESS DONE' line")
         else:
@@ -539,7 +563,7 @@ def main():
                 report(w == target, "every stress write was made", f"{w} of {target}")
                 report(fails == 0, "no lost writes (every failed first try written by the retry)", f"{fails} lost")
                 report(None, f"retries counted: {retries} in {w} writes" + (f" (1 in {w // retries})" if retries else ""))
-            fails = [e for e in events if e["type"] == "sd" and e["detail"].startswith("SD FAIL #")]
+            fails = [e for e in events if ev_is(e, "SdFailNo")]
             report(None, f"failed first tries recorded: {len(fails)}")
             if checks:
                 c = checks[-1]["detail"]
@@ -556,26 +580,26 @@ def main():
             # never power-cycles the card, so the run is the card unaided.
             di = events.index(done[-1])
             # The run: from its "SD STRESS START" (firmware from Q3), else from the boot before it.
-            run_i = max((i for i, e in enumerate(events[:di]) if e["type"] == "sd" and e["detail"].startswith("SD STRESS START")),
-                        default=max((i for i, e in enumerate(events[:di]) if e["type"] == "boot"), default=0))
+            run_i = max((i for i, e in enumerate(events[:di]) if ev_is(e, "SdStressStart")),
+                        default=max((i for i, e in enumerate(events[:di]) if e["type"] == TYPE["Boot"]), default=0))
             run = events[run_i:di + 1]
-            lost = [e for e in run if e["type"] == "wifi" and e["detail"].startswith("WiFi lost")]
+            lost = [e for e in run if ev_is(e, "WifiLost")]
             report(not lost, "WiFi connected all through the stress run (no 'WiFi lost')",
                    "; ".join(f"{e['ts']}" for e in lost[:5]))
-            cyc = [e for e in run if e["type"] == "sd" and "power-cycled" in e["detail"]]
+            cyc = [e for e in run if ev_is(e, "SdPowerCycled")]
             report(not cyc, "the stress run never power-cycled the card (its retry doesn't; the card unaided)",
                    "; ".join(f"{e['ts']} {e['detail'][:60]}" for e in cyc[:3]))
         elif not revq:
-            wifi = [e for e in events if e["type"] == "ntp" and e["detail"].startswith("WiFi ")]
-            report(any("WiFi on" in e["detail"] for e in wifi) and any("WiFi off" in e["detail"] for e in wifi),
+            wifi = [e for e in events if ev_is(e, "NtpWifiOn") or ev_is(e, "NtpWifiOff")]
+            report(any(ev_is(e, "NtpWifiOn") for e in wifi) and any(ev_is(e, "NtpWifiOff") for e in wifi),
                    "the radio cycled through an NTP window (WiFi on, then off)",
                    "; ".join(f"{e['ts']} {e['detail'][:40]}" for e in wifi[-4:]))
         # Only this run's boot counts: the last boot before the stress run's result.
         if done:
             di = events.index(done[-1])
-            boot_i = max((i for i, e in enumerate(events[:di]) if e["type"] == "boot"), default=0)
-            below = [e for e in events[boot_i:] if e["type"] == "heap"]
-            earlier = [e for e in events[:boot_i] if e["type"] == "heap"]
+            boot_i = max((i for i, e in enumerate(events[:di]) if e["type"] == TYPE["Boot"]), default=0)
+            below = [e for e in events[boot_i:] if e["type"] == TYPE["Heap"]]
+            earlier = [e for e in events[:boot_i] if e["type"] == TYPE["Heap"]]
             report(not below, "no heap-floor event in the stress run's boot", below[0]["detail"][:90] if below else "")
             if earlier:
                 report(None, f"heap-floor event in an earlier boot: {earlier[0]['ts']} {earlier[0]['detail'][:70]}")
@@ -591,21 +615,20 @@ def main():
                 back += 1
             prev = e["up"]
         report(back == 0, "events in order (uptime never goes back within a boot)", f"{back} out of order" if back else "")
-        notes = [e for e in events if e["type"] == "sd" and "writing what was kept" in e["detail"]]
+        notes = [e for e in events if ev_is(e, "SdCardBack")]
         for e in notes:
             report(None, f"{e['ts']} {e['detail']}")
         report(bool(notes), "the card came back and wrote what was kept")
         if revq:
             # Rev Q, the normal build (BP2 test 38, 3A.11): a card pull shows ONE power-cycle event
             # (the retry's remount failed), then SD FAIL, then the card back.
-            seq = [e for e in events if e["type"] == "sd" and ("power-cycled" in e["detail"] or
-                   e["detail"].startswith("SD FLUSH FAILURE") or "writing what was kept" in e["detail"])]
-            fails = [i for i, e in enumerate(seq) if e["detail"].startswith("SD FLUSH FAILURE")]
+            seq = [e for e in events if ev_is(e, "SdPowerCycled") or ev_is(e, "SdFlushFailure") or ev_is(e, "SdCardBack")]
+            fails = [i for i, e in enumerate(seq) if ev_is(e, "SdFlushFailure")]
             report(bool(fails), "a card pull: SD FAIL seen (normal build)", "" if fails else "no SD FLUSH FAILURE - was the card pulled?")
             for n, i in enumerate(fails):
-                start = max([j + 1 for j in range(i) if "writing what was kept" in seq[j]["detail"]] + [0])
-                cycles = [e for e in seq[start:i] if "power-cycled" in e["detail"]]
-                back = any("writing what was kept" in e["detail"] for e in seq[i + 1:])
+                start = max([j + 1 for j in range(i) if ev_is(seq[j], "SdCardBack")] + [0])
+                cycles = [e for e in seq[start:i] if ev_is(e, "SdPowerCycled")]
+                back = any(ev_is(e, "SdCardBack") for e in seq[i + 1:])
                 report(len(cycles) == 1 and back,
                        f"card pull {n + 1} ({seq[i]['ts']}): one power-cycle event, then SD FAIL, then the card back",
                        f"{len(cycles)} power-cycle events before it; card back: {'yes' if back else 'NO'}")
@@ -624,16 +647,16 @@ def main():
             report(not missing, "hourly rows consecutive (trusted hours)", f"jump after {missing[0]:%H:%M}" if missing else f"{len(hours)} hours")
 
     if a.soak:
-        verdicts = [e for e in events if e["type"] == "scenario" and "========" in e["detail"]]
+        verdicts = [e for e in events if ev_is(e, "ScenarioResult")]
         if verdicts:
             last = verdicts[-1]["detail"]
-            report("PASS:" in last, "the soak scenario's own verdict (from the events file)", last.split("========")[-1].strip())
+            report(f"{TXT('ScenarioPass')}:" in last, "the soak scenario's own verdict (from the events file)", last.split("========")[-1].strip())
         else:
             report(False, "the soak scenario's own verdict", "no scenario PASS/FAIL line in the events file")
         # No reset during the soak: no boot event between the soak's start and its verdict.
         # Boots before it (earlier tests on the same card) or after it are only noted.
-        start = next((i for i, e in enumerate(events) if e["type"] == "scenario" and "[run 100" in e["detail"]), None)
-        end = next((i for i, e in enumerate(events) if e["type"] == "scenario" and "======== run 100" in e["detail"]), None)
+        start = next((i for i, e in enumerate(events) if e["type"] == TYPE["Scenario"] and f"{TXT('ScenarioLine')}100" in e["detail"]), None)
+        end = next((i for i, e in enumerate(events) if e["type"] == TYPE["Scenario"] and f"{TXT('ScenarioResult')} 100" in e["detail"]), None)
         if start is None or end is None:
             report(False, "no resets during the soak", "the soak's start or verdict is not in the events file")
         else:
@@ -650,8 +673,8 @@ def main():
                    (f"{back} event(s) with uptime below the soak's start" if back else
                     f"{hours:.1f} h of uptime between start and verdict; {total} boot(s) on the card, none during the soak"))
         events = events[start:end + 1] if start is not None and end is not None else events
-        fails = [e for e in events if e["type"] == "sd" and "FAILURE" in e["detail"]]
-        retried = [e for e in events if e["type"] == "sd" and "retried after a remount: OK" in e["detail"]]
+        fails = [e for e in events if ev_is(e, "SdFlushFailure")]
+        retried = [e for e in events if ev_is(e, "SdRetriedOk")]
         report(not fails, "no SD failures", "; ".join(f"{e['ts']} {e['detail'][:90]}" for e in fails[:3]))
         report(None, f"SD writes recovered by a retry: {len(retried)}")
         breaches, starts, maxstops = audit(events, TIMERS[a.profile])
@@ -659,15 +682,15 @@ def main():
                "; ".join(breaches[:5]) + (f" (+{len(breaches) - 5} more)" if len(breaches) > 5 else ""))
         # The expected counts over the 21 h run — the same minima as the soak scenario
         # (lib/core/src/wineador/scenario_stage6.cpp; the Mac run gave 15/12/15, 4/2/4, 2, 8).
-        strips = sum(1 for e in events if e["type"] == "strip" and "START" in e["detail"])
-        xovers = sum(1 for e in events if e["type"] == "crossover")
-        mins = {"compressor": (10, 2), "heater": (6, 1), "humidifier": (4, 2)}
+        strips = sum(1 for e in events if ev_is(e, "StripStart"))
+        xovers = sum(1 for e in events if e["type"] == TYPE["Crossover"])
+        mins = {TYPE["Compressor"]: (10, 2), TYPE["Heater"]: (6, 1), TYPE["Humidifier"]: (4, 2)}
         for L, (s_min, m_min) in mins.items():
             report(starts[L] >= s_min, f"{L} ran the expected number of times", f"{starts[L]} starts (need {s_min})")
             report(maxstops[L] >= m_min, f"{L} ran into its max run", f"{maxstops[L]} max-run stops (need {m_min})")
         report(strips >= 2, "RH strips", f"{strips} (need 2)")
         report(xovers >= 4, "crossovers", f"{xovers} (need 4)")
-        report(None, f"humidify calls {sum(1 for e in events if e['type'] == 'humidify' and 'START' in e['detail'])}")
+        report(None, f"humidify calls {sum(1 for e in events if ev_is(e, 'HumidifyStart'))}")
         if all_rows and header:
             idx = {h: i for i, h in enumerate(header)}
             rows = [r for r in all_rows if len(r) == len(header)]

@@ -12,6 +12,7 @@
 #include "sd_power.h"
 #include "heap.h"
 #include "wineador/logbook.h"
+#include "wineador/event_text.h"
 #include "wineador/line_ring.h"
 #include "wineador/sd_power_seq.h"
 
@@ -307,8 +308,8 @@ bool appendFile(const char* path, const char* header, const Payload& data) {
       // Logged NOW, before setError() below publishes the failure: so the events file reads
       // "power-cycled", then "SD FLUSH FAILURE" (BP2 test 38), in the order they happened.
       char d[200];
-      snprintf(d, sizeof(d), "SD remount for the retry failed: card power-cycled (off %lu ms, on, remount) - %s "
-               "(%lu power cycles since boot)", (unsigned long)wineador::SdPowerSeq::kCycleOffMs,
+      snprintf(d, sizeof(d), "%s (off %lu ms, on, remount) - %s "
+               "(%lu power cycles since boot)", wineador::kEvSdPowerCycled, (unsigned long)wineador::SdPowerSeq::kCycleOffMs,
                cycled == -1 ? "remount FAILED" : ok ? "remount OK, write retried OK" : "remount OK but the retried write failed",
                (unsigned long)stats().powerCycles);
       noteEvent("sd", d);
@@ -483,7 +484,7 @@ void retention() {
         char d[160];
         if (SD.remove(paths[i])) {
           deleted++;
-          snprintf(d, sizeof(d), "retention: free space under 10%%, deleted %s (%llu MB)", paths[i],
+          snprintf(d, sizeof(d), "%s %s (%llu MB)", wineador::kEvSdRetention, paths[i],
                    (unsigned long long)(files[i].bytes / (1024ULL * 1024ULL)));
         } else {
           snprintf(d, sizeof(d), "retention: could not delete %s", paths[i]);
@@ -510,9 +511,9 @@ void tryRemount() {
   publishBuffers();
   Stats st = stats();
   char d[200];
-  snprintf(d, sizeof(d), "SD card back: remounted; writing what was kept: %u events, %u readings rows, %u hourly rows "
+  snprintf(d, sizeof(d), "%s: %u events, %u readings rows, %u hourly rows "
                          "(dropped while out, since boot: %lu events, %lu rows, %lu hourly)",
-           (unsigned)gEvents.count(), (unsigned)gRows.count(), (unsigned)gHourly.count(), (unsigned long)st.eventsDropped,
+           wineador::kEvSdCardBack, (unsigned)gEvents.count(), (unsigned)gRows.count(), (unsigned)gHourly.count(), (unsigned long)st.eventsDropped,
            (unsigned long)st.rowsDropped, (unsigned long)st.hourlyDropped);
   // Kept events first, then this note (so it follows them in time), then the rest.
   flushEvents();
@@ -675,7 +676,7 @@ void task(void*) {
       gRetryNote = false;
       Stats st = stats();
       char d[160];
-      snprintf(d, sizeof(d), "SD write error, retried after a remount: OK (%s; %lu retries since boot)", st.lastRetry,
+      snprintf(d, sizeof(d), "%s (%s; %lu retries since boot)", wineador::kEvSdRetriedOk, st.lastRetry,
                (unsigned long)st.retries);
       selfEvent("sd", d);
     }

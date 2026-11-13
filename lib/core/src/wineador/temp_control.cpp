@@ -1,5 +1,6 @@
 #include "wineador/temp_control.h"
 #include "wineador/psychro.h"
+#include "wineador/event_text.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <math.h>
@@ -346,14 +347,14 @@ int formatControlEvent(char* out, size_t n, const ControlEvent& e, const Setting
   switch (e.type) {
     case ControlEvent::Type::None: break;
     case ControlEvent::Type::StripStart:
-      o.add("RH STRIP START (%lu since boot): mean RH %.1f%% >= %.1f%% for %lu s; cooling called. "
+      o.add("%s (%lu since boot): mean RH %.1f%% >= %.1f%% for %lu s; cooling called. "
             "Vapour pressure %.3f kPa, releases at %.3f",
-            (unsigned long)e.count, e.a, s.user.rhSetpointPct + t.rhStripOffsetPct,
+            kEvStripStart, (unsigned long)e.count, e.a, s.user.rhSetpointPct + t.rhStripOffsetPct,
             (unsigned long)(t.rhStripPersistMs / 1000), e.b, target);
       break;
     case ControlEvent::Type::StripStop:
-      o.add("RH STRIP STOP: %s. Mean RH %.1f%%, vapour pressure %.3f kPa (target %.3f)",
-            stripStopName(e.strip), e.a, e.b, target);
+      o.add("%s: %s. Mean RH %.1f%%, vapour pressure %.3f kPa (target %.3f)",
+            kEvStripStop, stripStopName(e.strip), e.a, e.b, target);
       break;
     case ControlEvent::Type::HarvestStart:
       if (e.a >= 0) o.add("HARVEST START (%s): chamber %.2f C from the cabinet mean; ends within %.1f C",
@@ -366,7 +367,7 @@ int formatControlEvent(char* out, size_t n, const ControlEvent& e, const Setting
             (unsigned long)(e.ms / 1000), (unsigned long)((e.ms % 1000) / 100));
       break;
     case ControlEvent::Type::Crossover:
-      o.add("CROSSOVER %lu since boot: %s", (unsigned long)e.count,
+      o.add("%s %lu since boot: %s", kEvCrossoverNo, (unsigned long)e.count,
             e.a > 0.5f ? "cooling started, heating ran last" : "heating started, cooling ran last");
       break;
     case ControlEvent::Type::HeaterIneffective:

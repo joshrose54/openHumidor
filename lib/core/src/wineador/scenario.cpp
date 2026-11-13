@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "wineador/sensor_table.h"
+#include "wineador/event_text.h"
 
 namespace wineador {
 
@@ -119,15 +120,15 @@ void ScenarioRunner::finish(uint32_t nowMs, CabinetModel& model, Result r, const
     if (tc_) tc_->setIdleFanOverride(-1);
     if (ctl_) ctl_->setHumidifyDuringCooling(s_.tuning.humidifyDuringCooling);
   }
-  const char* word = r == Result::Pass ? "PASS" : r == Result::Fail ? "FAIL" : "STOPPED";
-  say(nowMs, "======== run %d %s: %s", n_, word, why);
+  const char* word = r == Result::Pass ? kEvScenarioPass : r == Result::Fail ? "FAIL" : "STOPPED";
+  say(nowMs, "%s %d %s: %s", kEvScenarioResult, n_, word, why);
 }
 
 void ScenarioRunner::say(uint32_t nowMs, const char* fmt, ...) {
   char* line = lines_[(lineHead_ + lineCount_) % kLines];
   if (lineCount_ == kLines) { lineHead_ = (lineHead_ + 1) % kLines; lineCount_--; line = lines_[(lineHead_ + lineCount_) % kLines]; }
   char t[16];
-  int k = snprintf(line, kLineLen, "  [run %d  t+%s] ", n_, secs(t, sizeof(t), elapsedMs(nowMs, startMs_)));
+  int k = snprintf(line, kLineLen, "  %s%d  t+%s] ", kEvScenarioLine, n_, secs(t, sizeof(t), elapsedMs(nowMs, startMs_)));
   if (k < 0) k = 0;
   if (k < kLineLen) {
     va_list a;

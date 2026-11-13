@@ -1,6 +1,6 @@
 #pragma once
 // Which build this is: profile (real or bench), test build or cabinet build,
-// and the version string (spec B3: "0.1.0-stage<n>", plus -BENCH and -TEST).
+// and the version string (spec B3: the board's version, plus -BENCH and -TEST).
 //
 // The profile and test switches are compile-time, set in platformio.ini:
 //   -DWINEADOR_BENCH_PROFILE   bench timers (default: real)
@@ -11,8 +11,6 @@
 #include "wineador/types.h"
 
 namespace wineador {
-
-constexpr uint8_t kFirmwareStage = 6;
 
 #if defined(WINEADOR_BENCH_PROFILE)
 constexpr Profile kBuildProfile = Profile::Bench;
@@ -40,7 +38,9 @@ constexpr bool kBootDemand = false;
 
 const char* profileName(Profile p);   // "REAL" or "BENCH"
 
-// Writes e.g. "0.1.0-stage1", "0.1.0-stage1-BENCH-TEST". Returns out.
-const char* makeVersionString(char* out, size_t n, uint8_t stage, Profile p, bool testBuild);
+// The version (spec B3 "Version string"): the board's base version (include/board.h: "1.0.0" on
+// Rev N, "2.0.0" on Rev Q) with -BENCH and -TEST added when they apply, e.g. "2.0.0-BENCH-TEST".
+// Returns out.
+const char* makeVersionString(char* out, size_t n, const char* base, Profile p, bool testBuild);
 
 }  // namespace wineador

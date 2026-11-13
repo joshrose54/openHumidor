@@ -17,6 +17,10 @@
 namespace board_revn {
 
 constexpr const char* kName = "Rev N";
+// The version (spec B3 "Version string"): 1.0.0 once B3 passed on Rev N; -BENCH and -TEST added.
+constexpr const char* kFirmwareVersion = "1.0.0";
+// The board in the OTA identity block (lib/core image_identity.h, spec 5.5).
+constexpr const char* kIdentityBoard = "rev-n";
 // The "# board" line in every log header (spec 5.4).
 constexpr const char* kLogBoard = "rev-n (channel n = mux n+2)";
 
@@ -60,6 +64,10 @@ constexpr size_t   kLcdSendBytes = 0;
 namespace board_revq {
 
 constexpr const char* kName = "Rev Q";
+// The version (spec B3 "Version string"): Rev Q's cabinet build is 2.0.0; -BENCH and -TEST added.
+// The OTA identity block carries the same string.
+constexpr const char* kFirmwareVersion = "2.0.0";
+constexpr const char* kIdentityBoard = "rev-q";
 constexpr const char* kLogBoard = "rev-q (channel n = mux n)";
 
 // Rev Q wires sensor channel n to mux channel n (spec 3A.7): no mapping.
