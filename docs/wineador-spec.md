@@ -1346,10 +1346,10 @@ little ozone, which cigars must not be exposed to for long.
 
 | Rule | Value |
 |---|---|
-| Runs per day | **2**, evenly spaced: **24/N hours apart in fixed UTC slots from 00:00** (2 a day: 00:00 and 12:00 UTC). If the time is not trusted, every 24/N hours from boot, the first one 24/N hours after boot; once the clock is trusted, the next run follows the clock. A run missed while the board was off is not caught up; each slot runs once |
+| Runs per day | **2**, evenly spaced: **24/N hours apart in fixed UTC slots from 00:00** (2 a day: 00:00 and 12:00 UTC). If the time is not trusted, every 24/N hours from boot, the first one 24/N hours after boot; once the clock is trusted, the next run follows the clock. A run missed while the board was off is not caught up. **Each slot runs once:** a run starts only when the clock reaches its slot by normal running; a clock stepped forward past a slot's start skips it as missed, and a clock stepped back never repeats a slot already run |
 | Minutes per run | **2**, timed by uptime |
 | Settings over 10 minutes a day | **Refused**: runs × minutes must be 10 or less ("at most 10 minutes a day in total") |
-| Hard cap | **10 minutes in any 24 hours** of actual on-time — never exceeded, whatever the settings; a backstop. **Kept across reboots** in NVS (each run's start and on-time); with the time not trusted, every stored run counts as recent; a reboot during a run counts its whole planned length |
+| Hard cap | **10 minutes in any 24 hours** of actual on-time — never exceeded, whatever the settings; a backstop. **Kept across reboots** in NVS (each run's start and on-time); **every stored run counts as recent for the first 24 hours of uptime, whatever the clock says** (a wrong clock can't age runs away); a reboot during a run counts its whole planned length. At the default 2 × 2 min this changes nothing; at the maximum, a reboot can mean no runs for up to a day |
 | Not during | The boot hold, an OTA update, or a **Fault** (5.5). A run due then is **skipped**, not moved, and logged; one cut short is not resumed, and its on-time counts towards the cap |
 | Switched off | **Ion generator enable** (user setting, 5.5) off: no runs at all; the run settings keep their values for when it is switched back on. Off mid-run (or runs or minutes set to 0): off at once, logged; switching back on waits for the next slot. A settings change mid-run leaves that run's length as it started |
 
@@ -2293,7 +2293,7 @@ never a literal. B3–B5 fill it from compile-time constants, B6–B7 from NVS.
 | Ineffective retry — heater, humidifier | 30 min / 2 h | 2 min / 2 min |
 | Harvest backstop | 30 min | 2 min |
 | Blower back-to-idle hold (Rev Q) | 10 min | 1 min |
-| Ion generator runs (Rev Q) | 24/N hours apart, 2 min | Every 30 min, 1 min (cap unchanged: 10 min in 24 h, so the bench exercises it) |
+| Ion generator runs (Rev Q) | 24/N hours apart, 2 min | Every 30 min, 1 min, replacing the spacing and length (runs or minutes at 0, or the enable off, still mean no runs; cap unchanged: 10 min in 24 h, so the bench exercises it) |
 
 **The bench profile must never reach the cabinet.** The active profile is printed on every boot and
 status line; the bench profile logs an unmissable warning banner; a bench build is identified in
