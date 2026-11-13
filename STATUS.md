@@ -65,7 +65,7 @@ Rev N is no longer available: build and native tests only until Rev Q arrives.
 
 **B3 (all 24 tests) and B4 have passed on the Rev N bench board.** Work now waits for the next
 board: no next-board code until the board designer's proposal is back and the spec has been
-updated for it. The planning note is `NEXT-BOARD-PORT.md`.
+updated for it. The planning note was `NEXT-BOARD-PORT.md` (now in archive/; superseded by CLAUDE.md and the spec).
 
 **B4:**
 - **Step 1, soak: PASS.** 21 h on `real_test` (accepted against "at least 20 h"), one boot, scenario
