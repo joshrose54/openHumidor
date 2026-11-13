@@ -921,8 +921,8 @@ re-initialised after boot, and on GPIO1 a glitch is at most one watchdog kick.
   pull-ups to 3V3_Q. A faulty sensor holding I²C0 can't take the clock down.
 
 **I²C addresses on Rev Q:** I²C0 — TCA9548A 0x70; SHT40 0x44, one per mux channel 0–5. I²C1 —
-DS3231 0x68; the touch controller, **FT6336U at 0x38** (from lcdwiki's MSP4031 documents; BP2
-test 29's I²C1 scan confirms it).
+DS3231 0x68; the touch controller, **FT6336U at 0x38** (from lcdwiki's MSP4031 demo code — the
+FT6336U datasheet doesn't give it; BP2 test 29's I²C1 scan confirms it).
 
 ## 3A.8 RTC
 
@@ -965,7 +965,15 @@ comes out reversed, the other standard type (same-side) is right. The ribbon is 
   3.3V; CTP_INT and CTP_RST no pull-up (the touch controller runs from the module's 3.3V).
 - **Touch level shifter:** Q8, Q9 (gates on 3V3_Q) keep I²C1 at 3.3V; 10kΩ to LCD_5V on the cable
   side of each line. ESD arrays on every LCD line.
-- **SPI2 at 15MHz or less** (ST7796S minimum write cycle 66ns); 20 and 40MHz are bench trials only.
+- **On the module** (lcdwiki schematic): the LCD and reset lines go through a 74LVC245 buffer on
+  the module's own 3.3V regulator, so 3.3V drive is right. The touch lines pass through the
+  module's own BSS138 shifter (10kΩ to its 5V on the connector side), so I²C1 crosses **two
+  shifters in series** — fine at 100kHz; worth knowing if touch is ever flaky. The LED pin drives a
+  BSS138 gate with a 10kΩ pull-up: high or floating = on. The module's SD slot is held deselected
+  by its own pull-up.
+- **SPI2 at 15MHz or less** (ST7796S minimum write cycle 66ns). **The S3 makes 80MHz ÷ a whole
+  number and rounds to the nearest**, so asking for 15MHz gives 16MHz: ask for **13.3MHz (÷6)**.
+  20MHz (÷4) is a bench trial only.
 - If touch reads fail: R83 and R84 duplicate pull-ups the module already has and can be removed.
 - Which end of J20 is pin 1 is fixed at layout; continuity checked before first power (BP2).
 
@@ -996,12 +1004,16 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   calibrated against blower voltage with all four fitted (BP2); the table is in the build log.
 - **Ion generator (GPIO17):** high = on; undriven = off.
 - **LCD:** GPIO48 resets the LCD and the touch controller together: hold it low at least 5ms, then
-  wait at least 120ms before Sleep Out and 300ms before the first touch read. SPI2 at 15MHz or less.
+  wait at least 120ms before Sleep Out and 300ms before the first touch read. SPI2 at 13.3MHz (÷6;
+  3A.9). **Start-up sends the maker's register list** (lcdwiki ST7796_Init.txt: unlock, B0–E8,
+  C2 with 0xA7 as its parameter, both gammas, lock), source noted in the code. **Touch monitor mode
+  off:** write 0x00 to the FT6336U's register 0x86 after every reset, so it keeps answering while
+  idle.
   Backlight on until the firmware drives GPIO13; PWM dims it.
 - **LCD at boot:** cleared to black, backlight off until the first walk-past screen has been sent;
   then full, dimmed per 5.5. The BP2 test sketches keep their own behaviour.
 - **Nothing the LCD or the web server does holds the loop more than 50ms:** screens are drawn in
-  pieces across passes (a full screen at 15MHz takes about 165ms, so redraw only what changed, or
+  pieces across passes (a full screen at 13.3MHz takes about 184ms, so redraw only what changed, or
   send it by DMA in the background); the web server runs in its own task and never calls the
   control code. **The one exception is an OTA update** (5.2): flash erases stall the loop, which is
   harmless with every load off.
@@ -2450,7 +2462,7 @@ on the top range unless stated; "open" means OL.
 | 26 | SD power switch | Card in. Sketch: mount, write, set the SD lines to inputs, GPIO39 high; meter J22 VDD (C53) to TP3; then GPIO39 to an input; remount, write | Off: under 0.1V. On: 3.23–3.37V (switch-on within about 5ms: scope only); remount and write succeed; no reset; TP8 dips less than 0.1V below its idle reading through the switch-on (min-hold) | Pending |
 | 27 | 12V sense | PSU at 12.0V, then 11.0V. Read GPIO8 against the meter on TP6 | Reading follows the meter; **record the scale factor** (build log); after it, within 0.1V at both | Pending |
 | 28 | Sensors and spare channels | All six sensors on J3–J8. Then one sensor moved to J17, then J18 | Every serial on its mux channel (3A.7); each read with CRC good; J17 and J18 read the moved sensor on channels 6 and 7 | Pending |
-| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 15MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned. **Landscape check:** an UP arrow drawn and a touch in each corner; choose which landscape way is up for the enclosure. Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC); **the arrow up and each corner touch reported at that corner in the chosen landscape way — record the choice** (build log) | Pending |
+| 29 | LCD and touch | LCD on J20 (test 10 passed). Sketch: test pattern at 13.3MHz, then 20MHz as a trial; touch coordinates printed; backlight dimmed 100% → 10%; GPIO48 pulsed; I²C1 scanned, with the touch chip's ID registers (0xA8, 0x9F, 0xA3) printed; the screen then left untouched for over 40s, watching the failed-touch-read count, then touched again. **Landscape check:** an UP arrow drawn and a touch in each corner; choose which landscape way is up for the enclosure. Meter I²C1 SDA and SCL at R69/R70 to TP3, idle | Pattern correct, no tearing or noise; touch coordinates follow a finger; backlight dims; GPIO48 resets both the LCD and touch (both re-initialised after it); **I²C1 idle at 3.3V, not 5V**; RTC still read on I²C1; the scan finds 0x38 (touch) and 0x68 (RTC); the touch chip's ID reads as an FT6336 (0xA8 = 0x11, 0x9F = 0x26, 0xA3 = 0x64 per the maker's code); no failed touch reads while idle, and the first touch afterwards reads normally; **the arrow up and each corner touch reported at that corner in the chosen landscape way — record the choice** (build log) | Pending |
 | 30 | RTC cell | Board powered 48 hours. Meter BT1 + to TP3. Then 12V off overnight; restore | Cell 2.8–3.2V (record with the date and TP8, build log; above 3.2V: 1MΩ across C49, 3A.8); time kept across the night, oscillator-stopped flag clear | Pending |
 
 ### D — System
