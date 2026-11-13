@@ -1,6 +1,7 @@
 #pragma once
 // The four load outputs: cooling (SSR), heater, relay K1, humidifier (pins.h, per board).
-// Rev Q also: the ion generator, GPIO17, driven LOW (off) at boot and every pass.
+// Rev Q also: the ion generator, GPIO17, driven LOW (off) at boot; then set every pass by its
+// rule (4.6c, lib/core ion_schedule.h).
 //
 // begin() drives all four LOW from the first instruction. After that the only
 // way to change them is apply(), with what the Controller decided this pass
@@ -20,9 +21,9 @@ void apply(const wineador::LoadOutputs& want);
 // raises the pin when the heater is off, so it cannot break the interlock.
 void heaterGate(bool pinOn);
 void allOff();                         // load signals low first, then the relay (Rev Q: and the ion output)
-void ionOff();                         // Rev Q: the ion generator held off, every pass (3A.11; Rev N: nothing)
-// BP2 SKETCHES ONLY (tests 18, 20): the ion generator on or off. The firmware never calls it
-// before the ion rules (4.6c) exist; its loop holds the output off every pass.
+void ionOff();                         // Rev Q: the ion generator off (Rev N: nothing)
+// Rev Q: the ion generator on or off. The firmware's loop sets it every pass from its rule (4.6c),
+// off in the boot hold, an update and a Fault; the BP2 sketches (tests 18, 20) switch it by hand.
 void setIon(bool on);
 bool ionOn();
 wineador::LoadOutputs current();       // what is being driven right now

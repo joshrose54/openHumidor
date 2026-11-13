@@ -33,6 +33,8 @@
 #include "wineador/ota_rules.h"
 #include "wineador/ota_update.h"
 #include "wineador/web_mail.h"
+#include "wineador/blower_rule.h"
+#include "wineador/ion_schedule.h"
 
 namespace sim {
 
@@ -47,6 +49,10 @@ enum class State : uint8_t {
   ClockBad,       // shown: the clock not trusted
   JustBooted,     // real: a reboot (boot hold, empty history refilling)
   Updating,       // shown: an OTA update at 40 % and climbing
+  Spread,         // real: ch0 1.5 C warmer than the rest - the blowers boost (stage Q6)
+  IonRunning,     // shown: an ion generator run 40 s in (stage Q6)
+  IonOff,         // real: the ion generator enable switched off (stage Q6)
+  IonUnsaved,     // real: the cap record can't be saved (NVS refusing): no new run starts
   Count
 };
 const char* stateKey(State s);
@@ -121,6 +127,11 @@ class Board {
   wineador::GuardBlockTracker guardTrack_;
   wineador::HourlyStats hourly_;
   wineador::LcdUi ui_;
+  wineador::BlowerRule blowers_;     // 4.6b (stage Q6), run on the model as the board runs it
+  wineador::IonSchedule ion_;        // 4.6c
+  std::vector<uint8_t> ionNvs_;      // the cap record, as NVS keeps it across the simulated reboots
+  bool swept_ = false;
+  bool nvsBroken_ = false;           // IonUnsaved: the simulated NVS refuses every write
   wineador::History hist_;
   wineador::WeekCounts week_;
   wineador::RecentEvents recent_;

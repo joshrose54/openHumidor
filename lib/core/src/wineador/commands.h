@@ -41,6 +41,8 @@ enum class Command : uint8_t {
   SetHeater,         // "set heater on|off": arg 1 / 0, -2 neither
   SetHumid,          // "set humid on|off":  arg 1 / 0, -2 neither
   SetIon,            // "set ion on|off":    arg 1 / 0, -2 neither (ion generator enable, 5.5)
+  SetIonRuns,        // "set ionruns 2":     arg = 0-255 as typed, -2 not a whole number (ion runs per day, 4.6c)
+  SetIonMinutes,     // "set ionmin 2":      the same (ion minutes per run)
   SetDefaults,       // "set defaults": every user setting back to its default, excludes cleared
   Exclude,           // "exclude <channel> on|off": arg = channel 0..5 (-2 = bad), arg2 = 1 on / 0 off.
                      //   <channel> = 0-5, ch0-ch5, a position name or a probe label (channelWord)
@@ -63,6 +65,7 @@ enum class Command : uint8_t {
 };
 
 constexpr int kSoakScenario = 100;   // "run soak" (B4 step 1)
+constexpr int kBlowerScenario = 101; // "run blowers" (BP2 test 41, Rev Q)
 
 struct CommandArgs {
   int arg = -1;

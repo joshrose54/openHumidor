@@ -277,6 +277,41 @@ int ota(char* o, size_t n, const char* d) {
   return labelled(o, n, "Update", d);
 }
 
+// "BLOWERS BOOST: spread ..." -> "Blowers to boost (full speed): spread ..."
+int blowers(char* o, size_t n, const char* d) {
+  struct P { const char* text; const char* say; };
+  const P k[] = {
+    {kEvBlowersBoost, "Blowers to boost (full speed)"}, {kEvBlowersIdle, "Blowers back to idle"},
+    {kEvBlowersFullEnd, "Blowers' full speed ended"}, {kEvBlowersFull, "Blowers at full speed"},
+  };
+  for (const P& p : k) {
+    if (!starts(d, p.text)) continue;
+    const char* rest = d + strlen(p.text);
+    while (*rest == ':' || *rest == ' ') rest++;
+    if (!rest[0]) return snprintf(o, n, "%s", p.say);
+    return p.text == kEvBlowersFullEnd ? snprintf(o, n, "%s %s", p.say, rest) : labelled(o, n, p.say, rest);
+  }
+  return labelled(o, n, "Blowers", d);
+}
+
+// "ION RUN START: 2 min (slot 12:00 UTC)" -> "Ion generator run started: 2 min (slot 12:00 UTC)"
+int ion(char* o, size_t n, const char* d) {
+  struct P { const char* text; const char* say; };
+  const P k[] = {
+    {kEvIonStart, "Ion generator run started"}, {kEvIonEnd, "Ion generator run ended"},
+    {kEvIonCutShort, "Ion generator run cut short"}, {kEvIonSkipped, "Ion generator run skipped"},
+    {kEvIonStopped, "Ion generator run stopped"},
+    {kEvIonRecordFailed, "Ion generator's cap record not saved"}, {kEvIonRecordSaved, "Ion generator's cap record saved again"},
+  };
+  for (const P& p : k) {
+    if (!starts(d, p.text)) continue;
+    const char* rest = d + strlen(p.text);
+    while (*rest == ':' || *rest == ' ') rest++;
+    return labelled(o, n, p.say, rest);
+  }
+  return labelled(o, n, "Ion generator", d);
+}
+
 int scenario(char* o, size_t n, const char* d) {
   const char* p = strstr(d, "] ");
   return labelled(o, n, "Test scenario", p ? p + 2 : d);
@@ -291,7 +326,7 @@ const Row kMakers[] = {
   {kEvTypeCrossover, crossover}, {kEvTypeStrip, strip}, {kEvTypeHumidify, humidify}, {kEvTypeExercise, exercise},
   {kEvTypeIneffective, ineffective}, {kEvTypeDisturbance, disturbance}, {kEvTypeHeap, heap}, {kEvTypePsram, psram},
   {kEvTypeHwdog, hwdog}, {kEvTypeLcd, lcd}, {kEvTypeSupply12v, supply12v}, {kEvTypeWifi, wifi}, {kEvTypeDoor, door},
-  {kEvTypeOta, ota}, {kEvTypeScenario, scenario},
+  {kEvTypeOta, ota}, {kEvTypeBlowers, blowers}, {kEvTypeIon, ion}, {kEvTypeScenario, scenario},
 };
 
 const Row* find(const char* type) {

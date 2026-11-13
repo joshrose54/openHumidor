@@ -199,6 +199,7 @@ void ScenarioRunner::update(const ScenarioView& v, Controller& ctl, CabinetModel
     case 22: run22(v, ctl, model, tc); break;
     case 24: run24(v, ctl, model, tc); break;
     case kSoakScenario: runSoak(v, ctl, model, tc); break;
+    case kBlowerScenario: runBlowers(v, model); break;
     default: break;
   }
 }

@@ -34,6 +34,11 @@ static StatusSnapshot normal() {
   s.compressorStoppedSinceBoot = true;
   s.compressorStoppedAgoS = 1830;
   s.fanPct = 40; s.fanRpm = 1230;
+  s.hasBlowers = true;   // Rev Q: the blowers in boost, holding; the ion generator waiting for 12:00 UTC
+  s.blowerPct = 100; s.blowerMode = BlowerMode::Boost; s.blowerWhy = BlowerWhy::None;
+  s.blowerSpreadC = 0.42f; s.blowerSpreadRhPct = 1.3f; s.blowerIdleInS = 215; s.blowerIdleIsFull = true;
+  s.ionState = IonState::Waiting; s.ionNextFromClock = true; s.ionNextUtcS = 1794571200;   // 12:00 UTC = 12:00 GMT
+  s.ionLastSkip = IonWhy::BootHold; s.ionLastSkipUtcS = 1794528000;   // 00:00 that day
   s.nGuards = 1;
   s.guards[0].load = 1; s.guards[0].reason = "crossover"; s.guards[0].leftS = 120;
   s.weekReady = true;
@@ -86,7 +91,16 @@ void test_status_reply_content() {
   TEST_ASSERT_TRUE(has(w, "\"setpoints\":{\"t\":20,\"rh\":62}"));
   TEST_ASSERT_TRUE(has(w, "\"compressor\":{\"on\":true,\"stripping\":false,\"for_s\":420,\"stopped_ago_s\":1830}"));
   TEST_ASSERT_TRUE(has(w, "\"fan\":{\"pwm\":40,\"rpm\":1230},\"interlock\":\"cooling\""));
-  TEST_ASSERT_TRUE(has(w, "\"blowers\":{\"pwm\":100,\"boost\":false},\"ion\":{\"on\":false}"));
+  TEST_ASSERT_TRUE(has(w, "\"blowers\":{\"pwm\":100,\"mode\":\"boost\",\"why\":null,\"spread_t\":0.42,\"spread_rh\":1.3,"
+                          "\"idle_in_s\":215,\"idle_is_full\":true}"));
+  TEST_ASSERT_TRUE(has(w, "\"ion\":{\"on\":false,\"state\":\"waiting\",\"why\":null,\"left_s\":null,\"next\":\"12:00\","
+                          "\"next_in_s\":null,\"last_skipped\":{\"why\":\"boot hold\",\"at\":\"00:00\"}}"));
+  {   // a board without them (Rev N): both null
+    StatusSnapshot n = normal();
+    n.hasBlowers = false;
+    const std::string x = json(n);
+    TEST_ASSERT_TRUE(has(x, "\"blowers\":null,\"ion\":null}"));
+  }
   TEST_ASSERT_TRUE(has(w, "\"guards\":[{\"load\":\"heater\",\"reason\":\"crossover\",\"left_s\":120}]"));
   TEST_ASSERT_TRUE(has(w, "{\"ch\":3,\"name\":\"mid_rear\""));
   TEST_ASSERT_TRUE(has(w, "\"role\":\"chamber\""));

@@ -303,6 +303,8 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); ou
 .step-ctl output { min-width: 5ch; text-align: center; font-size: 2rem; font-weight: 600; }
 .step-ctl output.changed { color: var(--accent); }
 .switch { cursor: pointer; }
+.ion-total { margin: 0; padding: 12px 0 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+.ion-total.bad { color: var(--fault); }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch i { flex: none; position: relative; width: 52px; height: 30px; border-radius: 999px; background: var(--surface); }
 .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--muted); }

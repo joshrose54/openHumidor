@@ -1,6 +1,41 @@
 # Where we're up to
 
-*Updated 2026-11-13.*
+*Updated 2026-11-13.* **Stages Q1–Q6 done.** Next: BP2 on the bench when Rev Q arrives.
+
+## Port to Rev Q: stage Q6 (accepted 2026-11-13)
+
+**The blower and ion generator rules** (spec 4.6b, 4.6c). Rev Q only. Not flashed.
+- **lib/core `blower_rule`:** idle during an update (a fault included); full speed in a Fault
+  (5.5) or with no fresh reading; otherwise boost at once above 1.0 °C or 3 points of cabinet
+  spread (healthy ch0–3, corrected RH), idle after 10 min below 0.5 °C and 2 points (bench: 1 min);
+  boost first after any spell at full speed. **The idle duty is one value:
+  `TuningSettings::blowerIdlePct = 100`** (full speed until BP2 test 22; boot check: not 0, ≤ 100).
+- **lib/core `ion_schedule`:** UTC slots 24/N hours apart from 00:00 (from boot when the time isn't
+  trusted, the first 24/N hours after boot); a slot runs only when reached by running (a step
+  forward skips it, a step back never repeats one); skipped, not moved, in the boot hold, an update
+  or a Fault; cut short and not resumed; off at once when switched off. Bench: every 30 min for
+  1 min. **The cap** (10 min of on-time in any 24 h): a record in NVS saved at each run's start and
+  end and hourly while it holds a run; each run counts until 24 h of uptime have passed since it
+  started, added up across reboots — the clock is never used. **A run switches on only once its
+  start record is saved;** while saves fail, no new run starts (held, "cap record can't be
+  saved", retried every minute).
+- **Settings:** runs per day 0–4 and minutes per run 0–5, runs × minutes ≤ 10 (`ion_too_much`,
+  "at most 10 minutes a day in total"), in NVS. Serial `set ionruns N`, `set ionmin N`.
+- **The 4.3 gate** is brought up to date straight after each sweep, so the blowers, the ion
+  generator, the LCD's Fault icon and the dashboard agree on every pass.
+- **Events:** `blowers` (boost, idle, full speed and its end) and `ion` (run start, end, cut short,
+  skipped, stopped; cap record not saved / saved again), with dashboard sentences.
+- **API version 4:** `loads.blowers` and `loads.ion` rewritten, the two run settings, 6 blower
+  tuning rows (`docs/api.md`). The page: Overview lines, Settings steppers with the daily total.
+- **BP2 test 41:** `run blowers` (test builds): boost on a 1.5 °C spread, idle after the hold,
+  full speed in a forced Fault (ch4 implausible), then boost and idle.
+- **Review build:** the rules run on the model; states `spread`, `ion-running`, `ion-off`,
+  `ion-unsaved`; `dashboard_shots.py` 85 pictures (the filtered Events and the Settings refusal by
+  `tools/drive_page.mjs`).
+- **Sizes:** revq flash 1,398,514 bytes (+16,492 on Q5d), static RAM 82,872 (+1,704). Page 56,740
+  bytes compressed.
+
+Native tests **483/483** (the simulated months included); 26 builds without warnings.
 
 ## Port to Rev Q: stage Q5d (accepted 2026-11-13)
 

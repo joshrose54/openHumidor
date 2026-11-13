@@ -140,7 +140,16 @@
     </div>
     <label class="switch"><span><b>Heater</b><small>The heater may run when the cabinet is cold</small></span><input type="checkbox" data-field="heater_enable"><i></i></label>
     <label class="switch"><span><b>Humidifier</b><small>The humidifier may run when the cabinet is dry</small></span><input type="checkbox" data-field="humidifier_enable"><i></i></label>
-    <label class="switch"><span><b>Ion generator</b><small id="st-ion-note">Off means no runs at all; its run settings are kept for when it is switched back on.</small></span><input type="checkbox" data-field="ion_enable"><i></i></label>
+    <label class="switch"><span><b>Ion generator</b><small>Off means no runs at all; its run settings are kept for when it is switched back on.</small></span><input type="checkbox" data-field="ion_enable"><i></i></label>
+    <div class="stepper" data-field="ion_runs_per_day">
+      <div><label>Ion generator runs per day</label><p class="hint" data-k="hint"></p></div>
+      <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Fewer"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="More"><svg><use href="#i-add"/></svg></button></div>
+    </div>
+    <div class="stepper" data-field="ion_minutes_per_run">
+      <div><label>Ion generator minutes per run</label><p class="hint" data-k="hint"></p></div>
+      <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Shorter"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Longer"><svg><use href="#i-add"/></svg></button></div>
+    </div>
+    <p class="ion-total" id="st-ion-total" role="status"></p>
     <div class="form-actions"><p class="msg" id="st-msg" role="status"></p><button type="button" class="btn" id="st-cancel" disabled>Cancel</button><button type="submit" class="btn primary" id="st-save" disabled>Save</button></div>
   </form>
   <section class="block tuning" aria-labelledby="h-tuning">

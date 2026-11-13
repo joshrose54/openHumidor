@@ -31,6 +31,8 @@
     "Wifi": "wifi",
     "Door": "door",
     "Ota": "ota",
+    "Blowers": "blowers",
+    "Ion": "ion",
     "Scenario": "scenario"
   },
   "texts": {
@@ -83,6 +85,17 @@
     "OtaRolledBack": {"type": "ota", "text": "OTA ROLLED BACK", "match": "starts"},
     "OtaSelfRollback": {"type": "ota", "text": "OTA: not started properly within 4 min 30 s", "match": "starts"},
     "OtaRollbackTest": {"type": "ota", "text": "ROLLBACK TEST IMAGE", "match": "starts"},
+    "BlowersBoost": {"type": "blowers", "text": "BLOWERS BOOST", "match": "starts"},
+    "BlowersIdle": {"type": "blowers", "text": "BLOWERS IDLE", "match": "starts"},
+    "BlowersFullEnd": {"type": "blowers", "text": "BLOWERS FULL SPEED ENDED", "match": "starts"},
+    "BlowersFull": {"type": "blowers", "text": "BLOWERS FULL SPEED:", "match": "starts"},
+    "IonStart": {"type": "ion", "text": "ION RUN START", "match": "starts"},
+    "IonEnd": {"type": "ion", "text": "ION RUN END", "match": "starts"},
+    "IonCutShort": {"type": "ion", "text": "ION RUN CUT SHORT", "match": "starts"},
+    "IonSkipped": {"type": "ion", "text": "ION RUN SKIPPED", "match": "starts"},
+    "IonStopped": {"type": "ion", "text": "ION RUN STOPPED", "match": "starts"},
+    "IonRecordFailed": {"type": "ion", "text": "ION CAP RECORD NOT SAVED", "match": "starts"},
+    "IonRecordSaved": {"type": "ion", "text": "ION CAP RECORD SAVED again", "match": "starts"},
     "ScenarioResult": {"type": "scenario", "text": "======== run", "match": "contains"},
     "ScenarioLine": {"type": "scenario", "text": "[run ", "match": "contains"},
     "ScenarioPass": {"type": "scenario", "text": "PASS", "match": "contains"}

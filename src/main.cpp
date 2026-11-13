@@ -63,6 +63,7 @@
 #include "drivers/hw_watchdog.h"
 #include "drivers/supply_sense.h"
 #include "drivers/blowers.h"
+#include "drivers/ion_store.h"
 #include "drivers/backlight.h"
 #include "drivers/lcd.h"
 #include "board.h"
@@ -82,6 +83,8 @@
 #include "wineador/web_mail.h"
 #include "wineador/web_status.h"
 #endif
+#include "wineador/blower_rule.h"
+#include "wineador/ion_schedule.h"
 #if defined(WINEADOR_TEST_BUILD)
 #include "wineador/cabinet_model.h"
 #include "wineador/scenario.h"
@@ -154,6 +157,11 @@ static bool gRollbackStop = false;       // ROLLBACK TEST IMAGE: the watchdog li
 static uint32_t gRollbackStopMs = 0;
 static BusEventLimiter gOtaLimit;        // refused uploads, 10 an hour (index 0 only; 5.4)
 static bool otaUpdating() { return gOta.updating(); }
+// The blowers (4.6b) and the ion generator (4.6c), stage Q6
+static BlowerRule gBlowers;
+static IonSchedule gIon;
+static uint8_t gIonBlob[IonSchedule::kBlobBytes];   // the cap record: read at boot, written at each run's start and end
+static size_t gIonBlobLen = 0;
 #else
 static bool otaUpdating() { return false; }
 #endif
@@ -245,7 +253,7 @@ static void printStatus() {
     else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
   }
   s.sdText = sd;
-  char brd[220] = "";
+  char brd[340] = "";
   {
     int k = 0;
     auto add = [&](const char* fmt, auto... a) { if (k >= 0 && (size_t)k < sizeof(brd)) k += snprintf(brd + k, sizeof(brd) - k, fmt, a...); };
@@ -257,6 +265,14 @@ static void printStatus() {
     if (heap::psramTotal() > 0) add("%spsram min %lu", k ? " | " : "", (unsigned long)heap::psramLowest());
     if (hwdog::fitted()) add("%shwdog %s max %lums", k ? " | " : "", hwdog::running() ? "on" : "OFF",
                              (unsigned long)hwdog::longestGapMs());
+#if defined(WINEADOR_BOARD_REVQ)
+    {
+      char b[48], i[48];
+      formatBlowerState(b, sizeof(b), gBlowers, millis());
+      formatIonState(i, sizeof(i), gIon);
+      add("%sblowers %s | %s", k ? " | " : "", b, i);
+    }
+#endif
     if (lcd::fitted()) {
       char l[100];
       screen::formatStatus(l, sizeof(l));
@@ -272,7 +288,7 @@ static void printStatus() {
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
   s.staleAfterMs = 2 * gSettings.tuning.sensorReadMs;
-  char line[900];
+  char line[1100];
   formatStatusLine(line, sizeof(line), s);
   Serial.println(line);
 }
@@ -313,6 +329,9 @@ static void applyUser(const UserSettings& was, const char* what) {
   if (was.humidifierEnable != u.humidifierEnable)
     add("humidifier %s%s%s; ", was.humidifierEnable ? "on" : "off", to, u.humidifierEnable ? "on" : "off");
   if (was.ionEnable != u.ionEnable) add("ion generator %s%s%s; ", was.ionEnable ? "on" : "off", to, u.ionEnable ? "on" : "off");
+  if (was.ionRunsPerDay != u.ionRunsPerDay) add("ion runs per day %u%s%u; ", (unsigned)was.ionRunsPerDay, to, (unsigned)u.ionRunsPerDay);
+  if (was.ionMinutesPerRun != u.ionMinutesPerRun)
+    add("ion minutes per run %u%s%u; ", (unsigned)was.ionMinutesPerRun, to, (unsigned)u.ionMinutesPerRun);
   if (was.manualExcludeMask != u.manualExcludeMask)
     add("manual excludes 0x%02X%s0x%02X; ", was.manualExcludeMask, to, u.manualExcludeMask);
   add("%s", saved ? "saved" : "NOT SAVED (NVS write failed) - lost at the next boot");
@@ -438,7 +457,29 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
        : c == Command::SetHumid ? gSettings.user.humidifierEnable : gSettings.user.ionEnable) = (arg == 1);
       if (sameUser(was, gSettings.user)) Serial.println("  No change.");
       else applyUser(was, c == Command::SetHeater ? "serial: set heater" : c == Command::SetHumid ? "serial: set humid" : "serial: set ion");
-      if (c == Command::SetIon) Serial.println("  (The ion generator stays off until its run rules, 4.6c, are built.)");
+      break;
+    }
+    case Command::SetIonRuns:
+    case Command::SetIonMinutes: {
+      const bool runs = c == Command::SetIonRuns;
+      if (arg < 0) { Serial.println("  set ionruns <0-4>, set ionmin <0-5> (whole numbers). Nothing changed."); break; }
+      const UserSettings was = gSettings.user;
+      const uint8_t r = runs ? (uint8_t)arg : was.ionRunsPerDay, m = runs ? was.ionMinutesPerRun : (uint8_t)arg;
+      if ((runs && arg > kIonRunsMax) || (!runs && arg > kIonMinutesMax)) {
+        Serial.printf("  REFUSED: ion generator %s must be 0-%u. Still %u.\n", runs ? "runs per day" : "minutes per run",
+                      (unsigned)(runs ? kIonRunsMax : kIonMinutesMax), (unsigned)(runs ? was.ionRunsPerDay : was.ionMinutesPerRun));
+        break;
+      }
+      if (!ionRunsOk(r, m)) {
+        Serial.printf("  REFUSED: %u runs of %u min is %u min a day; %s. Still %u runs of %u min.\n", (unsigned)r, (unsigned)m,
+                      (unsigned)(r * m), kIonTooMuchText, (unsigned)was.ionRunsPerDay, (unsigned)was.ionMinutesPerRun);
+        break;
+      }
+      gSettings.user.ionRunsPerDay = r;
+      gSettings.user.ionMinutesPerRun = m;
+      Serial.printf("  ion generator: %u runs a day of %u min\n", (unsigned)r, (unsigned)m);
+      if (sameUser(was, gSettings.user)) Serial.println("  No change.");
+      else applyUser(was, runs ? "serial: set ionruns" : "serial: set ionmin");
       break;
     }
     case Command::SetDefaults: {
@@ -622,7 +663,7 @@ void setup() {
   // any other startup step (4.6).
   outputs::begin();
   hwdog::begin();          // Rev Q: GPIO1 an input, both pulls off - the hardware watchdog disabled until the loop runs
-  blowers::begin();        // Rev Q: GPIO15 high - full speed, as undriven (stages Q1-Q3)
+  blowers::begin();        // Rev Q: GPIO15 high - full speed, as undriven, until the rule (4.6b) has a reading
   fan::begin();
   gFan.command(gSettings.tuning.fanIdlePct, millis());
   fan::setDuty(gFan.output(millis()));
@@ -662,6 +703,10 @@ void setup() {
   gHealth.begin(gSettings);
   gGate.begin(gSettings.safety.sensorRecoveryHoldMs);
   gFanMon.begin(gSettings.safety.fanStallRetryMs);
+#if defined(WINEADOR_BOARD_REVQ)
+  gBlowers.begin(gSettings.tuning);
+  gIon.begin(gSettings.safety);
+#endif
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
   supplysense::begin();    // Rev Q: 12V sense on GPIO8, ADC1 at 12 dB
@@ -702,6 +747,8 @@ void setup() {
     gWebOn = web::begin();
     watchdog::feed();
     // OTA (5.2): what the last update did, from the NVS record and the bootloader's own state
+    // BOOT ONLY: the ion generator's cap record (4.6c)
+    gIonBlobLen = ionstore::load(gIonBlob, sizeof(gIonBlob));
     ota::loadRecord(&gOtaRecord);
     gOtaBoot = readOtaBoot(gOtaRecord, ota::bootFacts(gVersion));
     if (gOtaBoot.saveRecord) ota::saveRecord(gOtaBoot.record);
@@ -865,9 +912,7 @@ static void fillWebState(uint32_t now) {
   x.heaterDutyPct = l.heat ? gSettings.tuning.heaterPwmCapPct : 0;
   x.fanPct = fan::duty();
   x.fanRpm = fan::rpm();
-  x.blowerPct = 100;                     // full speed until 4.6b (stages Q1-Q3)
-  x.blowerBoost = false;
-  x.ionOn = false;                       // held off until 4.6c
+  fillBlowerIon(&x, gBlowers, gIon, gSettings.tuning, now);   // 4.6b, 4.6c
   if (l.cool && !gCoolWas) gCoolSinceMs = up;
   gCoolWas = l.cool;
   x.compressorOnForS = l.cool ? (uint32_t)((up - gCoolSinceMs) / 1000) : 0;
@@ -1556,6 +1601,65 @@ static void watchSd(uint32_t now) {
   }
 }
 
+#if defined(WINEADOR_BOARD_REVQ)
+// The blowers (4.6b) and the ion generator (4.6c), every pass after the sweep step (stage Q6). Uses
+// what the loop already has; waits for nothing (the cap record's NVS write, a few ms, only at a
+// run's start and end).
+static void passBlowersIon(uint32_t now, bool swept) {
+  const bool updating = otaUpdating() || kRollbackTest;   // 5.2: blowers idle, ion off (the rollback test image: always)
+  // Fault, 5.5's meaning - the LCD's Fault icon: the 4.3 requirement (with its recovery hold), the
+  // plenum fan stalled, or the settings failing their boot check.
+  const bool sensorFault = gFirstSweepDone &&
+      sensorFaultFrom(gHealth.chamberHealthy(), gHealth.healthyCabinet(), gSettings.safety.minHealthyCabinet,
+                      gGate.tempHolding() || gGate.humidHolding()) != SensorFault::None;
+  const bool fault = sensorFault || gFanMon.stalled() || gBoot.settingsProblem != nullptr;
+  const CabinetSummary cab = gHealth.summary();
+  BlowerInputs bi;
+  bi.nowMs = now;
+  bi.updating = updating;
+  bi.fault = fault;
+  bi.fresh = gFirstSweepDone && elapsedMs(now, gLastSweepDoneMs) <= 2 * gSettings.tuning.sensorReadMs;
+  bi.sweepDone = swept;
+  bi.cabinetOk = cab.cabinetOk;
+  bi.spreadC = cab.spreadC;
+  bi.spreadRhPct = cab.spreadRhPct;
+  const uint8_t pct = gBlowers.update(bi);
+  if (pct != blowers::pct()) blowers::setPct(pct);
+  for (BlowerRule::Change c; gBlowers.take(&c);) {
+    char t[140];
+    formatBlowerEvent(t, sizeof(t), c, gSettings.tuning);
+    eventlog::log(kEvTypeBlowers, "%s", t);
+  }
+
+  const uint64_t up = uptimeMs();
+  const bool trusted = gClockSet && gClock.trusted();
+  const int64_t utc = gClockSet ? (int64_t)time(nullptr) : 0;
+  // The cap record (never placed by the clock, 4.6c): restored on the first pass.
+  if (!gIon.restored()) gIon.restore(gIonBlob, gIonBlobLen);
+  IonInputs ii;
+  ii.upMs = up;
+  ii.clockTrusted = trusted;
+  ii.utcS = utc;
+  ii.block = updating ? IonBlock::Updating : fault ? IonBlock::Fault : gCtl.hold().active() ? IonBlock::BootHold : IonBlock::None;
+  ii.enabled = gSettings.user.ionEnable;
+  ii.runsPerDay = gSettings.user.ionRunsPerDay;
+  ii.minutesPerRun = gSettings.user.ionMinutesPerRun;
+  gIon.update(ii);
+  if (gIon.saveWanted()) {
+    const size_t n = gIon.saveBlob(gIonBlob, sizeof(gIonBlob), up);
+    gIonBlobLen = n;
+    // 4.6c: if it can't be saved, no new run starts until a save works again (retried every minute)
+    gIon.saveResult(ionstore::save(gIonBlob, n), up);
+  }
+  outputs::setIon(gIon.on() && !updating);   // after the save: a run switches on only once its record is saved
+  for (IonSchedule::Change c; gIon.take(&c);) {
+    char t[140];
+    formatIonEvent(t, sizeof(t), c);
+    eventlog::log(kEvTypeIon, "%s", t);
+  }
+}
+#endif
+
 void loop() {
   const uint32_t t0 = micros();
   const uint32_t now = millis();
@@ -1569,7 +1673,6 @@ void loop() {
 #else
   else hwdog::kick(now);
 #endif
-  outputs::ionOff();                      // Rev Q: the ion generator held off (stages Q1-Q3)
   supplysense::update(now);               // Rev Q: one 12V reading every 100 ms
   eventlog::setClock(gClockSet, gClock.trusted());
 
@@ -1694,6 +1797,19 @@ void loop() {
     }
     if (gHeapBaseline == 0) gHeapBaseline = heap::freeNow();   // after all initialisation
   }
+  // The 4.3 gate brought up to date with this pass's sweep (step 1 updated it before the sweep).
+  // Everything after reads Fault from it - the blowers, the ion generator, the LCD's Fault icon and
+  // so the dashboard - so they can never disagree, even for one pass: without this, on the pass a
+  // sensor recovers its recovery hold would not have started yet.
+  if (sweptThisPass) {
+    const int cabOk = gHealth.healthyCabinet();
+    gGate.update(gHealth.chamberHealthy() && cabOk >= gSettings.safety.minHealthyCabinet,
+                 cabOk >= gSettings.safety.minHealthyCabinet, now);
+  }
+#if defined(WINEADOR_BOARD_REVQ)
+  // 3b. The blowers and the ion generator (4.6b, 4.6c): after the sweep, so a new spread is judged at once.
+  passBlowersIon(now, sweptThisPass);
+#endif
   // Rev N: the radio on only for the NTP sync. The first window waits for the clock
   // (from the RTC, or 10 s without one), so its event isn't dated 1970.
   if (gClockSet || now >= 10000) timesync::update(now);
@@ -1777,6 +1893,9 @@ void loop() {
   view.fanOut = fan::duty();
   view.fanTarget = gFan.target();
   view.hc = &gHc;
+#if defined(WINEADOR_BOARD_REVQ)
+  view.blowers = &gBlowers;
+#endif
   const bool wasRunning = gScenario.running();
   gScenario.update(view, gCtl, gModel, gTc);
   // Every scenario line also goes to the card (quietly: it is printed here already), so a

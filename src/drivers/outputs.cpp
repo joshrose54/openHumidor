@@ -6,7 +6,7 @@ namespace outputs {
 
 static wineador::LoadOutputs gNow;   // all false
 static bool gHeaterGate = true;      // PWM cap: heater pin allowed high right now
-static bool gIon = false;            // Rev Q: the ion generator output (BP2 sketches only switch it on)
+static bool gIon = false;            // Rev Q: the ion generator output (4.6c; the BP2 sketches by hand)
 
 void begin() {
   // Same order as the reference sketches: each pin set LOW as it becomes an output.
@@ -15,8 +15,8 @@ void begin() {
   pinMode(pins::kRelayK1, OUTPUT);    digitalWrite(pins::kRelayK1, LOW);
   pinMode(pins::kHumidifier, OUTPUT); digitalWrite(pins::kHumidifier, LOW);
 #if defined(WINEADOR_BOARD_REVQ)
-  // The ion generator (GPIO17, Q6, no U9): high = on. Kept OFF in stages Q1-Q3 (3A.11); its
-  // rules (4.6c) come after BP2.
+  // The ion generator (GPIO17, Q6, no U9): high = on. Off at boot; the loop then sets it every
+  // pass from its rule (4.6c).
   pinMode(pins::kIon, OUTPUT);        digitalWrite(pins::kIon, LOW);
 #endif
   gNow = wineador::LoadOutputs{};
@@ -57,6 +57,7 @@ void allOff() {
 
 void setIon(bool on) {
 #if defined(WINEADOR_BOARD_REVQ)
+  if (on == gIon) return;             // every pass: only a change touches the pin
   digitalWrite(pins::kIon, on ? HIGH : LOW);
   gIon = on;
 #else
@@ -69,7 +70,7 @@ bool ionOn() { return gIon; }
 void ionOff() {
   gIon = false;
 #if defined(WINEADOR_BOARD_REVQ)
-  digitalWrite(pins::kIon, LOW);      // every pass: held off until its rules (4.6c) exist
+  digitalWrite(pins::kIon, LOW);
 #endif
 }
 

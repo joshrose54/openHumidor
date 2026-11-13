@@ -25,8 +25,10 @@ struct UserSettings {
   bool  heaterEnable    = true;
   bool  humidifierEnable = true;
   bool  ionEnable       = true;    // Rev Q (5.5, 4.6c "Switched off"): off = no ion runs at all; the run
-                                   // settings keep their values. Until 4.6c is built the generator stays off.
+                                   // settings keep their values for when it is switched back on
   uint8_t manualExcludeMask = 0;   // bit i set = sensor index i force-excluded for maintenance
+  uint8_t ionRunsPerDay   = 2;     // Rev Q (5.5, 4.6c): 0-4, evenly spaced in UTC slots from 00:00
+  uint8_t ionMinutesPerRun = 2;    // Rev Q (5.5, 4.6c): 0-5; runs x minutes at most 10
 };
 
 // The same user settings (every field compared): no change to save or log.
@@ -57,6 +59,15 @@ bool loadRhSetpoint(UserSettings& u, float pct);
 // A stored setpoint off its step (5.5) is rounded to the nearest step at boot. True if either
 // changed; `wasTemp` / `wasRh` get the values before.
 bool roundSetpointsToSteps(UserSettings& u, float* wasTemp, float* wasRh);
+
+// The ion generator's run settings (5.5, 4.6c): runs per day 0-4, minutes per run 0-5, and
+// runs x minutes at most 10 ("at most 10 minutes a day in total"; the 24-hour cap stays as a
+// backstop, SafetySettings::ionCapMs).
+constexpr uint8_t kIonRunsMax = 4;
+constexpr uint8_t kIonMinutesMax = 5;
+constexpr uint32_t kIonMinutesPerDayMax = 10;
+constexpr const char* kIonTooMuchText = "at most 10 minutes a day in total";
+bool ionRunsOk(uint8_t runs, uint8_t mins);   // each in bounds and the product at most 10
 
 // ---------------------------------------------------------------- tuning
 struct TuningSettings {
@@ -108,6 +119,16 @@ struct TuningSettings {
   // Disturbance detection (4.7a) — off until B6 sets its thresholds
   bool disturbanceDetection       = false;
 
+  // Circulation blowers (4.6b, Rev Q). The idle duty is the ONE value BP2 test 22 sets: it stays
+  // FULL SPEED (100) until that test chooses it (build log), confirmed in B6. Its range is test 22's
+  // floor to 100%, never 0 (the blowers run 24/7); until test 22 the floor is kBlowerIdleFloorPct.
+  uint8_t blowerIdlePct           = 100;
+  float blowerBoostAboveC         = 1.0f;   // boost when the cabinet spread is above either
+  float blowerBoostAboveRhPct     = 3.0f;
+  float blowerIdleBelowC          = 0.5f;   // back to idle once below both...
+  float blowerIdleBelowRhPct      = 2.0f;
+  uint32_t blowerIdleHoldMs       = minutes(10);   // ...for this long (bench: 1 min)
+
   // Rates
   uint32_t logSteadyMs            = seconds(60);
   uint32_t logActiveMs            = seconds(15);
@@ -158,7 +179,19 @@ struct SafetySettings {
   uint32_t relayExerciseOffMs    = 1000;  // released (cooling side)
   uint8_t  relayExerciseCycles   = 3;
   uint32_t watchdogMs          = 5000;  // 5.2
+
+  // Ion generator (4.6c, Rev Q): the hard cap, never exceeded whatever the settings, kept across
+  // reboots. Runs are 24/N hours apart for runsPerDay; the bench profile runs every 30 min for
+  // 1 min instead (B3 table) - ionBenchPeriodMs / ionBenchRunMs non-zero - with the cap unchanged.
+  uint32_t ionCapMs            = minutes(10);
+  uint32_t ionCapWindowMs      = hours(24);
+  uint32_t ionBenchPeriodMs    = 0;     // 0: the real schedule (24/N hours, the run setting's minutes)
+  uint32_t ionBenchRunMs       = 0;
 };
+
+// Until BP2 test 22 sets the blowers' real floor (the lowest duty at which all four start and run
+// cleanly), the boot check only refuses 0 (4.6b: never 0).
+constexpr uint8_t kBlowerIdleFloorPct = 1;
 
 struct Settings {
   Profile profile = Profile::Real;

@@ -16,7 +16,7 @@
 
 namespace wineador {
 
-constexpr int kApiVersion = 3;                 // docs/api.md "API version 2"; changes with any endpoint
+constexpr int kApiVersion = 4;                 // docs/api.md "API version 4"; changes with any endpoint
 constexpr int kMaxBrowserConnections = 2;      // spec 5.5
 constexpr size_t kMaxDoorNote = 120;           // the door-test note, in bytes (docs/api.md)
 
@@ -73,6 +73,7 @@ enum class Refusal : uint8_t {
   CorruptImage,      // 422 OTA: the whole image arrived but failed its own check (checksum, SHA-256)
   FlashFailed,       // 500 OTA: a flash write failed; nothing changed
   TooSoon,           // 429 a saved dashboard change less than 10 s after the last (5.5)
+  IonTooMuch,        // 400 ion generator runs x minutes over 10 (5.5, 4.6c)
   Count
 };
 int httpStatus(Refusal r);
@@ -106,7 +107,8 @@ bool isJsonContentType(const char* contentType);
 bool queryValue(const char* query, const char* name, char* out, size_t n);
 
 // ---------------------------------------------------------------- writes
-// POST /api/settings: any of target_temp_c, rh_setpoint_pct, heater_enable, humidifier_enable, ion_enable.
+// POST /api/settings: any of target_temp_c, rh_setpoint_pct, heater_enable, humidifier_enable, ion_enable,
+// ion_runs_per_day, ion_minutes_per_run (runs x minutes at most 10, checked on the result).
 // All or nothing: on a refusal `out` is unchanged. Same bounds and steps as the LCD and serial.
 ApiResult checkSettingsWrite(const char* body, size_t n, const UserSettings& now, bool updating, UserSettings* out);
 
@@ -155,7 +157,7 @@ int formatInfo(char* out, size_t n, const BuildFacts& b, uint64_t uptimeS, const
 class SettingsReply : public JsonPump {
  public:
   SettingsReply(const UserSettings& u, const TuningSettings& t) : u_(u), t_(t) {}
-  size_t maxStep() const override { return 320; }
+  size_t maxStep() const override { return 480; }
  protected:
   bool step(JsonWriter& w) override;
  private:

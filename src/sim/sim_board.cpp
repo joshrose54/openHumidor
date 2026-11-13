@@ -13,7 +13,8 @@ using namespace wineador;
 namespace sim {
 
 static const char* const kStateKeys[] = {"normal", "cooling", "heat-humid", "drying", "fault-sensors",
-                                         "fan-stall", "sd-fail", "clock-bad", "just-booted", "updating"};
+                                         "fan-stall", "sd-fail", "clock-bad", "just-booted", "updating",
+                                         "spread", "ion-running", "ion-off", "ion-unsaved"};
 static const char* const kStateLabels[] = {
   "Normal: the model and the real control logic",
   "Cooling (shown)",
@@ -25,6 +26,10 @@ static const char* const kStateLabels[] = {
   "Clock not trusted (shown)",
   "Just booted: boot hold, history refilling (real)",
   "Updating, from 40 % (shown)",
+  "Blowers boost: ch0 1.5 C warmer than the rest (real)",
+  "Ion generator running (shown)",
+  "Ion generator switched off on Settings (real)",
+  "Ion generator held: its cap record can't be saved (real)",
 };
 const char* stateKey(State s) { return kStateKeys[(int)s]; }
 const char* stateLabel(State s) { return kStateLabels[(int)s]; }
@@ -69,6 +74,9 @@ void Board::bootComponents() {
   live_ = LoadOutputs{};
   for (int i = 0; i < kNumSensors; i++) health_.serialResult(i, BusResult::Ok, kSensors[i].serial);
   ui_.begin(now, 20);
+  blowers_.begin(s_.tuning);
+  ion_.begin(s_.safety);
+  ion_.restore(ionNvs_.empty() ? nullptr : ionNvs_.data(), ionNvs_.size());
   char d[160];
   snprintf(d, sizeof(d), "%s POWERON; firmware 2.0.0; board Rev Q%sREAL; user settings from NVS; clock set from the RTC",
            kEvBootLine, kEvBootProfile);
@@ -92,9 +100,10 @@ void Board::begin(int64_t nowUtcS) {
   r.roomC = 22.0f;
   r.coolVpKpaPerMin = 0.004f;   // the compressor takes water out, so the humidifier has work to do
   model_.begin(r, 20.2f, 62.0f, 22.0f, 55.0f);
-  // each sensor a little different, as in a real cabinet: warmer at the top, cooler at the bottom
-  const float dc[kNumSensors] = {0.35f, -0.30f, 0.05f, 0.15f, 0.0f, 0.0f};
-  const float dr[kNumSensors] = {-0.6f, 0.9f, 0.2f, -0.2f, 0.0f, -8.0f};
+  // each sensor a little different, as in a well-mixed cabinet: a touch warmer at the top (the
+  // spread under the blowers' 0.5 C, so they idle; RH offsets near what the warmer air gives)
+  const float dc[kNumSensors] = {0.20f, -0.15f, 0.05f, 0.10f, 0.0f, 0.0f};
+  const float dr[kNumSensors] = {0.5f, -0.3f, 0.2f, 0.1f, 0.0f, -8.0f};
   for (int i = 0; i < kNumSensors; i++) model_.setOffset(i, dc[i], dr[i]);
   // a month before now, then run forward in 5 s steps
   const int64_t days = 31;
@@ -120,6 +129,7 @@ void Board::sweep() {
   applyScripted(r, model_);
   health_.update(r, nowMs());
   lastSweepMs_ = ms_;
+  swept_ = true;
   // hourly figures, as the firmware adds them after each sweep
   bool healthy[kNumSensors];
   float t[kNumSensors], rh[kNumSensors];
@@ -345,6 +355,46 @@ void Board::step(uint32_t dtMs, bool live) {
     }
   }
   if (ms_ - lastSweepMs_ >= s_.tuning.sensorReadMs) sweep();
+  // The 4.3 gate brought up to date with the sweep, then the blowers and the ion generator (as main.cpp)
+  if (swept_) {
+    const int ok = health_.healthyCabinet();
+    gate_.update(health_.chamberHealthy() && ok >= s_.safety.minHealthyCabinet, ok >= s_.safety.minHealthyCabinet, now);
+  }
+  {
+    const bool updating = updatePct_ >= 0;
+    const bool fault = sensorFaultFrom(health_.chamberHealthy(), health_.healthyCabinet(), s_.safety.minHealthyCabinet,
+                                       gate_.tempHolding() || gate_.humidHolding()) != SensorFault::None || !fanOk;
+    const CabinetSummary c = health_.summary();
+    BlowerInputs bi;
+    bi.nowMs = now;
+    bi.updating = updating;
+    bi.fault = fault;
+    bi.fresh = ms_ - lastSweepMs_ <= 2ull * s_.tuning.sensorReadMs;
+    bi.sweepDone = swept_;
+    bi.cabinetOk = c.cabinetOk;
+    bi.spreadC = c.spreadC;
+    bi.spreadRhPct = c.spreadRhPct;
+    blowers_.update(bi);
+    char e[160];
+    for (BlowerRule::Change ch; blowers_.take(&ch);) { formatBlowerEvent(e, sizeof(e), ch, s_.tuning); event(kEvTypeBlowers, e); }
+    IonInputs ii;
+    ii.upMs = ms_ - bootMs_;
+    ii.clockTrusted = state_ != State::ClockBad;
+    ii.utcS = utcNow();
+    ii.block = updating ? IonBlock::Updating : fault ? IonBlock::Fault : ctl_.hold().active() ? IonBlock::BootHold : IonBlock::None;
+    ii.enabled = s_.user.ionEnable;
+    ii.runsPerDay = s_.user.ionRunsPerDay;
+    ii.minutesPerRun = s_.user.ionMinutesPerRun;
+    ion_.update(ii);
+    if (ion_.saveWanted()) {
+      std::vector<uint8_t> blob(IonSchedule::kBlobBytes, 0);
+      ion_.saveBlob(blob.data(), blob.size(), ii.upMs);
+      if (!nvsBroken_) ionNvs_ = blob;
+      ion_.saveResult(!nvsBroken_, ii.upMs);
+    }
+    for (IonSchedule::Change ch; ion_.take(&ch);) { formatIonEvent(e, sizeof(e), ch); event(kEvTypeIon, e); }
+  }
+  swept_ = false;
   const uint64_t logEvery = (live_.cool || live_.heat) ? s_.tuning.logActiveMs : s_.tuning.logSteadyMs;
   if (ms_ - lastLogMs_ >= logEvery) { lastLogMs_ = ms_; logRow(); }
   drainEvents();
@@ -409,7 +459,7 @@ void Board::step(uint32_t dtMs, bool live) {
     u.updatePct = (uint8_t)(updatePct_ < 0 ? 0 : updatePct_);
     u.alerts.sensorsKnown = true;
     u.alerts.sensorFault = sensorFaultFrom(health_.chamberHealthy(), c.cabinetOk, s_.safety.minHealthyCabinet,
-                                           gate_.tempHolding());
+                                           gate_.tempHolding() || gate_.humidHolding());
     u.alerts.fanStalled = !fanOk;
     for (int i = 0; i < kNumSensors; i++) {
       if (!health_.healthy(i)) u.alerts.excludedMask |= (uint8_t)(1u << i);
@@ -434,6 +484,13 @@ void Board::setState(State st, int64_t wallUtcS) {
   // undo the real ones
   plugged_[2] = plugged_[3] = true;
   fanPlugged_ = true;
+  if (state_ == State::Spread) model_.setOffset(0, 0.20f, 0.5f);   // back with the rest
+  if (state_ == State::IonOff && st != State::IonOff && !s_.user.ionEnable) {
+    UserSettings u = s_.user;
+    u.ionEnable = true;
+    applyUser(u, "dashboard");
+  }
+  nvsBroken_ = st == State::IonUnsaved;
   state_ = st;
   ui_.window().close();   // review build only: a new state starts with the window closed (the LCD has no cancel)
   switch (st) {
@@ -466,6 +523,24 @@ void Board::setState(State st, int64_t wallUtcS) {
     case State::Updating:
       updatePct_ = 40;
       lastUpdate_ = UpdateResult::None;
+      break;
+    case State::Spread:
+      for (int i = 0; i < 11 * 60; i++) step(1000, true);   // first 11 min as normal: the blowers reach idle
+      model_.setOffset(0, 1.70f, 0.5f);           // then ch0 1.5 C warmer than the rest
+      for (int i = 0; i < 16; i++) step(1000, true);
+      break;
+    case State::IonUnsaved:
+      // the next save fails: the hourly re-save is due once the record holds a run, so ask for one now
+      for (int i = 0; i < 2; i++) step(1000, true);
+      if (!ion_.saveFailed()) ion_.saveResult(false, ms_ - bootMs_);
+      step(0, true);
+      break;
+    case State::IonOff:
+      if (s_.user.ionEnable) {
+        UserSettings u = s_.user;
+        u.ionEnable = false;
+        applyUser(u, "dashboard");
+      }
       break;
     default:
       break;
@@ -668,8 +743,12 @@ void Board::fillStatus(StatusSnapshot* s) const {
   x.heaterDutyPct = x.heat ? 100 : 0;
   x.fanPct = fanOut_;
   x.fanRpm = (fanPlugged_ && fanSpinning_ && fanOut_ >= 20) ? (uint32_t)(700 + 18 * fanOut_) : 0;
-  x.blowerPct = 100;
-  x.ionOn = false;
+  fillBlowerIon(&x, blowers_, ion_, s_.tuning, nowMs());
+  if (state_ == State::IonRunning) {              // shown: a run 40 s in
+    x.ionOn = true;
+    x.ionState = IonState::Running;
+    x.ionLeftS = 80;
+  }
   x.compressorOnForS = x.cool ? (uint32_t)(utcNow() - (live_.cool ? compressorOnSinceUtc_ : utcNow() - 420)) : 0;
   x.compressorStoppedSinceBoot = compressorStopped_;
   x.compressorStoppedAgoS = (uint32_t)(utcNow() - compressorStoppedUtc_);

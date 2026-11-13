@@ -23,6 +23,27 @@ const char* sensorStateName(SensorState s) {
   return "?";
 }
 
+void fillBlowerIon(StatusSnapshot* s, const BlowerRule& b, const IonSchedule& ion, const TuningSettings& t,
+                   uint32_t nowMs) {
+  s->hasBlowers = true;
+  s->blowerPct = b.pct();
+  s->blowerMode = b.mode();
+  s->blowerWhy = b.why();
+  s->blowerSpreadC = b.lastSpreadC();
+  s->blowerSpreadRhPct = b.lastSpreadRhPct();
+  s->blowerIdleInS = b.holding() ? (int32_t)((b.holdLeftMs(nowMs) + 999) / 1000) : -1;
+  s->blowerIdleIsFull = t.blowerIdlePct >= 100;
+  s->ionOn = ion.on();
+  s->ionState = ion.state();
+  s->ionHeldWhy = ion.heldWhy();
+  s->ionLeftS = (ion.leftMs() + 999) / 1000;
+  s->ionNextFromClock = ion.nextFromClock();
+  s->ionNextUtcS = ion.nextRunUtcS();
+  s->ionNextInS = (uint32_t)((ion.nextRunInMs() + 999) / 1000);
+  s->ionLastSkip = ion.lastSkip();
+  s->ionLastSkipUtcS = ion.lastSkipUtcS();
+}
+
 const char* modeKey(ModeIcon m) {
   switch (m) {
     case ModeIcon::Cooling:     return "cooling";
@@ -149,8 +170,55 @@ bool StatusReply::step(JsonWriter& w) {
       w.key("humidifier"); w.beginObject(); w.kBool("on", s.humid); w.endObject();
       w.key("fan"); w.beginObject(); w.kInt("pwm", s.fanPct); w.kInt("rpm", s.fanRpm); w.endObject();
       w.kStr("interlock", s.relayHeating ? "heating" : "cooling");
-      w.key("blowers"); w.beginObject(); w.kInt("pwm", s.blowerPct); w.kBool("boost", s.blowerBoost); w.endObject();
-      w.key("ion"); w.beginObject(); w.kBool("on", s.ionOn); w.endObject();
+      if (s.hasBlowers) {
+        w.key("blowers");
+        w.beginObject();
+        w.kInt("pwm", s.blowerPct);
+        w.kStr("mode", blowerModeKey(s.blowerMode));
+        if (s.blowerMode == BlowerMode::Full) w.kStr("why", blowerWhyText(s.blowerWhy));
+        else w.kNull("why");
+        w.kNum("spread_t", s.blowerSpreadC, 2);
+        w.kNum("spread_rh", s.blowerSpreadRhPct, 1);
+        if (s.blowerIdleInS >= 0) w.kInt("idle_in_s", s.blowerIdleInS);
+        else w.kNull("idle_in_s");
+        w.kBool("idle_is_full", s.blowerIdleIsFull);
+        w.endObject();
+      } else {
+        w.kNull("blowers");
+      }
+      phase_ = 31;
+      return true;
+    }
+    case 31: {
+      if (s.hasBlowers) {
+        char hm[8];
+        w.key("ion");
+        w.beginObject();
+        w.kBool("on", s.ionOn);
+        w.kStr("state", ionStateKey(s.ionState));
+        if (s.ionState == IonState::Held) w.kStr("why", ionWhyText(s.ionHeldWhy));
+        else w.kNull("why");
+        if (s.ionState == IonState::Running) w.kInt("left_s", s.ionLeftS);
+        else w.kNull("left_s");
+        const bool next = s.ionState == IonState::Waiting || s.ionState == IonState::Held;
+        if (next && s.ionNextFromClock) w.kStr("next", formatHhMm(hm, sizeof(hm), ukLocal(s.ionNextUtcS)));
+        else w.kNull("next");
+        if (next && !s.ionNextFromClock) w.kInt("next_in_s", s.ionNextInS);
+        else w.kNull("next_in_s");
+        if (s.ionLastSkip != IonWhy::None) {
+          w.key("last_skipped");
+          w.beginObject();
+          w.kStr("why", ionWhyText(s.ionLastSkip));
+          if (s.ionLastSkipUtcS) w.kStr("at", formatHhMm(hm, sizeof(hm), ukLocal(s.ionLastSkipUtcS)));
+          else w.kNull("at");
+          w.endObject();
+        } else {
+          w.kNull("last_skipped");
+        }
+        w.endObject();
+      } else {
+        w.kNull("ion");
+      }
       w.endObject();
       phase_ = 4;
       return true;

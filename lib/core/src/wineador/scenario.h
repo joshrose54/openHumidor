@@ -37,6 +37,11 @@
 //   run 24    test 24 (logging): the automatic part — a chain that produces the control event
 //             types (loads, interlock, harvest, guard blocks, crossover, strip, humidify,
 //             ineffective, relay exercise). The physical ones are added by hand.
+// Stage Q6 (Rev Q):
+//   run blowers  BP2 test 41: the blower rule (4.6b) on the cabinet model - a spread above 1.0 C
+//             (boost at once), then below 0.5 C (idle after the hold), then a forced Fault (the
+//             chamber sensor scripted implausible: full speed), and back to idle. No load is asked
+//             for. The ion generator's runs go on by their own schedule meanwhile (4.6c).
 //   run soak  B4 step 1: 21 h with REAL timers (real_test build). Room value and drift set per
 //             phase so every load cycles several times and reaches its real limits; every pass
 //             audited (guard_audit.h); PASS with the counts at the end.
@@ -54,6 +59,7 @@
 #include "wineador/humid_control.h"
 #include "wineador/guard_audit.h"
 #include "wineador/commands.h"
+#include "wineador/blower_rule.h"
 
 namespace wineador {
 
@@ -71,6 +77,7 @@ struct ScenarioView {
   uint8_t fanOut = 0;                     // plenum fan duty driven right now (100 during a kickstart)
   uint8_t fanTarget = 0;                  // the duty asked of the fan
   const HumidControl* hc = nullptr;       // stage 5
+  const BlowerRule* blowers = nullptr;    // stage Q6 (Rev Q only; nullptr on Rev N)
 };
 
 class ScenarioRunner {
@@ -103,9 +110,9 @@ class ScenarioRunner {
 
   static bool exists(int n) {
     return n == 1 || n == 2 || n == 3 || n == 4 || n == 41 || n == 42 || n == 5 || n == 6 || n == 13 || n == 15 ||
-           usesControl(n);
+           n == kBlowerScenario || usesControl(n);
   }
-  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24, soak"; }
+  static const char* list() { return "run 1, 2, 3, 4, 41 (4c), 42 (4d), 5, 6, 13, 15, 7, 8, 9, 10, 17, 23, 19, 20, 21, 22, 24, soak, blowers (BP2 41)"; }
   // The soak's running audit (for the status of a long run).
   const GuardAudit& audit() const { return audit_; }
   // 21 h: Josh's run is 20:30 to 18:00 (B4 step 1, 2026-11-08); the verdict comes before he stops it.
@@ -139,6 +146,7 @@ class ScenarioRunner {
   void run22(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void run24(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
   void runSoak(const ScenarioView& v, Controller& ctl, CabinetModel& model, TemperatureControl& tc);
+  void runBlowers(const ScenarioView& v, CabinetModel& model);
 
   Settings s_;
   int n_ = 0;

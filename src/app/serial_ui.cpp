@@ -164,9 +164,10 @@ void printSettings(const View& v) {
   Serial.println("\n  SETTINGS");
   Serial.println("    USER (change with 'set ...' / 'exclude ...'; saved)");
   Serial.printf("      target temperature %.1f C (%.0f-%.0f) · RH setpoint %.0f%% (%.0f-%.0f) · heater %s · humidifier %s · "
-                "ion generator %s (stays off until 4.6c) · manual excludes 0x%02X\n", u.targetTempC, kTargetTempMinC,
-                kTargetTempMaxC, u.rhSetpointPct, kRhSetpointMinPct, kRhSetpointMaxPct, u.heaterEnable ? "on" : "OFF",
-                u.humidifierEnable ? "on" : "OFF", u.ionEnable ? "on" : "OFF", (unsigned)u.manualExcludeMask);
+                "ion generator %s, %u runs a day of %u min (0-4, 0-5; at most 10 min a day) · manual excludes 0x%02X\n",
+                u.targetTempC, kTargetTempMinC, kTargetTempMaxC, u.rhSetpointPct, kRhSetpointMinPct, kRhSetpointMaxPct,
+                u.heaterEnable ? "on" : "OFF", u.humidifierEnable ? "on" : "OFF", u.ionEnable ? "on" : "OFF",
+                (unsigned)u.ionRunsPerDay, (unsigned)u.ionMinutesPerRun, (unsigned)u.manualExcludeMask);
   Serial.println("    TUNING (B6 sets these; read-only here)");
   Serial.printf("      cooling hysteresis %.1f C · heating deadband %.1f C · heating ends %.1f C below · crossover %lu s\n",
                 t.coolingHysteresisC, t.heatingDeadbandC, t.heatingStopBelowSetpointC, (unsigned long)(t.crossoverDelayMs / 1000));
@@ -185,6 +186,10 @@ void printSettings(const View& v) {
   Serial.printf("      dosed control %s · disturbance detection %s · log %lu s / %lu s active · sensor read %lu s\n",
                 t.dosedControl ? "on" : "off", t.disturbanceDetection ? "on" : "off", (unsigned long)(t.logSteadyMs / 1000),
                 (unsigned long)(t.logActiveMs / 1000), (unsigned long)(t.sensorReadMs / 1000));
+  Serial.printf("      blowers (Rev Q): idle %u%%%s · boost above %.1f C or %.0f points · idle below %.1f C and %.0f points for %lu s\n",
+                (unsigned)t.blowerIdlePct, t.blowerIdlePct >= 100 ? " (full speed until BP2 test 22)" : "",
+                t.blowerBoostAboveC, t.blowerBoostAboveRhPct, t.blowerIdleBelowC, t.blowerIdleBelowRhPct,
+                (unsigned long)(t.blowerIdleHoldMs / 1000));
   Serial.printf("    SAFETY (fixed in firmware) — profile %s\n", s.profile == Profile::Bench ? "BENCH" : "REAL");
   Serial.printf("      compressor off/on/max %lu/%lu/%lu s · heater %lu/%lu/%lu s · humidifier off/max %lu/%lu s · boot hold %lu s\n",
                 (unsigned long)(f.compressorMinOffMs / 1000), (unsigned long)(f.compressorMinOnMs / 1000),
@@ -192,9 +197,12 @@ void printSettings(const View& v) {
                 (unsigned long)(f.heaterMinOnMs / 1000), (unsigned long)(f.heaterMaxRunMs / 1000),
                 (unsigned long)(f.humidMinOffMs / 1000), (unsigned long)(f.humidMaxRunMs / 1000),
                 (unsigned long)(f.bootHoldMs / 1000));
-  Serial.printf("      ceilings: cabinet setpoint+%.0f C, chamber %.0f C, RH %.0f%% · sensor hold %lu s · fan min %u%%, stall retry %lu s\n\n",
+  Serial.printf("      ceilings: cabinet setpoint+%.0f C, chamber %.0f C, RH %.0f%% · sensor hold %lu s · fan min %u%%, stall retry %lu s\n",
                 f.cabinetCeilingAboveSetpointC, f.chamberCeilingC, f.rhHardCeilingPct, (unsigned long)(f.sensorRecoveryHoldMs / 1000),
                 f.fanMinDutyPct, (unsigned long)(f.fanStallRetryMs / 1000));
+  Serial.printf("      ion generator cap (Rev Q): %lu min in any %lu h%s\n\n", (unsigned long)(f.ionCapMs / 60000),
+                (unsigned long)(f.ionCapWindowMs / 3600000),
+                f.ionBenchPeriodMs ? " · BENCH runs: every 30 min for 1 min" : "");
 }
 
 }  // namespace serialui

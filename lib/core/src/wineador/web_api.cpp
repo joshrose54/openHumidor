@@ -74,6 +74,7 @@ static const RefusalInfo kRefusals[(int)Refusal::Count] = {
   {422, "corrupt_image",      "The image arrived but failed its own check (checksum or SHA-256): it is corrupt. Nothing changed."},
   {500, "flash_failed",       "Writing the image to flash failed. Nothing changed; the board carries on as it was."},
   {429, "too_soon",           "Changes from the dashboard are saved at most once every 10 s. Try again shortly."},
+  {400, "ion_too_much",       "The ion generator may run at most 10 minutes a day in total (runs per day times minutes per run)."},
 };
 
 int httpStatus(Refusal r) { return r < Refusal::Count ? kRefusals[(int)r].status : 500; }
@@ -224,11 +225,33 @@ ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool u
       if (f.key[0] == 'i')      u.ionEnable = f.boolean;
       else if (f.key[1] == 'e') u.heaterEnable = f.boolean;
       else                      u.humidifierEnable = f.boolean;
+    } else if (strcmp(f.key, "ion_runs_per_day") == 0 || strcmp(f.key, "ion_minutes_per_run") == 0) {
+      const bool runs = f.key[4] == 'r';
+      const float hi = runs ? kIonRunsMax : kIonMinutesMax;
+      if (f.kind != JsonField::Kind::Number) return refuse(Refusal::WrongType, f.key, "That setting takes a number.");
+      if (!(f.number >= 0 && f.number <= hi)) {
+        snprintf(m, sizeof(m), runs ? "Ion generator runs per day must be 0 to %.0f." : "Ion generator minutes per run must be 0 to %.0f.",
+                 (double)hi);
+        return limits(Refusal::OutOfBounds, f.key, m, 0, hi, 1);
+      }
+      if (f.number != floor(f.number)) {
+        return limits(Refusal::OffStep, f.key, runs ? "Ion generator runs per day is a whole number." :
+                                                      "Ion generator minutes per run is a whole number.", 0, hi, 1);
+      }
+      if (runs) u.ionRunsPerDay = (uint8_t)f.number;
+      else      u.ionMinutesPerRun = (uint8_t)f.number;
     } else if (isTuningName(f.key)) {
       return refuse(Refusal::ReadOnly, f.key);
     } else {
       return refuse(Refusal::UnknownField, f.key);   // safety values are never named, so "unknown"
     }
+  }
+  // 5.5 / 4.6c: runs x minutes at most 10, judged on the settings as they would be.
+  if (!ionRunsOk(u.ionRunsPerDay, u.ionMinutesPerRun)) {
+    snprintf(m, sizeof(m), "Ion generator: %u runs of %u min is %u min a day; %s.", (unsigned)u.ionRunsPerDay,
+             (unsigned)u.ionMinutesPerRun, (unsigned)(u.ionRunsPerDay * u.ionMinutesPerRun), kIonTooMuchText);
+    const JsonField* a = j.find("ion_minutes_per_run");
+    return refuse(Refusal::IonTooMuch, a ? "ion_minutes_per_run" : "ion_runs_per_day", m);
   }
   *out = u;
   return ApiResult{};
@@ -326,6 +349,14 @@ int describeUserChange(char* out, size_t n, const UserSettings& a, const UserSet
     sep();
     appendf(out, n, &len, "ion_enable %s%s%s", onOff(a.ionEnable), kEvChangeArrow, onOff(b.ionEnable));
   }
+  if (a.ionRunsPerDay != b.ionRunsPerDay) {
+    sep();
+    appendf(out, n, &len, "ion_runs_per_day %u%s%u", (unsigned)a.ionRunsPerDay, kEvChangeArrow, (unsigned)b.ionRunsPerDay);
+  }
+  if (a.ionMinutesPerRun != b.ionMinutesPerRun) {
+    sep();
+    appendf(out, n, &len, "ion_minutes_per_run %u%s%u", (unsigned)a.ionMinutesPerRun, kEvChangeArrow, (unsigned)b.ionMinutesPerRun);
+  }
   for (int i = 0; i < kNumSensors; i++) {
     const bool x = a.manualExcludeMask & (1u << i), y = b.manualExcludeMask & (1u << i);
     if (x != y) {
@@ -405,7 +436,7 @@ int formatInfo(char* out, size_t n, const BuildFacts& b, uint64_t uptimeS, const
 }
 
 // The tuning table, in the spec 5.5 order. Shown read only; refused as a write.
-int tuningItemCount() { return 33; }
+int tuningItemCount() { return 39; }
 
 TuningItem tuningItem(const TuningSettings& t, int i) {
   auto mins = [](uint32_t ms) { return ms / 60000.0; };
@@ -443,7 +474,15 @@ TuningItem tuningItem(const TuningSettings& t, int i) {
     case 29: return {"log_steady_s", "Log rate, steady", "s", secs(t.logSteadyMs), 0, false};
     case 30: return {"log_active_s", "Log rate, compressor or heater active", "s", secs(t.logActiveMs), 0, false};
     case 31: return {"heater_pwm_period_s", "Heater PWM period", "s", secs(t.heaterPwmPeriodMs), 0, false};
-    default: return {"sensor_read_s", "Sensor read rate", "s", secs(t.sensorReadMs), 0, false};
+    case 32: return {"sensor_read_s", "Sensor read rate", "s", secs(t.sensorReadMs), 0, false};
+    // Rev Q, 4.6b: the blowers (the idle duty is full speed until BP2 test 22 chooses it)
+    case 33: return {"blower_idle_pct", t.blowerIdlePct >= 100 ? "Blower PWM, idle (full speed until BP2 test 22)" : "Blower PWM, idle",
+                     "%", (double)t.blowerIdlePct, 0, false};
+    case 34: return {"blower_boost_above_c", "Blower boost: spread above", "\xC2\xB0" "C", t.blowerBoostAboveC, 1, false};
+    case 35: return {"blower_boost_above_rh_pts", "Blower boost: or RH spread above", "points", t.blowerBoostAboveRhPct, 0, false};
+    case 36: return {"blower_idle_below_c", "Blower back to idle: spread below", "\xC2\xB0" "C", t.blowerIdleBelowC, 1, false};
+    case 37: return {"blower_idle_below_rh_pts", "Blower back to idle: and RH spread below", "points", t.blowerIdleBelowRhPct, 0, false};
+    default: return {"blower_idle_hold_min", "Blower back to idle: held for", "min", mins(t.blowerIdleHoldMs), 0, false};
   }
 }
 
@@ -492,12 +531,27 @@ bool SettingsReply::step(JsonWriter& w) {
     w.beginObject();
     w.kBool("value", u_.humidifierEnable);
     w.endObject();
-    // 5.5 / 4.6c: off stops every ion run; until 4.6c is built the generator stays off whatever this says
+    // 5.5 / 4.6c: off stops every ion run (the run settings keep their values)
     w.key("ion_enable");
     w.beginObject();
     w.kBool("value", u_.ionEnable);
-    w.kBool("built", false);
     w.endObject();
+    w.key("ion_runs_per_day");
+    w.beginObject();
+    w.kInt("value", u_.ionRunsPerDay);
+    w.kInt("min", 0);
+    w.kInt("max", kIonRunsMax);
+    w.kInt("step", 1);
+    w.endObject();
+    w.key("ion_minutes_per_run");
+    w.beginObject();
+    w.kInt("value", u_.ionMinutesPerRun);
+    w.kInt("min", 0);
+    w.kInt("max", kIonMinutesMax);
+    w.kInt("step", 1);
+    w.kStr("unit", "min");
+    w.endObject();
+    w.kInt("ion_minutes_per_day_max", kIonMinutesPerDayMax);   // runs x minutes at most this (5.5)
     w.endObject();   // user
     return true;
   }

@@ -1,6 +1,7 @@
 #pragma once
 // User settings saved in NVS (spec 5.5): target temperature, RH setpoint, heater
-// and humidifier enable, manual sensor excludes. Each kind of build keeps its own
+// and humidifier enable, manual sensor excludes; Rev Q's ion generator enable, runs per day and
+// minutes per run (4.6c). Each kind of build keeps its own
 // copy, so a value set during bench tests can never reach the cabinet build:
 //   cabinet (esp32dev) "usr_cab" · bench "usr_bench" · test builds "usr_test".
 // load() is BOOT ONLY; save() only when a 'set' command is typed (an NVS write

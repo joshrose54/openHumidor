@@ -44,6 +44,11 @@ STATES = [
     ("heat-humid", "Heating and humidifying", ["overview"]),
     ("drying", "Drying (RH strip)", ["overview"]),
     ("updating", "Updating", ["overview"]),
+    # stage Q6: the blowers and the ion generator
+    ("spread", "Blowers boost: ch0 1.5 C warmer than the rest", ["overview"]),
+    ("ion-running", "Ion generator running", ["overview"]),
+    ("ion-off", "Ion generator switched off", ["overview", "settings"]),
+    ("ion-unsaved", "Ion generator held: its cap record can't be saved", ["overview", "events"]),
     ("sd-fail", "SD card out", ["events", "logs"]),
     ("fault-sensors", "Fault: ch2 and ch3 unplugged", PAGES),
     ("just-booted", "Just booted", ["overview", "graphs"]),
@@ -77,6 +82,7 @@ def main():
                 break
         profile = tempfile.mkdtemp(prefix="oh-shots-")
         cards = []
+        driven_states = []
         for key, label, pages in STATES:
             get(f"/sim/state?name={'normal' if key == 'window' or key.startswith('ota-') else key}")
             if key == "window":
@@ -90,6 +96,25 @@ def main():
                     shot(p, os.path.join(OUT, name), w, h, scale, profile)
                     cards.append((key, label, p, size, name))
                     print("  ", name)
+            if key in ("normal", "ion-off"):
+                # stage Q6: the Events page filtered to the new types; Settings asked for too much
+                driven = [d for d in [
+                    ("q6-events-ion", "Events: the ion generator's runs", "events",
+                     "(()=>{const s=document.querySelector('#e-type');s.value='ion';s.dispatchEvent(new Event('change'));})()"),
+                    ("q6-events-blowers", "Events: the blowers", "events",
+                     "(()=>{const s=document.querySelector('#e-type');s.value='blowers';s.dispatchEvent(new Event('change'));})()"),
+                    ("q6-settings-too-much", "Settings: 4 runs of 3 min asked for (refused before sending)", "settings",
+                     "(()=>{const c=(f,d,n)=>{for(let i=0;i<n;i++)document.querySelector(`[data-field=${f}] [data-d='${d}']`).click();};"
+                     "c('ion_runs_per_day','1',2);c('ion_minutes_per_run','1',1);})()"),
+                ] if (d[0] == "q6-events-blowers") == (key == "ion-off")]   # the blower events after the wide spread
+                for dkey, dlabel, dp, js in driven:
+                    dname = f"{dkey}-{dp}-desktop.png"
+                    subprocess.run(["node", os.path.join(ROOT, "tools", "drive_page.mjs"), str(PORT), dp, js, os.path.join(OUT, dname)],
+                                   check=True, stdout=subprocess.DEVNULL)
+                    driven_states.append((dkey, dlabel, [dp]))
+                    cards.append((dkey, dlabel, dp, "desktop", dname))
+                    print("  ", dname)
+
         # the Update page naming the image chosen, before it is sent (spec 5.2): a cabinet build, and
         # the rollback test image's warning (headless Chrome driven by tools/drive_update_page.mjs)
         get("/sim/state?name=normal")
@@ -109,7 +134,7 @@ def main():
         get("/sim/state?name=normal")
         get("/sim/ota?name=closed")
         rows = []
-        for key, label, _ in STATES:
+        for key, label, _ in STATES[:1] + driven_states + STATES[1:]:
             rows.append(f"<h2>{html.escape(label)}</h2><div class=row>")
             for k, _, p, size, name in cards:
                 if k == key:

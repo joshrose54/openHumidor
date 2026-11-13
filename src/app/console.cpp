@@ -89,7 +89,12 @@ void printBanner(const Settings& s, const BootInfo& b) {
   Serial.printf ("    hw watchdog GPIO1: an input until the loop runs, then toggled every pass (U5 resets after 1.12-2.4 s)\n");
   Serial.printf ("    12V sense   GPIO8, ADC1 at 12 dB, every 100 ms, 1 s averages; scale %.4f%s\n", (double)board::k12vScale,
                  board::k12vScale == 115.0f / 15.0f ? " (nominal: calibrated at BP2 test 27)" : "");
-  Serial.printf ("    blowers     full speed (GPIO15 high)    ion generator OFF (GPIO17 low)    LCD cleared to black, backlight off\n");
+  Serial.printf ("    blowers     full speed (GPIO15 high) until the first reading, then their rule (4.6b): idle %u%%%s, boost full\n",
+                 (unsigned)s.tuning.blowerIdlePct, s.tuning.blowerIdlePct >= 100 ? " (full speed until BP2 test 22)" : "");
+  Serial.printf ("    ion gen.    OFF (GPIO17 low) through the boot hold; then %u runs a day of %u min%s (4.6c)%s\n",
+                 (unsigned)s.user.ionRunsPerDay, (unsigned)s.user.ionMinutesPerRun,
+                 s.safety.ionBenchPeriodMs ? " - BENCH: every 30 min for 1 min" : "", s.user.ionEnable ? "" : " - SWITCHED OFF");
+  Serial.printf ("    LCD         cleared to black, backlight off\n");
   {
     const sdlog::Stats st = sdlog::stats();
     if (heap::psramTotal() > 0)
@@ -108,10 +113,10 @@ void printBanner(const Settings& s, const BootInfo& b) {
                             (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",
                             (unsigned long)b.sdMountMs);
-  Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, ion generator %s, "
-                 "manual excludes 0x%02X\n", b.userNote, b.nvsSpace, s.user.targetTempC, s.user.rhSetpointPct,
+  Serial.printf ("    user        %s (NVS '%s'): target %.1f C, RH %.0f%%, heater %s, humidifier %s, ion generator %s "
+                 "(%u x %u min), manual excludes 0x%02X\n", b.userNote, b.nvsSpace, s.user.targetTempC, s.user.rhSetpointPct,
                  s.user.heaterEnable ? "on" : "OFF", s.user.humidifierEnable ? "on" : "OFF", s.user.ionEnable ? "on" : "OFF",
-                 (unsigned)s.user.manualExcludeMask);
+                 (unsigned)s.user.ionRunsPerDay, (unsigned)s.user.ionMinutesPerRun, (unsigned)s.user.manualExcludeMask);
   if (kBootDemand)
     Serial.println("    loads       off now; heat + humidify asked for from boot. Guards and interlock decide");
   else if (kTestBuild)
@@ -186,6 +191,7 @@ void printHelp(bool testBuild) {
   Serial.println("    status    everything at a glance     sensors   per-channel health and counts");
   Serial.println("    events [n]  the last n events (10)   log       SD card and logging     settings  all settings");
   Serial.println("    set temp <C> | set rh <%> | set heater on|off | set humid on|off | set ion on|off | set defaults  (saved)");
+  Serial.println("    set ionruns <0-4> | set ionmin <0-5>   ion generator runs per day, minutes per run; at most 10 min a day (saved)");
   Serial.println("    exclude <sensor> on|off   take a sensor out for maintenance, or put it back (saved)");
   Serial.println("              <sensor> = 0-5, a position (top_front ...) or a probe label (09ED ...)");
   Serial.println("    lcd       the LCD's drawing, sending and touch times (Rev Q)");

@@ -1,6 +1,6 @@
 /* openHumidor dashboard (spec 5.5, docs/api.md API version 1). Plain JavaScript, no framework.
  *
- * docs/api.md API version 2.
+ * docs/api.md API version 4.
  * Fetch rules (5.5): only what the open page shows, and only while the tab is visible; nothing
  * while it is hidden or the phone screen is off; on return, everything due is fetched at once.
  *   every page   the status every 30 s (the header: mode icons, time, alert)
@@ -16,7 +16,7 @@
  * Times are UK local time from the board, never the browser's own zone. */
 "use strict";
 
-const API_VERSION = 3;
+const API_VERSION = 4;
 const STATUS_EVERY = 30000;
 const LONG_EVERY = 300000;
 
@@ -267,8 +267,25 @@ function renderOverview() {
   row("Humidifier", "water_drop", "c-humid", L.humidifier.on, L.humidifier.on ? "on" : gu ? esc(heldText(gu)) : "off", !L.humidifier.on && gu);
   row("Plenum fan", "air", "", L.fan.rpm > 0, `${L.fan.pwm} % · ${num(L.fan.rpm)} rpm`, L.fan.pwm >= 20 && L.fan.rpm === 0);
   row("Interlock", "settings", "", false, `${L.interlock} side`);
-  row("Blowers", "air", "", L.blowers.pwm > 0, `${L.blowers.pwm} %${L.blowers.boost ? " · boost" : ""}`);
-  row("Ion generator", "air", "", L.ion.on, L.ion.on ? "on" : "off");
+  if (L.blowers) {   // Rev Q (4.6b): the mode decides the duty; full speed in boost or a fault
+    const B = L.blowers;
+    const text = B.mode === "idle" ? (B.idle_is_full ? `idle (${B.pwm} % until BP2 test 22)` : `${B.pwm} % · idle`)
+      : B.mode === "updating" ? `${B.pwm} % · idle while updating`
+      : B.mode === "full" ? `full speed · ${B.why === "fault" ? "fault" : B.why === "no fresh reading" ? "no fresh reading" : "no reading yet"}`
+      : `boost · spread ${fmt(B.spread_t, 2)} °C, ${fmt(B.spread_rh, 1)} pts${B.idle_in_s !== null ? ` · idle in ${mss(B.idle_in_s)}` : ""}`;
+    row("Blowers", "air", "", true, text, B.mode === "full" && B.why === "fault");
+  }
+  if (L.ion) {       // Rev Q (4.6c): short runs from the clock; times are UK local from the board
+    const I = L.ion;
+    const skipped = I.last_skipped ? ` · last run skipped${I.last_skipped.at ? ` (${esc(I.last_skipped.at)})` : ""}: ${esc(I.last_skipped.why)}` : "";
+    const text = I.state === "running" ? `on · ${mss(I.left_s)} left`
+      : I.state === "waiting" ? (I.next ? `off · next run ${esc(I.next)}` : `off · next run in ${ago(I.next_in_s)} (from boot: the time isn't trusted)`) + skipped
+      : I.state === "held" ? `held: ${esc(I.why)}${I.next ? ` · next ${esc(I.next)}` : ""}`
+      : I.state === "off" ? "switched off on Settings"
+      : I.state === "no_runs" ? "no runs set on Settings"
+      : "off · starting";
+    row("Ion generator", "air", "", I.on, text, I.state === "held");
+  }
   $("#ov-loads").innerHTML = rows.join("");
   // the last 7 days
   const w = s.week, wk = (label, v) => `<div><dt>${label}</dt><dd>${v === null ? "counting…" : num(v)}</dd></div>`;
@@ -530,33 +547,41 @@ $("#e-door").addEventListener("submit", async (e) => {
 
 // ---------------------------------------------------------------- Settings (never refreshed while open)
 let draft = null;
+// the user settings' values (each an object with its value; ion_minutes_per_day_max is a plain number)
+const userDraft = () => Object.fromEntries(Object.entries(settings.user).filter(([, v]) => v && typeof v === "object").map(([k, v]) => [k, v.value]));
 function renderSettings() {
   const u = settings.user;
   for (const el of $$(".stepper")) {
     const f = el.dataset.field, d = u[f];
     const dec = f === "target_temp_c" ? 1 : 0;
-    $("[data-k=hint]", el).textContent = `${fmt(d.min, dec)}–${fmt(d.max, dec)} ${d.unit} in steps of ${fmt(d.step, dec)}`;
+    const unit = d.unit ? ` ${d.unit}` : "";
+    $("[data-k=hint]", el).textContent = f.startsWith("ion_") ? `${d.min}–${d.max}${unit}` : `${fmt(d.min, dec)}–${fmt(d.max, dec)}${unit} in steps of ${fmt(d.step, dec)}`;
     const out = $("[data-k=v]", el);
-    out.textContent = `${fmt(draft[f], dec)} ${d.unit}`;
+    out.textContent = `${fmt(draft[f], dec)}${unit}`;
     out.classList.toggle("changed", draft[f] !== d.value);
     $("[data-d='-1']", el).disabled = draft[f] <= d.min;
     $("[data-d='1']", el).disabled = draft[f] >= d.max;
   }
   for (const cb of $$(".switch input")) cb.checked = draft[cb.dataset.field];
-  $("#st-ion-note").textContent = u.ion_enable?.built === false
-    ? "The ion generator stays off for now, whatever this says: its run rules aren't built yet. Off means no runs at all once they are."
-    : "Off means no runs at all; its run settings are kept for when it is switched back on.";
+  // 5.5 / 4.6c: runs x minutes at most 10 a day (the board refuses more: ion_too_much)
+  const perDay = draft.ion_runs_per_day * draft.ion_minutes_per_run, maxDay = u.ion_minutes_per_day_max ?? 10;
+  const tooMuch = perDay > maxDay;
+  const total = $("#st-ion-total");
+  total.className = `ion-total${tooMuch ? " bad" : ""}`;
+  total.textContent = perDay === 0 ? "No runs: the ion generator won't run."
+    : tooMuch ? `${draft.ion_runs_per_day} runs of ${draft.ion_minutes_per_run} min is ${perDay} min a day: at most ${maxDay} minutes a day in total.`
+    : `${draft.ion_runs_per_day} ${draft.ion_runs_per_day === 1 ? "run" : "runs"} of ${draft.ion_minutes_per_run} min: ${perDay} min a day, ${draft.ion_runs_per_day === 1 ? "at 00:00 UTC" : `every ${24 / draft.ion_runs_per_day} hours from 00:00 UTC`}.`;
 
   const changed = Object.keys(draft).some((k) => draft[k] !== u[k].value);
   const updating = status?.update.updating;
-  $("#st-save").disabled = !changed || updating;
+  $("#st-save").disabled = !changed || updating || tooMuch;
   $("#st-cancel").disabled = !changed;
   if (updating) { $("#st-msg").className = "msg"; $("#st-msg").textContent = "An update is running: settings can be changed when it has finished."; }
   $("#st-tuning").innerHTML = settings.tuning.map((t) => `<div><dt>${esc(t.label)}</dt><dd>${typeof t.value === "boolean" ? (t.value ? "On" : "Off") : `${t.value}${t.unit ? " " + esc(t.unit) : ""}`}</dd></div>`).join("");
 }
 async function settingsPage() {
   await loadSettings();
-  draft = Object.fromEntries(Object.entries(settings.user).map(([k, v]) => [k, v.value]));
+  draft = userDraft();
   $("#st-msg").textContent = "";
   renderSettings();
 }
@@ -570,14 +595,14 @@ $("#st-form").addEventListener("click", (e) => {
 // switches show their state at once; they slide only once the form is touched by hand
 ["pointerdown", "keydown"].forEach((t) => $("#st-form").addEventListener(t, () => $("#st-form").classList.add("ready"), { once: true }));
 $("#st-form").addEventListener("change", (e) => { if (e.target.dataset.field && draft) { draft[e.target.dataset.field] = e.target.checked; renderSettings(); } });
-$("#st-cancel").addEventListener("click", () => { draft = Object.fromEntries(Object.entries(settings.user).map(([k, v]) => [k, v.value])); $("#st-msg").textContent = ""; renderSettings(); });
+$("#st-cancel").addEventListener("click", () => { draft = userDraft(); $("#st-msg").textContent = ""; renderSettings(); });
 $("#st-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const changes = Object.fromEntries(Object.keys(draft).filter((k) => draft[k] !== settings.user[k].value).map((k) => [k, draft[k]]));
   const m = $("#st-msg");
   try {
     settings = await post("/api/settings", changes);
-    draft = Object.fromEntries(Object.entries(settings.user).map(([k, v]) => [k, v.value]));
+    draft = userDraft();
     m.className = "msg good"; m.textContent = "Saved. The board uses the new settings from its next pass.";
     renderSettings();
     loadStatus();

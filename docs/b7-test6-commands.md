@@ -66,7 +66,7 @@ nothing set to boot; "Update failed: ..., the image's own check failed (corrupt)
 ## 4. The cabinet build installs
 
 Allow update, then `up .pio.nosync/images/revq.bin`.
-Expect: `200 {"api":3,"installed":true,"version":"2.0.0","restarting":true}`; the board restarts
+Expect: `200 {"api":4,"installed":true,"version":"2.0.0","restarting":true}`; the board restarts
 1.5 s later; the boot hold runs; "New firmware running, being checked" logged; after 60 s
 "New firmware started properly: 2.0.0 marked good"; the Update page then shows `installed ...
 started properly`.

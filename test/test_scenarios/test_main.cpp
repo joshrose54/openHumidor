@@ -20,6 +20,8 @@
 #include "wineador/guard_audit.h"
 #include "wineador/commands.h"
 #include "wineador/fan_controller.h"
+#include "wineador/blower_rule.h"
+#include "wineador/alerts.h"
 
 using namespace wineador;
 
@@ -38,6 +40,7 @@ struct Sim {
   FanMonitor fanMon;
   TemperatureControl tc;
   HumidControl hc;
+  BlowerRule blowers;          // Rev Q (stage Q6)
   FanController fan{20, 1000};
   uint8_t fanOut = 0;
   LoadOutputs live;
@@ -61,6 +64,7 @@ struct Sim {
     fanMon.begin(s.safety.fanStallRetryMs);
     tc.begin(s, 0);
     hc.begin(s, 0);
+    blowers.begin(s.tuning);
     fan = FanController(s.safety.fanMinDutyPct, s.safety.fanKickstartMs);
     fan.command(s.tuning.fanIdlePct, 0);
     fanOut = fan.output(0);
@@ -147,6 +151,23 @@ struct Sim {
     }
     bool swept = false;
     if (now - lastSweep >= 15000) { sweep(); swept = true; }
+    {
+      // The blowers, as main.cpp: the 4.3 gate brought up to date with this sweep first, then
+      // Fault (5.5) from the requirement and its hold, or a fan stall.
+      const int cabOk = health.healthyCabinet();
+      gate.update(health.chamberHealthy() && cabOk >= 3, cabOk >= 3, now);
+      BlowerInputs bi;
+      bi.nowMs = now;
+      bi.fault = sensorFaultFrom(health.chamberHealthy(), health.healthyCabinet(), s.safety.minHealthyCabinet,
+                                 gate.tempHolding() || gate.humidHolding()) != SensorFault::None || fanMon.stalled();
+      bi.fresh = true;
+      bi.sweepDone = swept;
+      const CabinetSummary c = health.summary();
+      bi.cabinetOk = c.cabinetOk;
+      bi.spreadC = c.spreadC;
+      bi.spreadRhPct = c.spreadRhPct;
+      blowers.update(bi);
+    }
 
     ScenarioView v;
     v.nowMs = now;
@@ -159,6 +180,7 @@ struct Sim {
     v.fanOut = fanOut;
     v.fanTarget = fan.target();
     v.hc = &hc;
+    v.blowers = &blowers;
     sc.update(v, ctl, model, tc);
     for (const char* l; (l = sc.takeLine()) != nullptr;) {
       if (verbose) printf("%s\n", l);
@@ -511,6 +533,35 @@ void test_stop_ends_with_no_demand() {
   TEST_ASSERT_FALSE(d.cool || d.heat || d.humid);
 }
 
+void test_run_blowers_bp2_41() {
+  // BP2 test 41's scenario: boost at once on a 1.5 C spread, idle after the hold, full speed in a
+  // forced Fault, then boost and idle again. Bench profile (1-min hold) and the real one (10 min),
+  // with an idle duty set as test 22 would (so idle and full speed differ).
+  for (int p = 0; p < 2; p++) {
+    Sim m(p == 0 ? Profile::Bench : Profile::Real);
+    m.s.tuning.blowerIdlePct = 45;
+    m.blowers.begin(m.s.tuning);
+    TEST_ASSERT_TRUE(m.run(kBlowerScenario, minutes(60)) == ScenarioRunner::Result::Pass);
+    TEST_ASSERT_TRUE(m.blowers.mode() == BlowerMode::Idle);
+    TEST_ASSERT_EQUAL_UINT8(45, m.blowers.pct());
+    // No load was asked for, and the chamber offset is gone.
+    TEST_ASSERT_FALSE(m.live.cool || m.live.heat || m.live.humid);
+    TEST_ASSERT_TRUE(m.health.chamberHealthy());
+  }
+}
+
+void test_run_blowers_fails_if_the_rule_does_not_boost() {
+  // A rule whose boost thresholds are wrong (5 C, 20 points): the scenario must fail, not pass.
+  // (Both: the model keeps the vapour pressure, so the sensor scripted 1.5 C warm also reads
+  // about 6 points drier.)
+  Sim m(Profile::Bench);
+  TuningSettings t = m.s.tuning;
+  t.blowerBoostAboveC = 5.0f;
+  t.blowerBoostAboveRhPct = 20.0f;
+  m.blowers.begin(t);
+  TEST_ASSERT_TRUE(m.run(kBlowerScenario, minutes(30)) == ScenarioRunner::Result::Fail);
+}
+
 void test_unknown_scenario_not_started() {
   Sim m(Profile::Bench);
   TEST_ASSERT_FALSE(m.sc.start(77, 0, m.model));
@@ -561,6 +612,8 @@ int main(int, char**) {
   RUN_TEST(test_guard_audit_catches_breaches);
   RUN_TEST(test_idle_control_asks_nothing_when_settled);
   RUN_TEST(test_stop_ends_with_no_demand);
+  RUN_TEST(test_run_blowers_bp2_41);
+  RUN_TEST(test_run_blowers_fails_if_the_rule_does_not_boost);
   RUN_TEST(test_unknown_scenario_not_started);
   return UNITY_END();
 }

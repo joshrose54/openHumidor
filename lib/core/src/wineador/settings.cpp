@@ -47,6 +47,10 @@ bool roundSetpointsToSteps(UserSettings& u, float* wasTemp, float* wasRh) {
   return changed;
 }
 
+bool ionRunsOk(uint8_t runs, uint8_t mins) {
+  return runs <= kIonRunsMax && mins <= kIonMinutesMax && (uint32_t)runs * mins <= kIonMinutesPerDayMax;
+}
+
 Settings settingsFor(Profile p) {
   Settings s;            // the struct defaults ARE the real profile (spec 5.5)
   s.profile = p;
@@ -72,6 +76,9 @@ Settings settingsFor(Profile p) {
     s.tuning.heaterIneffectiveRetryMs   = minutes(2);
     s.tuning.humidIneffectiveRetryMs    = minutes(2);
     s.tuning.harvestBackstopMs    = minutes(2);
+    s.tuning.blowerIdleHoldMs     = minutes(1);    // Rev Q: blower back-to-idle hold
+    s.safety.ionBenchPeriodMs     = minutes(30);   // Rev Q: ion runs every 30 min for 1 min;
+    s.safety.ionBenchRunMs        = minutes(1);    //   the cap unchanged, so the bench exercises it
   }
   return s;
 }
@@ -88,6 +95,7 @@ const char* validateSettings(const Settings& s) {
 
   if (u.targetTempC < kTargetTempMinC || u.targetTempC > kTargetTempMaxC) return "target temperature out of bounds";
   if (u.rhSetpointPct < kRhSetpointMinPct || u.rhSetpointPct > kRhSetpointMaxPct) return "RH setpoint out of bounds";
+  if (!ionRunsOk(u.ionRunsPerDay, u.ionMinutesPerRun)) return "ion generator runs over 10 minutes a day, or out of bounds";
 
   const uint8_t m = f.fanMinDutyPct;
   if (m < 20) return "fan minimum duty below 20%";
@@ -103,12 +111,19 @@ const char* validateSettings(const Settings& s) {
 
   if (t.heaterPwmCapPct > 100) return "heater PWM cap over 100%";
   if (t.sensorReadMs > t.logActiveMs) return "sensor read rate slower than the active log rate";
+  if (t.blowerIdlePct < kBlowerIdleFloorPct || t.blowerIdlePct > 100) return "blower idle duty is 0 or over 100%";
+  if (!(t.blowerIdleBelowC < t.blowerBoostAboveC) || !(t.blowerIdleBelowRhPct < t.blowerBoostAboveRhPct))
+    return "blower back-to-idle spread not below the boost spread";
+  if (t.blowerIdleHoldMs == 0) return "blower back-to-idle hold is 0";
 
   if (f.compressorMinOnMs > f.compressorMaxRunMs) return "compressor minimum on exceeds maximum run";
   if (f.heaterMinOnMs > f.heaterMaxRunMs)         return "heater minimum on exceeds maximum run";
   if (f.minHealthyCabinet > kCabinetSensors)      return "more healthy cabinet sensors required than exist";
   if (f.relaySettleMs < 20)                       return "relay settle shorter than 20 ms";
   if (f.watchdogMs != 5000)                       return "watchdog is not 5 s";
+  if (f.ionCapMs != minutes(10) || f.ionCapWindowMs != hours(24)) return "ion generator cap is not 10 min in 24 hours";
+  if ((f.ionBenchPeriodMs == 0) != (f.ionBenchRunMs == 0) || f.ionBenchRunMs > f.ionBenchPeriodMs)
+    return "ion generator bench schedule wrong";
   if (f.relayExerciseCycles == 0 || f.relayExerciseOnMs < f.relaySettleMs || f.relayExerciseOffMs < f.relaySettleMs)
     return "relay exercise cycles or times wrong";
   return nullptr;
@@ -116,7 +131,8 @@ const char* validateSettings(const Settings& s) {
 
 bool sameUserSettings(const UserSettings& a, const UserSettings& b) {
   return a.targetTempC == b.targetTempC && a.rhSetpointPct == b.rhSetpointPct && a.heaterEnable == b.heaterEnable &&
-         a.humidifierEnable == b.humidifierEnable && a.ionEnable == b.ionEnable && a.manualExcludeMask == b.manualExcludeMask;
+         a.humidifierEnable == b.humidifierEnable && a.ionEnable == b.ionEnable && a.manualExcludeMask == b.manualExcludeMask &&
+         a.ionRunsPerDay == b.ionRunsPerDay && a.ionMinutesPerRun == b.ionMinutesPerRun;
 }
 
 }  // namespace wineador

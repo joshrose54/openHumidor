@@ -217,7 +217,8 @@ CabinetSummary SensorHealth::summary() const {
     c.sensorsOk++;
     const float t = s_[i].tempC, rh = s_[i].rhPct;
     if (i < kCabinetSensors) {
-      if (c.cabinetOk == 0) { c.minC = c.maxC = t; c.maxRhPct = rh; }
+      if (c.cabinetOk == 0) { c.minC = c.maxC = t; c.maxRhPct = c.minRhPct = rh; }
+      if (rh < c.minRhPct) c.minRhPct = rh;
       if (t < c.minC) c.minC = t;
       if (t > c.maxC) c.maxC = t;
       if (rh > c.maxRhPct) c.maxRhPct = rh;
@@ -239,6 +240,7 @@ CabinetSummary SensorHealth::summary() const {
     c.meanRhPct = sumRh / c.cabinetOk;
     c.meanVpKpa = sumVp / c.cabinetOk;
     c.spreadC = c.maxC - c.minC;
+    c.spreadRhPct = c.maxRhPct - c.minRhPct;
     // Control source (4.2): the mean, or the warmest healthy sensor when the spread is over 2 C.
     c.controlWarmest = c.spreadC > 2.0f;
     c.controlC = c.controlWarmest ? c.maxC : c.meanC;

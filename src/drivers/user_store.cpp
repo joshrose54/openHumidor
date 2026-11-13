@@ -23,6 +23,9 @@ const char* load(UserSettings& u) {
   v.humidifierEnable = p.getBool("humid", u.humidifierEnable);
   v.ionEnable = p.getBool("ion", u.ionEnable);        // absent in NVS saved before it existed: the default, on
   v.manualExcludeMask = p.getUChar("excl", 0) & 0x3F;                    // six sensors
+  // Rev Q, 4.6c: absent (saved before they existed) or not a valid pair: both keep their defaults
+  const uint8_t runs = p.getUChar("ionruns", u.ionRunsPerDay), mins = p.getUChar("ionmin", u.ionMinutesPerRun);
+  if (wineador::ionRunsOk(runs, mins)) { v.ionRunsPerDay = runs; v.ionMinutesPerRun = mins; }
   p.end();
   u = v;
   return "saved settings loaded";
@@ -37,6 +40,8 @@ bool save(const UserSettings& u) {
   ok = (p.putBool("humid", u.humidifierEnable) == 1) && ok;
   ok = (p.putBool("ion", u.ionEnable) == 1) && ok;
   ok = (p.putUChar("excl", u.manualExcludeMask) == 1) && ok;
+  ok = (p.putUChar("ionruns", u.ionRunsPerDay) == 1) && ok;
+  ok = (p.putUChar("ionmin", u.ionMinutesPerRun) == 1) && ok;
   p.end();
   return ok;
 }

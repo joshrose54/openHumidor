@@ -12,6 +12,8 @@
 #include "wineador/lcd_ui.h"
 #include "wineador/web_api.h"
 #include "wineador/json_out.h"
+#include "wineador/blower_rule.h"
+#include "wineador/ion_schedule.h"
 
 namespace wineador {
 
@@ -68,9 +70,23 @@ struct StatusSnapshot {
   uint8_t heaterDutyPct = 0;
   uint8_t fanPct = 0;
   uint32_t fanRpm = 0;
+  // the blowers (4.6b) and the ion generator (4.6c), Rev Q (fillBlowerIon)
+  bool hasBlowers = false;
   uint8_t blowerPct = 100;
-  bool blowerBoost = false;
+  BlowerMode blowerMode = BlowerMode::Full;
+  BlowerWhy blowerWhy = BlowerWhy::Boot;
+  float blowerSpreadC = 0, blowerSpreadRhPct = 0;   // from the last sweep the rule judged
+  int32_t blowerIdleInS = -1;                        // boost: holding, idle in this many s (-1: not holding)
+  bool blowerIdleIsFull = true;                      // the idle duty is still full speed (until BP2 test 22)
   bool ionOn = false;
+  IonState ionState = IonState::NotYet;
+  IonWhy ionHeldWhy = IonWhy::None;
+  uint32_t ionLeftS = 0;                             // running
+  bool ionNextFromClock = false;
+  int64_t ionNextUtcS = 0;
+  uint32_t ionNextInS = 0;
+  IonWhy ionLastSkip = IonWhy::None;
+  int64_t ionLastSkipUtcS = 0;
   uint32_t compressorOnForS = 0;        // while running
   bool compressorStoppedSinceBoot = false;
   uint32_t compressorStoppedAgoS = 0;   // since the last stop (when stopped since boot)
@@ -100,6 +116,10 @@ struct StatusSnapshot {
 };
 
 const char* modeKey(ModeIcon m);   // "cooling", "heating", ... "fault"
+
+// The blower and ion generator lines of the snapshot, from their rules (Rev Q).
+void fillBlowerIon(StatusSnapshot* s, const BlowerRule& b, const IonSchedule& ion, const TuningSettings& t,
+                   uint32_t nowMs);
 
 // Copies what the LCD shows — the mode icons and every alert with when it started — into the
 // snapshot, from the LCD's own logic after its update(), so the two can't disagree.

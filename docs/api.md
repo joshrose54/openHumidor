@@ -1,6 +1,13 @@
 # openHumidor dashboard API
 
-API version 3
+API version 4
+
+**Changes in version 4** (stage Q6, the blower and ion generator rules): `loads.blowers` and
+`loads.ion` in `GET /api/status` rewritten (`mode`, `why`, the spread and the idle countdown; the
+ion generator's `state`, its next run and the last skipped run), both null on a board without them;
+`ion_runs_per_day`, `ion_minutes_per_run` and `ion_minutes_per_day_max` in the user settings
+(`ion_enable` no longer has `built`); the runs and minutes as writes, with the error code
+`ion_too_much`; six blower tuning settings.
 
 **Changes in version 3** (stage Q5d, OTA): `phase` and `verify_s` in `GET /api/update`; the
 upload installs (no more `not_built`); error codes `being_checked`, `corrupt_image` and
@@ -80,7 +87,7 @@ only: Rev N has no dashboard.
 A refused request gets an HTTP status and this body:
 
 ```json
-{"api":3,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
+{"api":4,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
 ```
 
 `field` is present when the refusal is about one field; `min`, `max` and `step` with
@@ -117,6 +124,7 @@ A refused request gets an HTTP status and this body:
 | `being_checked` | 409 | Upload refused: the image now running was installed by the last update and hasn't yet started properly (spec 5.2); `message` and `Retry-After` say how long to wait |
 | `corrupt_image` | 422 | The whole image arrived but failed its own check (checksum, SHA-256): nothing changed |
 | `flash_failed` | 500 | Writing the image to flash failed: nothing changed |
+| `ion_too_much` | 400 | Ion generator runs per day × minutes per run over 10 (spec 5.5, 4.6c): "at most 10 minutes a day in total"; `field` is the minutes (or the runs, when only they were sent) |
 
 ## Reads
 
@@ -130,7 +138,7 @@ Who the board is. Small: for tools, and for the Update page to see the new versi
 restart.
 
 ```json
-{"api":3,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
+{"api":4,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
 ```
 
 - `build.board`: `"rev-q"`. `build.profile`: `"real"` or `"bench"`. `build.test`: a test build
@@ -145,7 +153,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
 (spec 5.5).
 
 ```json
-{"api":3,
+{"api":4,
  "time":{"utc_s":1794573120,"uk":"12:32","uk_date":"2026-11-13","trusted":true},
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "uptime_s":7200,
@@ -155,7 +163,9 @@ Everything the Overview and Sensors pages and every page's header show, in one r
  "loads":{"compressor":{"on":true,"stripping":false,"for_s":420,"stopped_ago_s":1830},
           "heater":{"on":false,"duty_pct":0},"humidifier":{"on":false},
           "fan":{"pwm":40,"rpm":1230},"interlock":"cooling",
-          "blowers":{"pwm":100,"boost":false},"ion":{"on":false}},
+          "blowers":{"pwm":100,"mode":"boost","why":null,"spread_t":0.42,"spread_rh":1.3,"idle_in_s":215,"idle_is_full":true},
+          "ion":{"on":false,"state":"waiting","why":null,"left_s":null,"next":"12:00","next_in_s":null,
+                 "last_skipped":{"why":"boot hold","at":"00:00"}}},
  "guards":[{"load":"heater","reason":"crossover","left_s":120}],
  "alerts":[{"title":"Sensor excluded: mid_rear","since":"12:00","rank":3,"fault":false}],
  "sensors":[{"ch":0,"name":"top_front","probe":"09ED","role":"cabinet","state":"healthy","reason":null,
@@ -185,9 +195,24 @@ Everything the Overview and Sensors pages and every page's header show, in one r
   of the four; `age_s`: since the last sensor read.
 - `loads`: what is actually running (the outputs, not the calls). `compressor.for_s` while it
   runs; `stopped_ago_s` since its last stop (null before its first stop since boot).
-  `heater.duty_pct` is its PWM cap while on. `interlock`: the side K1 feeds. `blowers.pwm`
-  their duty (100 = full speed, as in stages Q1–Q3), `boost` (spec 4.6b). `ion.on` (spec 4.6c;
-  off in stages Q1–Q3).
+  `heater.duty_pct` is its PWM cap while on. `interlock`: the side K1 feeds. `blowers` and
+  `ion` are null on a board without them (Rev N).
+- `loads.blowers` (spec 4.6b): `pwm` the duty driven now (100 = full speed). `mode`: `"idle"` (the
+  idle duty), `"boost"` (full speed: the spread was wide, or the rule has just come back from full
+  speed, and it waits for 10 min of low spread), `"full"` (full speed: `why` is `"fault"`,
+  `"no fresh reading"` or `"no reading yet since boot"`; otherwise `why` is null), `"updating"`
+  (the idle duty during an OTA update, a fault included). `spread_t` (°C) and `spread_rh`
+  (points): highest minus lowest of the healthy cabinet sensors at the last sweep the rule judged.
+  `idle_in_s`: in boost with the spread low, seconds until idle if it stays low (null otherwise).
+  `idle_is_full`: the idle duty is still full speed (until BP2 test 22 chooses it).
+- `loads.ion` (spec 4.6c): `on` the output now. `state`: `"running"` (`left_s` to go),
+  `"waiting"` (the next run: `next`, UK local `"12:00"`, from the clock; or `next_in_s` when the
+  time isn't trusted and the runs count from boot — one of the two, the other null), `"held"`
+  (blocked now, `why`: `"boot hold"`, `"update"` or `"fault"`; a run due now is skipped),
+  `"off"` (the enable switched off), `"no_runs"` (runs per day or minutes per run 0),
+  `"starting"` (the first moments after a boot). `last_skipped`: the last run that came due and
+  was skipped (`why`: `"boot hold"`, `"update"`, `"fault"` or `"at most 10 minutes in 24 hours"`;
+  `at` its slot, UK local, null when it counted from boot), or null.
 - `guards`: each load that is asked for but held, why (`reason`, the guard's name as in the
   events), and how long until it may start (`left_s`, null if there is no countdown).
 - `alerts`: every active alert, most serious first — the LCD's alerts screen. `since`: `"14:32"`
@@ -220,7 +245,7 @@ The graphs (spec 5.5): hour and day from the readings, week and month from the h
 Columns ready for uPlot: `t`, then one array per line, all the same length.
 
 ```json
-{"api":3,"range":"day","step_s":60,"now":1794573120,
+{"api":4,"range":"day","step_s":60,"now":1794573120,
  "duty":{"compressor":0.231,"heater":0,"humidifier":0.05},
  "t":[1794486780,1794486840,...],
  "cab_t":[19.82,19.85,...],"cab_t_min":[...],"cab_t_max":[...],"cab_rh":[...],
@@ -262,7 +287,7 @@ Columns ready for uPlot: `t`, then one array per line, all the same length.
 Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 
 ```json
-{"api":3,"source":"card","note":null,
+{"api":4,"source":"card","note":null,
  "events":[{"utc":"2026-11-13T14:32:05Z","uk":"13 Nov 2026 14:32:05","trusted":true,"type":"settings",
             "sentence":"Settings changed from dashboard: target_temp_c 20.0 → 20.5",
             "detail":"settings changed (dashboard): target_temp_c 20.0 -> 20.5"}],
@@ -294,19 +319,24 @@ The settings page (spec 5.5): the user settings with their bounds and steps, and
 settings, read only. **Safety values are never sent** (spec 5.5).
 
 ```json
-{"api":3,
+{"api":4,
  "user":{"target_temp_c":{"value":20,"min":15,"max":22,"step":0.5,"unit":"°C"},
          "rh_setpoint_pct":{"value":62,"min":55,"max":70,"step":1,"unit":"%"},
          "heater_enable":{"value":true},
          "humidifier_enable":{"value":true},
-         "ion_enable":{"value":true,"built":false}},
+         "ion_enable":{"value":true},
+         "ion_runs_per_day":{"value":2,"min":0,"max":4,"step":1},
+         "ion_minutes_per_run":{"value":2,"min":0,"max":5,"step":1,"unit":"min"},
+         "ion_minutes_per_day_max":10},
  "manual_exclude":[],
  "tuning":[{"name":"cooling_hysteresis_c","label":"Cooling hysteresis","value":0.5,"unit":"°C"}]}
 ```
 
 - `ion_enable`: the ion generator may run (spec 5.5, 4.6c "Switched off": off means no runs at
-  all; the run settings keep their values). `built` is false until spec 4.6c is built: until then
-  the generator stays off whatever this says.
+  all; the run settings keep their values).
+- `ion_runs_per_day` (0–4, in fixed UTC slots 24/N hours apart from 00:00) and
+  `ion_minutes_per_run` (0–5): spec 4.6c. Either at 0 means no runs. Together at most
+  `ion_minutes_per_day_max` (10) minutes a day: runs × minutes.
 - `manual_exclude`: the channels excluded by hand (change them with `POST /api/sensors/exclude`).
 - `tuning`: each with `name`, `label`, `value` (true/false for on/off settings) and `unit`.
   The names, in this order: `cooling_hysteresis_c`, `heating_deadband_c`,
@@ -318,15 +348,17 @@ settings, read only. **Safety values are never sent** (spec 5.5).
   `heater_ineffective_rise_c`, `heater_ineffective_window_min`, `heater_ineffective_retry_min`,
   `cooling_ineffective_fall_c`, `cooling_ineffective_window_min`, `humid_ineffective_rise_pts`,
   `humid_ineffective_window_min`, `humid_ineffective_retry_min`, `disturbance_detection`,
-  `log_steady_s`, `log_active_s`, `heater_pwm_period_s`, `sensor_read_s`.
-- The ion generator's runs-per-day and minutes settings join `user` once spec 4.6c is built.
+  `log_steady_s`, `log_active_s`, `heater_pwm_period_s`, `sensor_read_s`, then the blowers (spec
+  4.6b): `blower_idle_pct` (100, full speed, until BP2 test 22 chooses it), `blower_boost_above_c`,
+  `blower_boost_above_rh_pts`, `blower_idle_below_c`, `blower_idle_below_rh_pts`,
+  `blower_idle_hold_min`.
 
 ### `GET /api/logs`
 
 The Logs page: the card and every log file on it, newest first.
 
 ```json
-{"api":3,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
+{"api":4,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
  "files":[{"path":"/logs/2026/2026-11-readings-s2.csv","name":"2026-11-readings-s2.csv","kind":"readings","month":"2026-11","schema":2,"part":1,"bytes":4567890},
           {"path":"/logs/hourly-s2.csv","name":"hourly-s2.csv","kind":"hourly","month":null,"schema":2,"part":1,"bytes":12345}]}
 ```
@@ -348,7 +380,7 @@ A long transfer (above). Not JSON.
 The Update page.
 
 ```json
-{"api":3,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"phase":"idle","pct":0,
+{"api":4,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"phase":"idle","pct":0,
  "slot_bytes":3342336,"check_bytes":352,
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "pending_verify":false,"verify_s":null,
@@ -380,7 +412,9 @@ Changes user settings (spec 5.5). Any of these, all or nothing:
 | `rh_setpoint_pct` | number | 55–70 %, steps of 1 |
 | `heater_enable` | true / false | |
 | `humidifier_enable` | true / false | |
-| `ion_enable` | true / false | (the generator stays off until spec 4.6c is built) |
+| `ion_enable` | true / false | |
+| `ion_runs_per_day` | whole number | 0–4 |
+| `ion_minutes_per_run` | whole number | 0–5; runs × minutes at most 10 (judged on the settings as they would be, so one field alone is checked with the other as it is now) |
 
 ```json
 {"target_temp_c": 20.5}
@@ -390,7 +424,7 @@ Accepted: the reply is the whole settings, as `GET /api/settings`. The change is
 control loop on its next pass and logged as a settings event with the old and new values, "from
 dashboard" (spec 5.4). Refused: `out_of_bounds`, `off_step`, `wrong_type`, `unknown_field`,
 `read_only` (a tuning name), `empty`, `bad_json`, `not_json`, `updating`, `too_soon` (within 10 s
-of the last change saved from the dashboard).
+of the last change saved from the dashboard), `ion_too_much` (runs × minutes over 10).
 
 ### `POST /api/sensors/exclude`
 
@@ -404,7 +438,7 @@ setting).
 - `channel`: the number 0–5, or as on the serial console the position name (`"mid_rear"`),
   `"ch3"`, or the probe label (`"A1C5"`), any case.
 - The reply echoes what it acted on, as the serial console does:
-  `{"api":3,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
+  `{"api":4,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
 - Excluding enough sensors to leave fewer than 3 cabinet sensors causes a Fault (spec 4.3): the
   page asks first; the board doesn't refuse it.
 - Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`, `too_soon` (it
@@ -420,7 +454,7 @@ Logs a "door test" event with an optional note (spec 5.5), for disturbance-detec
 
 `{}` logs it with no note. The note is text of at most 120 bytes (`too_long`), with no control
 characters such as newlines (`wrong_type`). Reply:
-`{"api":3,"logged":true}`.
+`{"api":4,"logged":true}`.
 
 ### `POST /api/update`
 
@@ -479,7 +513,7 @@ watchdog line changes between any two flash steps. Then:
   70 s, the loop ends the update by itself.
 - **The image's own check** (checksum and SHA-256) at the end: if it fails, `corrupt_image`,
   nothing changed. The window stays used up: press Allow update again.
-- **Installed:** the board replies `{"api":3,"installed":true,"version":"2.0.0","restarting":true}`
+- **Installed:** the board replies `{"api":4,"installed":true,"version":"2.0.0","restarting":true}`
   and restarts 1.5 s later. The page then asks `GET /api/info` every few seconds until it answers
   with the new version. The normal boot hold applies.
 - **The new image** must start properly (spec 5.2: 60 s of the loop, the settings check passed,

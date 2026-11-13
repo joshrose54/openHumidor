@@ -115,6 +115,7 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
     if (!testBuild) return Command::TestOnly;
     int v;
     if (n == 2 && strcmp(w[1], "soak") == 0) a.arg = kSoakScenario;
+    else if (n == 2 && strcmp(w[1], "blowers") == 0) a.arg = kBlowerScenario;
     else a.arg = (n == 2 && toInt(w[1], &v)) ? v : -1;
     return Command::Run;
   }
@@ -194,6 +195,11 @@ Command parseCommand(const char* line, bool testBuild, CommandArgs& a) {
     if (strcmp(w[1], "heater") == 0) { a.arg = onOff(w[2]); return Command::SetHeater; }
     if (strcmp(w[1], "humid") == 0)  { a.arg = onOff(w[2]); return Command::SetHumid; }
     if (strcmp(w[1], "ion") == 0)    { a.arg = onOff(w[2]); return Command::SetIon; }
+    if (strcmp(w[1], "ionruns") == 0 || strcmp(w[1], "ionmin") == 0) {
+      int v;
+      a.arg = (toInt(w[2], &v) && v >= 0 && v <= 255) ? v : -2;
+      return w[1][3] == 'r' ? Command::SetIonRuns : Command::SetIonMinutes;
+    }
     return Command::Unknown;
   }
   if (strcmp(c, "exclude") == 0) {
