@@ -250,6 +250,25 @@ void test_controller_exercise_with_both_loads_off_ends_cooling() {
   TEST_ASSERT_FALSE(L.c.exercise().active());
 }
 
+// 5.2: during an OTA update cooling, heater and humidifier are off whatever is asked for, and the
+// relay exercise waits; normal control comes back when it ends.
+void test_controller_updating_holds_every_load_off() {
+  Loop L;
+  Demand all; all.heat = true; all.humid = true;
+  while (L.now < L.s.safety.bootHoldMs + 2000) L.step(all, 5);
+  TEST_ASSERT_TRUE(L.live.heat);
+  TEST_ASSERT_TRUE(L.c.requestExercise(L.now));
+  L.in.updating = true;
+  for (int i = 0; i < 2000; i++) {
+    L.step(all, 5);
+    TEST_ASSERT_FALSE(L.live.cool || L.live.heat || L.live.humid);
+    TEST_ASSERT_FALSE(L.c.exercise().cycling());
+  }
+  L.in.updating = false;
+  while (!L.live.heat && L.now < L.s.safety.bootHoldMs + seconds(600)) L.step(all, 5);
+  TEST_ASSERT_TRUE(L.live.heat || L.c.exercise().cycling());
+}
+
 void test_controller_guard_text() {
   Loop L;
   Demand d; d.heat = true; d.humid = true;
@@ -278,6 +297,7 @@ int main(int, char**) {
   RUN_TEST(test_exercise_request_while_running_refused);
   RUN_TEST(test_controller_boot_hold_then_heat_with_relay_settle);
   RUN_TEST(test_controller_exercise_with_both_loads_off_ends_cooling);
+  RUN_TEST(test_controller_updating_holds_every_load_off);
   RUN_TEST(test_controller_guard_text);
   return UNITY_END();
 }

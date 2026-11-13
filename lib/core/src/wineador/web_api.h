@@ -16,7 +16,7 @@
 
 namespace wineador {
 
-constexpr int kApiVersion = 2;                 // docs/api.md "API version 2"; changes with any endpoint
+constexpr int kApiVersion = 3;                 // docs/api.md "API version 2"; changes with any endpoint
 constexpr int kMaxBrowserConnections = 2;      // spec 5.5
 constexpr size_t kMaxDoorNote = 120;           // the door-test note, in bytes (docs/api.md)
 
@@ -69,7 +69,9 @@ enum class Refusal : uint8_t {
   Stalled,           // 408 no upload data for 60 s (5.2)
   CardUnavailable,   // 503 the SD card is failed or out
   NoAnswer,          // 503 the control loop didn't answer in time (it answers within a pass; never expected)
-  NotBuilt,          // 501 stage Q5c: updates from the dashboard come with stage Q5d
+  BeingChecked,      // 409 OTA: the image now running hasn't been marked good yet (5.2)
+  CorruptImage,      // 422 OTA: the whole image arrived but failed its own check (checksum, SHA-256)
+  FlashFailed,       // 500 OTA: a flash write failed; nothing changed
   TooSoon,           // 429 a saved dashboard change less than 10 s after the last (5.5)
   Count
 };

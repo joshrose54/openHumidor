@@ -36,11 +36,24 @@ constexpr bool kBootDemand = true;
 constexpr bool kBootDemand = false;
 #endif
 
+// B7 test 6 ONLY (spec): the rollback test image, its own build (env revq_rollback_test), never
+// the default. A real-profile cabinet identity (so the OTA check accepts it), version
+// "2.0.0-ROLLBACK-TEST"; it holds every load off and resets itself before it can be marked good.
+#if defined(WINEADOR_ROLLBACK_TEST)
+#if defined(WINEADOR_TEST_BUILD) || defined(WINEADOR_BENCH_PROFILE) || defined(WINEADOR_BOARD_REVN)
+#error "WINEADOR_ROLLBACK_TEST is a Rev Q real-profile build only (env revq_rollback_test)"
+#endif
+constexpr bool kRollbackTest = true;
+#else
+constexpr bool kRollbackTest = false;
+#endif
+
 const char* profileName(Profile p);   // "REAL" or "BENCH"
 
 // The version (spec B3 "Version string"): the board's base version (include/board.h: "1.0.0" on
 // Rev N, "2.0.0" on Rev Q) with -BENCH and -TEST added when they apply, e.g. "2.0.0-BENCH-TEST".
 // Returns out.
-const char* makeVersionString(char* out, size_t n, const char* base, Profile p, bool testBuild);
+// The rollback test image adds -ROLLBACK-TEST.
+const char* makeVersionString(char* out, size_t n, const char* base, Profile p, bool testBuild, bool rollbackTest = false);
 
 }  // namespace wineador

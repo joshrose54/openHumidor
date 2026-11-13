@@ -75,6 +75,10 @@
 #if defined(WINEADOR_BOARD_REVQ)
 #include "esp_ota_ops.h"
 #include "app/web_link.h"
+#include "app/ota.h"
+#include "app/identity.h"
+#include "wineador/ota_update.h"
+#include "wineador/ota_rules.h"
 #include "wineador/web_mail.h"
 #include "wineador/web_status.h"
 #endif
@@ -138,6 +142,20 @@ static float gWasTemp = 0, gWasRh = 0;
 #if defined(WINEADOR_BOARD_REVQ)
 static bool gWebOn = false;              // the web dashboard is running (5.5)
 static uint32_t gSlotBytes = 0;          // the OTA app slot, read at boot
+// OTA (5.2, stage Q5d): the loop's side, the record, "started properly"
+static OtaLoop gOta;
+static OtaRecord gOtaRecord;             // what the last update did (NVS)
+static OtaBoot gOtaBoot;                 // read at boot
+static bool gOtaBootLogged = false;
+static StartedProperly gStarted;         // fed every pass while this image is pending
+static bool gPendingVerify = false;
+static uint32_t gRollBackAtMs = 0;       // the self-rollback is due (0: none)
+static bool gRollbackStop = false;       // ROLLBACK TEST IMAGE: the watchdog line has been stopped
+static uint32_t gRollbackStopMs = 0;
+static BusEventLimiter gOtaLimit;        // refused uploads, 10 an hour (index 0 only; 5.4)
+static bool otaUpdating() { return gOta.updating(); }
+#else
+static bool otaUpdating() { return false; }
 #endif
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
@@ -623,7 +641,8 @@ void setup() {
 #if defined(WINEADOR_TEST_BUILD)
   resetrec::begin((int)esp_reset_reason());   // BOOT ONLY: one flash write (reset record, test builds)
 #endif
-  gBoot.version = makeVersionString(gVersion, sizeof(gVersion), board::kFirmwareVersion, kBuildProfile, kTestBuild);
+  gBoot.version = makeVersionString(gVersion, sizeof(gVersion), board::kFirmwareVersion, kBuildProfile, kTestBuild,
+                                    kRollbackTest);
   // BOOT ONLY: the saved user settings (NVS, 5.5) — before anything takes a copy of the settings.
   backlight::begin();      // Rev Q: 5 kHz PWM, backlight OFF at once (the LCD pulls it on until driven; 3A.11)
   gBoot.userNote = userstore::load(gSettings.user);
@@ -682,6 +701,16 @@ void setup() {
     gSlotBytes = slot ? (uint32_t)slot->size : 0;
     gWebOn = web::begin();
     watchdog::feed();
+    // OTA (5.2): what the last update did, from the NVS record and the bootloader's own state
+    ota::loadRecord(&gOtaRecord);
+    gOtaBoot = readOtaBoot(gOtaRecord, ota::bootFacts(gVersion));
+    if (gOtaBoot.saveRecord) ota::saveRecord(gOtaBoot.record);
+    gOtaRecord = gOtaBoot.record;
+    gPendingVerify = gOtaBoot.pendingVerify;
+    // the image's own identity block (identity.cpp): read here, so it stays in the image
+    if (strcmp(firmware::identity().version, gVersion) != 0)
+      Serial.printf("  IDENTITY BLOCK MISMATCH: the block says %s, this build is %s\n", firmware::identity().version, gVersion);
+    watchdog::feed();
   }
 #endif
 
@@ -731,7 +760,10 @@ static void updateScreen(uint32_t now) {
   in.stripping = gTc.stripping();
   in.bootHold = gCtl.hold().active();
   in.bootHoldLeftMs = gCtl.hold().remainingMs();
-  in.updating = false;                        // OTA arrives with stage Q5
+  in.updating = otaUpdating();                // OTA (5.2): the LCD shows Updating with its %
+#if defined(WINEADOR_BOARD_REVQ)
+  in.updatePct = gOta.pct();
+#endif
   AlertInputs& a = in.alerts;
   a.sensorsKnown = gFirstSweepDone;
   a.sensorFault = sensorFaultFrom(gHealth.chamberHealthy(), in.cabinetOk, gSettings.safety.minHealthyCabinet,
@@ -853,7 +885,8 @@ static void fillWebState(uint32_t now) {
   x.disturbanceDetection = gSettings.tuning.disturbanceDetection;   // the week's counts: added by the server
   x.windowOpen = screen::window().active(now);
   x.windowLeftS = x.windowOpen ? screen::window().remainingMs(now) / 1000 : 0;
-  x.updating = false;                    // OTA writes come with stage Q5d
+  x.updating = gOta.updating();
+  x.updatePct = gOta.pct();
   const sdlog::Stats sd = sdlog::stats();
   x.sdOk = sd.mounted && !sd.failed;
   x.sdFreeBytes = sd.freeBytes;
@@ -893,19 +926,137 @@ static void fillWebState(uint32_t now) {
   u.windowOpen = x.windowOpen;
   u.windowLeftS = x.windowLeftS;
   u.compressorRunning = l.cool;
-  u.updating = false;
+  u.updating = gOta.updating();
+  u.phase = gOta.phase() == OtaLoop::Phase::Writing ? "writing" : gOta.phase() == OtaLoop::Phase::Restarting ? "restarting" : "idle";
+  u.pct = gOta.pct();
   u.slotBytes = gSlotBytes;
   u.running = x.build;
+  u.pendingVerify = gPendingVerify;
+  u.verifyLeftS = gPendingVerify ? gStarted.leftS(now) : 0;
+  u.last = (UpdateResult)gOtaRecord.result;
+  snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", gPendingVerify ? gOtaBoot.lastDetail : gOtaRecord.detail);
+  u.lastUtcS = gOtaRecord.utcS;
+}
+
+// ---------------------------------------------------------------- OTA, the loop's side (5.2)
+static void otaEvent(const char* text) { eventlog::log(kEvTypeOta, "%s", text); }
+
+static void saveOta(const OtaRecord& r) {
+  gOtaRecord = r;
+  ota::saveRecord(r);                    // an NVS write, a few ms: only at the update's steps
+}
+
+// The writer asks to start, or says how it ended. Answers in the same pass.
+static MailAnswer otaMail(const MailRequest& r, uint32_t now) {
+  MailAnswer a;
+  a.id = r.id;
+  a.user = gSettings.user;
+  char e[220];
+  const int64_t utc = gClockSet ? (int64_t)time(nullptr) : 0;
+  if (r.kind == MailKind::UpdateBegin) {
+    a.result = gOta.begin(now, r.length, r.version, outputs::current().cool, screen::window(),
+                          gPendingVerify ? gStarted.leftS(now) : 0);
+    if (a.result.ok()) {
+      formatOtaStarted(e, sizeof(e), r.version, r.length, gVersion);
+      otaEvent(e);
+      saveOta(otaRecordStarted(r.version, gVersion, utc, ota::nextSlot()));
+    }
+  } else {   // UpdateEnd
+    const OtaOutcome o = (OtaOutcome)r.outcome;
+    if (gOta.updating()) {               // (if the loop had already ended it, that was logged then)
+      gOta.end(now, o);
+      formatOtaEnded(e, sizeof(e), o, r.version);
+      otaEvent(e);
+      saveOta(otaRecordEnded(gOtaRecord, o, utc));
+    }
+  }
+  return a;
+}
+
+// Every pass: the writer's progress (the loop's own 70 s watch), the restart, the refused uploads
+// (logged, 10 an hour), "started properly" and its 4 min 30 s deadline, the rollback test image.
+static void otaPass(uint32_t now) {
+  char e[220];
+  const int64_t utc = gClockSet ? (int64_t)time(nullptr) : 0;
+  if (gOta.watch(now, ota::bytesWritten())) {
+    ota::cancel();
+    formatOtaLoopGaveUp(e, sizeof(e), gOta.version(), gOta.bytes(), gOta.total());
+    otaEvent(e);
+    saveOta(otaRecordEnded(gOtaRecord, OtaOutcome::Cancelled, utc));
+  }
+  if (gOta.restartDue(now)) {
+    Serial.println("  OTA: installed; restarting now (loads are off)");
+    Serial.flush();
+    esp_restart();
+  }
+  if (gLogStarted && !gOtaBootLogged) {   // the boot's own OTA event once events carry the clock
+    gOtaBootLogged = true;
+    if (gOtaBoot.logEvent) otaEvent(gOtaBoot.event);
+  }
+  for (ApiResult r; weblink::takeRefused(&r);) {
+    if (!gOtaLimit.allow(0, now)) continue;
+    formatOtaRefused(e, sizeof(e), r);
+    otaEvent(e);
+  }
+  int idx;
+  uint32_t more;
+  while (gOtaLimit.takeSuppressed(now, &idx, &more))
+    eventlog::log(kEvTypeOta, "%lu %s in the last hour (only the first 10 logged)", (unsigned long)more, kEvOtaRefusedMore);
+
+  if (kRollbackTest) {
+    // B7 test 6: never marked good. Sent by OTA (pending), it stops the watchdog line at 20 s so the
+    // board resets and the bootloader rolls back; flashed over USB, there is nothing to roll back to,
+    // so it holds every load off and says so.
+    static bool said = false;
+    if (!said) {
+      said = true;
+      if (gPendingVerify)
+        snprintf(e, sizeof(e), "%s: every load held off; at 20 s the hardware watchdog line stops, so the board resets "
+                 "and rolls back to the image before it", kEvOtaRollbackTest);
+      else
+        snprintf(e, sizeof(e), "%s: not sent by OTA, so there is nothing to roll back to: every load held off. Flash a "
+                 "normal build", kEvOtaRollbackTest);
+      otaEvent(e);
+      Serial.printf("  %s\n", e);
+    }
+    if (gPendingVerify && !gRollbackStop && uptimeMs() >= 20000) { gRollbackStop = true; gRollbackStopMs = now; }
+    if (gRollbackStop && now - gRollbackStopMs >= 10000) esp_restart();   // U5 didn't: a software reset rolls back too
+    return;
+  }
+  if (gPendingVerify) {
+    gStarted.pass(now, gBoot.settingsProblem == nullptr, hwdog::running(), gFirstSweepDone);
+    if (gStarted.good()) {
+      gPendingVerify = false;
+      if (ota::markGood()) {
+        formatOtaGood(e, sizeof(e), gVersion);
+        otaEvent(e);
+        saveOta(otaRecordGood(gOtaRecord, utc));
+      } else {
+        otaEvent("OTA: marking this image good FAILED (esp_ota_mark_app_valid_cancel_rollback)");
+      }
+    } else if (gStarted.overdue(now) && gRollBackAtMs == 0) {
+      formatOtaSelfRollback(e, sizeof(e), gVersion);
+      otaEvent(e);
+      saveOta(otaRecordSelfRollback(gOtaRecord, utc));
+      gRollBackAtMs = now + 2000;        // the event reaches the card first
+      if (gRollBackAtMs == 0) gRollBackAtMs = 1;
+    }
+  }
+  if (gRollBackAtMs && (int32_t)(now - gRollBackAtMs) >= 0) ota::rollBackNow();
 }
 
 // Each pass: the mailbox, then (about once a second) the state copy. Never waits.
 static void serveWeb(uint32_t now) {
   if (!gWebOn) return;
   MailRequest r;
-  if (weblink::takeMail(&r)) {
+  if (weblink::takeMail(&r) && (r.kind == MailKind::UpdateBegin || r.kind == MailKind::UpdateEnd)) {
+    weblink::answerMail(otaMail(r, now));
+    gWebStateDue = true;
+  } else if (r.id != 0) {
     MailContext c;
     c.user = gSettings.user;
-    c.updating = false;                  // stage Q5d: while an update runs, settings are refused (5.5)
+    c.updating = gOta.updating();        // 5.5: settings and excludes refused while Updating
+    c.checkingLeftS = gPendingVerify ? gStarted.leftS(now) : 0;
     c.windowOpen = screen::window().active(now);
     c.compressorRunning = outputs::current().cool;
     c.slotBytes = gSlotBytes;
@@ -1235,6 +1386,7 @@ static void logReadingsRow(uint32_t now) {
   const LoadOutputs l = outputs::current();
   const uint32_t interval = (l.cool || l.heat) ? gSettings.tuning.logActiveMs : gSettings.tuning.logSteadyMs;
   if (!gLogStarted || (gLastRowMs != 0 && elapsedMs(now, gLastRowMs) + 1000 < interval)) return;
+  if (otaUpdating()) return;              // 5.2: no rows while Updating (no sweeps): a break, the events say why
   gLastRowMs = now;
   char ts[24];
   eventlog::isoNow(ts, sizeof(ts));
@@ -1412,7 +1564,11 @@ void loop() {
   // changes every pass, here in the loop. Rev N: nothing.
   static bool firstPass = true;
   if (firstPass) { hwdog::start(now); firstPass = false; }
+#if defined(WINEADOR_BOARD_REVQ)
+  else if (!gRollbackStop) hwdog::kick(now);   // (the rollback test image stops it on purpose)
+#else
   else hwdog::kick(now);
+#endif
   outputs::ionOff();                      // Rev Q: the ion generator held off (stages Q1-Q3)
   supplysense::update(now);               // Rev Q: one 12V reading every 100 ms
   eventlog::setClock(gClockSet, gClock.trusted());
@@ -1450,6 +1606,7 @@ void loop() {
   PassInputs in;
   in.nowMs = now;
   in.settingsOk = (gBoot.settingsProblem == nullptr);
+  in.updating = otaUpdating() || kRollbackTest;   // 5.2: every load off (the rollback test image: always)
   in.fanOk = fan::duty() >= gSettings.safety.fanMinDutyPct && fan::rpm() > 0;
   in.readingsFresh = fresh;
   in.cab = cab;
@@ -1482,10 +1639,12 @@ void loop() {
 
   // 2. The fan: the duty the control asks for (4.6); a start from 0 % kickstarts.
   //    After each tach window, the stall check (5.6) may ask for a kickstart.
-  if (co.fanPct != gFan.target()) gFan.command(co.fanPct, now);
+  const uint8_t fanWant = otaUpdating() ? gSettings.tuning.fanIdlePct : co.fanPct;   // 5.2: idle while updating
+  if (fanWant != gFan.target()) gFan.command(fanWant, now);
   fan::setDuty(gFan.output(now));
   if (fan::update(now, gSettings.safety.fanTachWindowMs)) {
-    if (gFanMon.window(now, gFan.target() >= gSettings.safety.fanMinDutyPct, fan::rpm())) {
+    // 5.2: no fan-stall check while updating (the flash pauses can lose tach pulses)
+    if (!otaUpdating() && gFanMon.window(now, gFan.target() >= gSettings.safety.fanMinDutyPct, fan::rpm())) {
       const uint8_t target = gFan.target();
       gFan.command(0, now);
       gFan.output(now);                   // counts as stopped (not driven), so the next command kicks
@@ -1496,7 +1655,8 @@ void loop() {
   }
 
   // 3. Sensors and RTC — one short step per pass
-  if (i2cbus::idle() && elapsedMs(now, gLastSweepStartMs) >= gSettings.tuning.sensorReadMs) {
+  // 5.2: no sensor sweeps while updating (a flash pause mid-read would time out); resumed after
+  if (!otaUpdating() && i2cbus::idle() && elapsedMs(now, gLastSweepStartMs) >= gSettings.tuning.sensorReadMs) {
     if (i2cbus::startSweep()) gLastSweepStartMs = now;
   }
   i2cbus::update(now);
@@ -1635,8 +1795,13 @@ void loop() {
   // 7. The LCD (Rev Q): one small step; never waits (3A.11).
   updateScreen(now);
 #if defined(WINEADOR_BOARD_REVQ)
-  // 8. The web dashboard (Rev Q): the mailbox and the state copy; never waits (5.2, 5.5).
+  // 8. OTA (5.2), every pass from boot whether or not the dashboard runs: "started properly", its
+  //    4 min 30 s deadline, the rollback test image, the writer's watch and the restart. Then the web
+  //    dashboard: the mailbox and the state copy (never waits, 5.2, 5.5). Then the pass is complete:
+  //    the OTA writer may take its next piece.
+  otaPass(now);
   serveWeb(now);
+  ota::loopPass();
 #endif
   if (printNow) printStatus();
   const uint32_t passUs = micros() - t0;

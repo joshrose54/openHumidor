@@ -48,6 +48,15 @@ void StartedProperly::pass(uint32_t nowMs, bool settingsOk, bool hwWatchdogToggl
     good_ = true;
 }
 
+uint32_t StartedProperly::leftS(uint32_t nowMs) const {
+  if (good_) return 0;
+  if (!started_) return 60;
+  const uint32_t ran = nowMs - firstMs_;
+  if (settingsOk_ && hwdog_ && sweep_ && ran < kStartedProperlyMs) return (kStartedProperlyMs - ran + 999) / 1000;
+  if (ran >= kSelfRollbackMs) return 1;
+  return (kSelfRollbackMs - ran + 999) / 1000;
+}
+
 const char* StartedProperly::waitingFor(uint32_t nowMs, char* out, size_t n) const {
   if (good_) snprintf(out, n, "started properly");
   else if (!started_) snprintf(out, n, "loop not running");

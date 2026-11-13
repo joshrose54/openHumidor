@@ -3,7 +3,7 @@
 // answers, the transfer gate. Errors are JSON with the documented codes; events page back through
 // the files and come from RAM while the card is out; downloads go in pieces and are cut if the card
 // fails; one long transfer at a time; uploads are gated by the loop, checked by identity, refused
-// with not_built in stage Q5c, and always read to their end so the browser sees the reason.
+// and always read to their end when refused, so the browser sees the reason; every refusal logged.
 #include <unity.h>
 #include <string.h>
 #include <map>
@@ -38,7 +38,9 @@ struct Fake : WebBackend {
   History hist;
   EventRow recent[50];
   RecentEvents recentRing;
-  ApiResult installResult = refuse(Refusal::NotBuilt);
+  ApiResult installResult = refuse(Refusal::CorruptImage);
+  int installs = 0;
+  std::vector<std::string> refusedLog;
   Fake() {
     History::Storage s;
     s.raw = raw; s.rawCap = 400; s.day = day; s.dayCap = 1440; s.hourly = hourly; s.hourlyCap = 744;
@@ -91,7 +93,11 @@ struct Fake : WebBackend {
   Refusal startTransfer(TransferKind k) override { return gate.tryStart(k, freeInternal, 8000); }
   void endTransfer() override { gate.finish(); }
   bool transferBusy() override { return gate.busy(); }
-  ApiResult install(const ImageFacts&, BodyReader&, uint64_t*) override { return installResult; }
+  ApiResult install(const ImageFacts&, const uint8_t*, size_t, uint32_t, BodyReader&, uint64_t*, uint8_t*) override {
+    installs++;
+    return installResult;
+  }
+  void noteRefused(const ApiResult& r) override { refusedLog.push_back(refusalCode(r.refusal)); }
 };
 
 struct Body : BodyReader {
@@ -361,7 +367,7 @@ static std::string image(const char* board, const char* profile, bool test, size
   return b;
 }
 
-void test_uploads_gated_by_the_loop_checked_and_not_built_yet() {
+void test_uploads_gated_by_the_loop_checked_then_installed() {
   Fake f;
   Body b;
   const char* bin = "application/octet-stream";
@@ -389,12 +395,23 @@ void test_uploads_gated_by_the_loop_checked_and_not_built_yet() {
   TEST_ASSERT_TRUE(has(s.body, "\"image\":\"rev_n_image\""));
   s = run(f, Method::Post, "/api/update", "", std::string(100, 'x'), bin);
   TEST_ASSERT_TRUE(has(s.body, "\"image\":\"too_short\""));
-  // a Rev Q cabinet build: not built yet (Q5c), read to its end, the gate released
+  // every refusal so far was handed on to be logged (5.4)
+  TEST_ASSERT_EQUAL_INT(6, (int)f.refusedLog.size());   // window, compressor, busy, bench, Rev N, too short
+  TEST_ASSERT_EQUAL_STRING("window_closed", f.refusedLog[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("wrong_image", f.refusedLog[3].c_str());
+  TEST_ASSERT_EQUAL_INT(0, f.installs);
+  // a Rev Q cabinet build that fails at install (corrupt): read to its end, the gate released
   s = run(f, Method::Post, "/api/update", "", image("rev-q", "real", false), bin, true, &b);
-  TEST_ASSERT_EQUAL_INT(501, s.status);
-  TEST_ASSERT_TRUE(has(s.body, "\"error\":\"not_built\""));
+  TEST_ASSERT_EQUAL_INT(422, s.status);
+  TEST_ASSERT_TRUE(has(s.body, "\"error\":\"corrupt_image\""));
   TEST_ASSERT_EQUAL_INT((int)b.data.size(), (int)b.at);
   TEST_ASSERT_FALSE(f.gate.busy());
+  TEST_ASSERT_EQUAL_INT(1, f.installs);
+  // stalled during the write: replied at once, the (never-coming) rest not waited for
+  f.installResult = refuse(Refusal::Stalled);
+  s = run(f, Method::Post, "/api/update", "", image("rev-q", "real", false), bin, true, &b);
+  TEST_ASSERT_EQUAL_INT(408, s.status);
+  TEST_ASSERT_TRUE(b.at < b.data.size());
   // and when installed (the review build)
   f.installResult = ApiResult{};
   s = run(f, Method::Post, "/api/update", "", image("rev-q", "real", false), bin);
@@ -425,7 +442,7 @@ int main() {
   RUN_TEST(test_events_from_ram_while_the_card_is_out);
   RUN_TEST(test_downloads_in_pieces_one_long_transfer_at_a_time);
   RUN_TEST(test_the_graphs_are_read_under_the_lock_and_let_go);
-  RUN_TEST(test_uploads_gated_by_the_loop_checked_and_not_built_yet);
+  RUN_TEST(test_uploads_gated_by_the_loop_checked_then_installed);
   RUN_TEST(test_only_downloads_and_uploads_are_long);
   return UNITY_END();
 }

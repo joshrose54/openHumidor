@@ -29,6 +29,18 @@ SIZES = {"desktop": (1440, 1500, 1), "phone": (390, 3300, 2)}
 STATES = [
     ("normal", "Normal", PAGES),
     ("window", "Allow update pressed on the LCD", ["update"]),
+    # the Update page through every OTA state (stage Q5d): /sim/ota?name=... on the review build
+    ("ota-closed", "Update: window closed", ["update"]),
+    ("ota-open", "Update: window open", ["update"]),
+    ("ota-compressor", "Update: window open, compressor running", ["update"]),
+    ("ota-writing", "Update: writing, 43 %", ["update", "overview"]),
+    ("ota-restarting", "Update: written and checked, restarting", ["update"]),
+    ("ota-pending", "Update: the new image being checked", ["update"]),
+    ("ota-good", "Update: marked good", ["update"]),
+    ("ota-rolled-back", "Update: rolled back", ["update"]),
+    ("ota-abandoned", "Update: abandoned (stalled)", ["update"]),
+    ("ota-corrupt", "Update: corrupt image refused at its check", ["update"]),
+    ("ota-interrupted", "Update: interrupted by a power cut", ["update"]),
     ("heat-humid", "Heating and humidifying", ["overview"]),
     ("drying", "Drying (RH strip)", ["overview"]),
     ("updating", "Updating", ["overview"]),
@@ -66,9 +78,11 @@ def main():
         profile = tempfile.mkdtemp(prefix="oh-shots-")
         cards = []
         for key, label, pages in STATES:
-            get(f"/sim/state?name={'normal' if key == 'window' else key}")
+            get(f"/sim/state?name={'normal' if key == 'window' or key.startswith('ota-') else key}")
             if key == "window":
                 get("/sim/allow-update")
+            if key.startswith("ota-"):
+                get(f"/sim/ota?name={key[4:]}")
             time.sleep(1)
             for p in pages:
                 for size, (w, h, scale) in SIZES.items():
@@ -76,7 +90,24 @@ def main():
                     shot(p, os.path.join(OUT, name), w, h, scale, profile)
                     cards.append((key, label, p, size, name))
                     print("  ", name)
+        # the Update page naming the image chosen, before it is sent (spec 5.2): a cabinet build, and
+        # the rollback test image's warning (headless Chrome driven by tools/drive_update_page.mjs)
         get("/sim/state?name=normal")
+        get("/sim/ota?name=open")
+        for key, label, img in (("ota-chosen-cabinet", "Update: a cabinet build chosen", "revq.bin"),
+                                ("ota-chosen-rollback", "Update: the rollback test image chosen", "revq_rollback_test.bin")):
+            path = os.path.join(ROOT, ".pio.nosync", "images", img)
+            if not os.path.exists(path):
+                print(f"   (no {img}: build it to see this picture)")
+                continue
+            name = f"{key}-update-desktop.png"
+            subprocess.run(["node", os.path.join(ROOT, "tools", "drive_update_page.mjs"), str(PORT), path, OUT, "0", name],
+                           check=True, stdout=subprocess.DEVNULL)
+            STATES.append((key, label, ["update"]))
+            cards.append((key, label, "update", "desktop", name))
+            print("  ", name)
+        get("/sim/state?name=normal")
+        get("/sim/ota?name=closed")
         rows = []
         for key, label, _ in STATES:
             rows.append(f"<h2>{html.escape(label)}</h2><div class=row>")

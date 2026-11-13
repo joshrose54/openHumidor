@@ -17,6 +17,7 @@
 #include "drivers/heap.h"
 #include "drivers/time_sync.h"
 #include "web_link.h"
+#include "ota.h"
 #include "webui/page.h"
 #include "wineador/web_app.h"
 #include "wineador/web_feed.h"
@@ -140,8 +141,13 @@ class BoardBackend : public WebBackend {
     portEXIT_CRITICAL(&gMux);
     return b;
   }
-  // Stage Q5c: the flash writes come with Q5d. Nothing is read or written here.
-  ApiResult install(const ImageFacts&, BodyReader&, uint64_t*) override { return refuse(Refusal::NotBuilt); }
+  // Stage Q5d: started through the loop, written a piece per loop pass, checked, set to boot.
+  ApiResult install(const ImageFacts& f, const uint8_t* head, size_t headN, uint32_t total, BodyReader& body,
+                    uint64_t* bodyLeft, uint8_t* piece) override {
+    ota::clearCancel();
+    return runOtaInstall(*this, f, head, headN, total, body, bodyLeft, piece, ota::flash(), ota::pacer());
+  }
+  void noteRefused(const ApiResult& r) override { weblink::noteRefused(r); }
 
  private:
   Area* a_;
@@ -255,6 +261,7 @@ esp_err_t onRequest(httpd_req_t* req) {
     if (gLongBusy) {
       // one long transfer at a time (5.5): refused at once, never queued behind the running one
       gBusyRefused++;
+      if (w.method == Method::Post) weblink::noteRefused(refuse(Refusal::Busy));   // an upload: logged (5.4)
       HttpSink s(req);
       char b[200];
       const int n = formatError(b, sizeof(b), refuse(Refusal::Busy));

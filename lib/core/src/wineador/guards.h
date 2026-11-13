@@ -42,6 +42,7 @@ struct Demand {
 enum class GuardBlock : uint8_t {
   None,
   SettingsProblem,   // the settings failed validation: every load off
+  Updating,          // an OTA update is running (5.2): every load off
   BootHold,          // startup delay after every boot
   RelayExercise,     // the weekly relay exercise is waiting or cycling
   Disabled,          // heater or humidifier switched off in the user settings
@@ -64,6 +65,7 @@ const char* guardBlockName(GuardBlock b);   // short, e.g. "boot-hold"
 struct GuardInputs {
   uint32_t nowMs = 0;
   bool settingsOk = true;
+  bool updating = false;         // 5.2: an OTA update is running
   bool bootHoldActive = true;
   bool exerciseWaiting = false;   // exercise pending: cool and heat may not START
   bool exerciseCycling = false;   // exercise running: cool and heat OFF

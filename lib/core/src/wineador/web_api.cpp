@@ -70,7 +70,9 @@ static const RefusalInfo kRefusals[(int)Refusal::Count] = {
   {408, "stalled",            "The upload stopped: nothing arrived for 60 seconds. Nothing was installed."},
   {503, "card_unavailable",   "The SD card isn't available just now."},
   {503, "no_answer",          "The controller didn't answer in time. Try again."},
-  {501, "not_built",          "Updates from the dashboard aren't built yet (they come with stage Q5d)."},
+  {409, "being_checked",      "The last update is still being checked. Try again shortly."},
+  {422, "corrupt_image",      "The image arrived but failed its own check (checksum or SHA-256): it is corrupt. Nothing changed."},
+  {500, "flash_failed",       "Writing the image to flash failed. Nothing changed; the board carries on as it was."},
   {429, "too_soon",           "Changes from the dashboard are saved at most once every 10 s. Try again shortly."},
 };
 

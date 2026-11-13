@@ -2,6 +2,39 @@
 
 *Updated 2026-11-13.*
 
+## Port to Rev Q: stage Q5d (accepted 2026-11-13)
+
+**OTA from the dashboard** (spec 5.2, 5.5, 3A.11, B7 test 6). Rev Q only. Not flashed.
+- **Identity block:** made at compile time (`identityBlockFor`, lib/core image_identity.h), in
+  `.rodata_custom_desc` (`src/app/identity.cpp`): byte 0x120 of every Rev Q image (the .elf: app
+  description 0x3C0F0020, block 0x3C0F0120). `tools/check_identity.py` runs after every board build,
+  fails it unless the block is there and right (none on Rev N and the BP2 sketches), and keeps a copy
+  of each image in `.pio.nosync/images/`. `test_image_check`: every built image gets its expected
+  verdict (26), the page's JS agreeing on all 146.
+- **lib/core `ota_update`:** the writer (4 KB pieces, one per control-loop pass, the 60 s stall, cut
+  off, corrupt, cancelled), the loop's side (start: compressor checked on that pass, window used up;
+  its own 70 s watch; restart 1.5 s after), the NVS record and the boot reading (waiting, rolled
+  back, interrupted, self-rollback), the install through the mailbox, the image's own checksum.
+  `StartedProperly`: countdown and the 5-minute deadline. Controller: an `updating` stop guard.
+- **Board (`src/app/ota`, `main.cpp`):** ESP-IDF sequential writes through a 256-byte internal
+  copy; Arduino's own early "mark good" taken over (`verifyRollbackLater`); marked good by the 5.2
+  rule; rolls itself back after 4 min 30 s (inside the boot hold); while Updating: loads off, fan
+  idle, no sweeps, no fan-stall check, no readings rows (a break; the events say why); refused uploads logged, 10 an hour. `revq_rollback_test`: loads always off; stops
+  the watchdog line at 20 s; by USB it holds the loads off and says so.
+- **API version 3:** `phase` and `verify_s` in `GET /api/update`; `being_checked`, `corrupt_image`,
+  `flash_failed`; `not_built` gone. The Update page names the image before it is sent (the rollback test image said plainly)
+  and follows writing %, restarting, being checked, marked good or rolled back live.
+- **Review build:** the same install into a flash in memory; `/sim` scenes for every Update state;
+  `dashboard_shots.py` 70 pictures (the image-chosen ones by `tools/drive_update_page.mjs`). **B7 test 6 commands:** `docs/b7-test6-commands.md`;
+  `tools/make_bad_image.py`.
+
+- **Sizes:** revq flash 1,382,022 bytes (+14,228), static RAM 81,168 (+1,992); Rev N +84 bytes
+  flash (lib/core), static RAM unchanged, no identity block. Page 55,639 bytes compressed.
+- **Order:** build the boards first, then the native tests (`pio test` clears the build folders;
+  the tests read the copies in `.pio.nosync/images/`, and `test_image_check` fails without revq).
+
+Native tests **442/442**; 26 builds without warnings.
+
 ## After Q5c: the dashboard save limit (accepted 2026-11-13)
 
 Spec 5.5: at most one saved dashboard change (settings or a manual exclude) every 10 s; sooner is

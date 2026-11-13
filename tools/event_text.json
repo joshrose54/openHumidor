@@ -30,6 +30,7 @@
     "Supply12v": "12v",
     "Wifi": "wifi",
     "Door": "door",
+    "Ota": "ota",
     "Scenario": "scenario"
   },
   "texts": {
@@ -70,6 +71,18 @@
     "WifiBack": {"type": "wifi", "text": "WiFi back after", "match": "starts"},
     "HeapFloor": {"type": "heap", "text": "FREE HEAP BELOW THE", "match": "starts"},
     "DoorTest": {"type": "door", "text": "door test", "match": "starts"},
+    "OtaStarted": {"type": "ota", "text": "OTA UPDATE STARTED", "match": "starts"},
+    "OtaInstalled": {"type": "ota", "text": "OTA UPDATE INSTALLED", "match": "starts"},
+    "OtaAbandoned": {"type": "ota", "text": "OTA UPDATE ABANDONED", "match": "starts"},
+    "OtaFailed": {"type": "ota", "text": "OTA UPDATE FAILED", "match": "starts"},
+    "OtaInterrupted": {"type": "ota", "text": "OTA UPDATE INTERRUPTED", "match": "starts"},
+    "OtaRefused": {"type": "ota", "text": "OTA upload refused", "match": "starts"},
+    "OtaRefusedMore": {"type": "ota", "text": "more OTA uploads refused", "match": "contains"},
+    "OtaWaiting": {"type": "ota", "text": "OTA: new image running", "match": "starts"},
+    "OtaGood": {"type": "ota", "text": "OTA: started properly", "match": "starts"},
+    "OtaRolledBack": {"type": "ota", "text": "OTA ROLLED BACK", "match": "starts"},
+    "OtaSelfRollback": {"type": "ota", "text": "OTA: not started properly within 4 min 30 s", "match": "starts"},
+    "OtaRollbackTest": {"type": "ota", "text": "ROLLBACK TEST IMAGE", "match": "starts"},
     "ScenarioResult": {"type": "scenario", "text": "======== run", "match": "contains"},
     "ScenarioLine": {"type": "scenario", "text": "[run ", "match": "contains"},
     "ScenarioPass": {"type": "scenario", "text": "PASS", "match": "contains"}

@@ -85,10 +85,15 @@ class WebBackend {
   virtual Refusal startTransfer(TransferKind k) = 0;
   virtual void endTransfer() = 0;
   virtual bool transferBusy() = 0;
-  // An image that passed every check, the rest of its body still to read (*bodyLeft bytes; lowered
-  // by what it reads). The board in stage Q5c: refused, not_built, nothing read. The review build:
-  // reads it and pretends to install it. On a refusal the caller reads the rest away.
-  virtual ApiResult install(const ImageFacts& f, BodyReader& body, uint64_t* bodyLeft) = 0;
+  // An image that passed every check: its first headN bytes in head, the rest of its body still to
+  // read (*bodyLeft bytes; lowered by what it reads), `total` bytes in all; `piece` a kWebPiece
+  // buffer. Starts the update through the loop (UpdateBegin), writes it (ota_update.h), ends it
+  // (UpdateEnd). On a refusal the caller reads the rest away.
+  virtual ApiResult install(const ImageFacts& f, const uint8_t* head, size_t headN, uint32_t total, BodyReader& body,
+                            uint64_t* bodyLeft, uint8_t* piece) = 0;
+  // An upload refused (logged by the loop: 5.4, at most 10 an hour). Not for an update that started
+  // and then failed: the loop logs that itself.
+  virtual void noteRefused(const ApiResult& r) { (void)r; }
 };
 
 // The server's scratch space for one request at a time (one per server task; PSRAM on the board).

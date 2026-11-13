@@ -96,6 +96,12 @@ MailAnswer decideMail(const MailRequest& r, const MailContext& ctx) {
       g.slotBytes = ctx.slotBytes;
       const Refusal f = checkUpdateStart(g);
       a.result = f == Refusal::None ? ApiResult{} : (f == Refusal::WrongImage ? refuseImage(ImageVerdict::TooShort) : refuse(f));
+      if (f == Refusal::None && ctx.checkingLeftS > 0) {
+        char m[120];
+        snprintf(m, sizeof(m), "The last update is still being checked: try again in %lu s.", (unsigned long)ctx.checkingLeftS);
+        a.result = refuse(Refusal::BeingChecked, nullptr, m);
+        a.result.retryS = ctx.checkingLeftS;
+      }
       break;
     }
     case MailKind::None:

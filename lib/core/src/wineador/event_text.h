@@ -28,7 +28,7 @@ namespace wineador {
   X(Ineffective, "ineffective") X(Disturbance, "disturbance")      \
   X(Heap, "heap") X(Psram, "psram") X(Hwdog, "hwdog") X(Lcd, "lcd") \
   X(Supply12v, "12v") X(Wifi, "wifi") X(Door, "door")              \
-  X(Scenario, "scenario")
+  X(Ota, "ota") X(Scenario, "scenario")
 
 #define WINEADOR_EV_TYPE_CONST(name, text) constexpr const char* kEvType##name = text;
 WINEADOR_EVENT_TYPES(WINEADOR_EV_TYPE_CONST)
@@ -75,6 +75,18 @@ enum class EvMatch : uint8_t { Starts, Contains };
   X(WifiBack,       Wifi,       "WiFi back after",          Starts)                                 \
   X(HeapFloor,      Heap,       "FREE HEAP BELOW THE",      Starts)                                 \
   X(DoorTest,       Door,       "door test",                Starts)                                 \
+  X(OtaStarted,     Ota,        "OTA UPDATE STARTED",       Starts)                                 \
+  X(OtaInstalled,   Ota,        "OTA UPDATE INSTALLED",     Starts)                                 \
+  X(OtaAbandoned,   Ota,        "OTA UPDATE ABANDONED",     Starts)                                 \
+  X(OtaFailed,      Ota,        "OTA UPDATE FAILED",        Starts)                                 \
+  X(OtaInterrupted, Ota,        "OTA UPDATE INTERRUPTED",   Starts)                                 \
+  X(OtaRefused,     Ota,        "OTA upload refused",       Starts)                                 \
+  X(OtaRefusedMore, Ota,        "more OTA uploads refused", Contains) /* "N more ... this hour" */   \
+  X(OtaWaiting,     Ota,        "OTA: new image running",   Starts)                                 \
+  X(OtaGood,        Ota,        "OTA: started properly",    Starts)                                 \
+  X(OtaRolledBack,  Ota,        "OTA ROLLED BACK",          Starts)                                 \
+  X(OtaSelfRollback, Ota,       "OTA: not started properly within 4 min 30 s", Starts)             \
+  X(OtaRollbackTest, Ota,       "ROLLBACK TEST IMAGE",      Starts)                                 \
   X(ScenarioResult, Scenario,   "======== run",             Contains) /* then the number, PASS ... */ \
   X(ScenarioLine,   Scenario,   "[run ",                    Contains)                               \
   X(ScenarioPass,   Scenario,   "PASS",                     Contains)

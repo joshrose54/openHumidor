@@ -258,6 +258,25 @@ int door(char* o, size_t n, const char* d) {
   return labelled(o, n, "Door test", d);
 }
 
+int ota(char* o, size_t n, const char* d) {
+  struct P { const char* text; const char* say; };
+  const P k[] = {
+    {kEvOtaStarted, "Update started"}, {kEvOtaInstalled, "Update installed"}, {kEvOtaAbandoned, "Update abandoned"},
+    {kEvOtaFailed, "Update failed"}, {kEvOtaInterrupted, "Update interrupted"}, {kEvOtaRefused, "Update refused"},
+    {kEvOtaWaiting, "New firmware running, being checked"}, {kEvOtaGood, "New firmware started properly"},
+    {kEvOtaRolledBack, "Update rolled back"}, {kEvOtaSelfRollback, "New firmware didn't start properly in 4 min 30 s"},
+    {kEvOtaRollbackTest, "Rollback test image"},
+  };
+  for (const P& p : k) {
+    if (!starts(d, p.text)) continue;
+    const char* rest = d + strlen(p.text);
+    while (*rest == ':' || *rest == ' ') rest++;
+    return rest[0] ? snprintf(o, n, "%s: %s", p.say, rest) : snprintf(o, n, "%s", p.say);
+  }
+  if (strstr(d, kEvOtaRefusedMore)) return labelled(o, n, "Updates refused", d);
+  return labelled(o, n, "Update", d);
+}
+
 int scenario(char* o, size_t n, const char* d) {
   const char* p = strstr(d, "] ");
   return labelled(o, n, "Test scenario", p ? p + 2 : d);
@@ -272,7 +291,7 @@ const Row kMakers[] = {
   {kEvTypeCrossover, crossover}, {kEvTypeStrip, strip}, {kEvTypeHumidify, humidify}, {kEvTypeExercise, exercise},
   {kEvTypeIneffective, ineffective}, {kEvTypeDisturbance, disturbance}, {kEvTypeHeap, heap}, {kEvTypePsram, psram},
   {kEvTypeHwdog, hwdog}, {kEvTypeLcd, lcd}, {kEvTypeSupply12v, supply12v}, {kEvTypeWifi, wifi}, {kEvTypeDoor, door},
-  {kEvTypeScenario, scenario},
+  {kEvTypeOta, ota}, {kEvTypeScenario, scenario},
 };
 
 const Row* find(const char* type) {

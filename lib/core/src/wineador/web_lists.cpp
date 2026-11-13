@@ -125,11 +125,14 @@ int formatUpdateState(char* out, size_t n, const UpdateState& u) {
   w.kInt("window_s", u.windowOpen ? u.windowLeftS : 0);
   w.kBool("compressor_running", u.compressorRunning);
   w.kBool("updating", u.updating);
+  w.kStr("phase", u.phase ? u.phase : "idle");
   w.kInt("pct", u.updating ? u.pct : 0);
   w.kInt("slot_bytes", u.slotBytes);
   w.kInt("check_bytes", (int64_t)kImageCheckBytes);
   writeBuild(w, u.running);
   w.kBool("pending_verify", u.pendingVerify);
+  if (u.pendingVerify) w.kInt("verify_s", u.verifyLeftS);
+  else w.kNull("verify_s");
   w.key("last");
   w.beginObject();
   w.kStr("result", updateResultKey(u.last));

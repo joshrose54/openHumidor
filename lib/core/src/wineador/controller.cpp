@@ -15,14 +15,18 @@ void Controller::begin(const Settings& s, uint32_t nowMs) {
   demand_ = Demand{};
 }
 
-LoadOutputs Controller::pass(const PassInputs& in, const Demand& demand) {
+LoadOutputs Controller::pass(const PassInputs& in, const Demand& demandIn) {
+  // 5.2: during an OTA update cooling, heater and humidifier are off (the "updating" guard, at once,
+  // whatever their timers), and the relay exercise waits
+  const Demand& demand = demandIn;
   demand_ = demand;
   hold_.update(in.nowMs);
-  exercise_.update(in.nowMs, !in.live.cool && !in.live.heat);
+  exercise_.update(in.nowMs, !in.updating && !in.live.cool && !in.live.heat);
 
   GuardInputs g;
   g.nowMs = in.nowMs;
   g.settingsOk = in.settingsOk;
+  g.updating = in.updating;
   g.bootHoldActive = hold_.active();
   g.exerciseWaiting = exercise_.waiting();
   g.exerciseCycling = exercise_.cycling();

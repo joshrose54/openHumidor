@@ -7,6 +7,7 @@ const char* guardBlockName(GuardBlock b) {
   switch (b) {
     case GuardBlock::None:            return "clear";
     case GuardBlock::SettingsProblem: return "settings-problem";
+    case GuardBlock::Updating:        return "updating";
     case GuardBlock::BootHold:        return "boot-hold";
     case GuardBlock::RelayExercise:   return "relay-exercise";
     case GuardBlock::Disabled:        return "disabled";
@@ -88,6 +89,7 @@ GuardDecisions RuntimeGuards::evaluate(const GuardInputs& in, const Demand& dm, 
   // Stop guards common to all three loads, in order of importance.
   GuardBlock common = GuardBlock::None;
   if (!in.settingsOk)          common = GuardBlock::SettingsProblem;
+  else if (in.updating)        common = GuardBlock::Updating;
   else if (in.bootHoldActive)  common = GuardBlock::BootHold;
 
   GuardDecisions out;

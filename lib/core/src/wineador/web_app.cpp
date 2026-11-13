@@ -341,16 +341,22 @@ void WebApp::write(const WebRequest& rq, Route r, BodyReader& body, ReplySink& o
 
 // ---------------------------------------------------------------- the firmware upload
 void WebApp::upload(const WebRequest& rq, BodyReader& body, ReplySink& out, WebWork& w) {
-  // 1. The gate, decided by the loop (window, compressor, already updating), before a byte is read.
+  uint64_t left = rq.contentLength;
+  auto refused = [&](const ApiResult& r, bool readAway) {
+    if (readAway) drain(body, left, w);
+    b_.noteRefused(r);
+    error(out, w, r);
+  };
+  // 1. The gate, decided by the loop (window, compressor, already updating, still being checked),
+  //    before a byte is read.
   w.mail = MailRequest{};
   w.mail.kind = MailKind::UpdateStart;
   w.mail.length = rq.contentLength > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)rq.contentLength;
   w.mail.transferBusy = b_.transferBusy();
-  uint64_t left = rq.contentLength;
-  if (!b_.ask(&w.mail, &w.answer)) { drain(body, left, w); error(out, w, refuse(Refusal::NoAnswer)); return; }
-  if (!w.answer.result.ok()) { drain(body, left, w); error(out, w, w.answer.result); return; }
+  if (!b_.ask(&w.mail, &w.answer)) { refused(refuse(Refusal::NoAnswer), true); return; }
+  if (!w.answer.result.ok()) { refused(w.answer.result, true); return; }
   const Refusal t = b_.startTransfer(TransferKind::Update);
-  if (t != Refusal::None) { drain(body, left, w); error(out, w, refuse(t)); return; }
+  if (t != Refusal::None) { refused(refuse(t), true); return; }
   // 2. The first bytes: the build's identity.
   size_t n = 0;
   while (n < kImageCheckBytes) {
@@ -359,13 +365,14 @@ void WebApp::upload(const WebRequest& rq, BodyReader& body, ReplySink& out, WebW
     n += (size_t)k;
   }
   left -= n;
-  if (n < kImageCheckBytes) { b_.endTransfer(); error(out, w, refuse(Refusal::Stalled)); return; }
+  if (n < kImageCheckBytes) { b_.endTransfer(); refused(refuse(Refusal::Stalled), false); return; }
   const ImageFacts facts = readImageFacts(w.head, n);
   const ImageVerdict v = judgeImage(facts);
-  if (v != ImageVerdict::Accept) { drain(body, left, w); b_.endTransfer(); error(out, w, refuseImage(v)); return; }
-  // 3. Install (stage Q5c on the board: not built; the rest is read away).
-  const ApiResult r = b_.install(facts, body, &left);
-  if (!r.ok()) drain(body, left, w);
+  if (v != ImageVerdict::Accept) { b_.endTransfer(); refused(refuseImage(v), true); return; }
+  // 3. Install: started through the loop, written a piece per pass, checked, set to boot.
+  const ApiResult r = b_.install(facts, w.head, n, (uint32_t)rq.contentLength, body, &left, (uint8_t*)w.piece);
+  // a refusal: the rest read away so the browser sees why; but not after a stall (nothing more is coming)
+  if (!r.ok() && r.refusal != Refusal::Stalled) drain(body, left, w);
   b_.endTransfer();
   if (!r.ok()) { error(out, w, r); return; }
   json(out, w.text, formatInstalledReply(w.text, sizeof(w.text), facts.version));

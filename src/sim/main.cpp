@@ -35,6 +35,7 @@
 #include "wineador/image_identity.h"
 #include "wineador/web_app.h"
 #include "wineador/web_mail.h"
+#include "wineador/ota_update.h"
 #include <algorithm>
 
 using namespace wineador;
@@ -162,6 +163,25 @@ class BufferSink : public ReplySink {
   std::string type_, extra_, body_;
 };
 
+// ---------------------------------------------------------------- OTA into memory (review only)
+class MemFlash : public OtaFlash {
+ public:
+  bool begin(uint32_t bytes) override { img_.clear(); img_.reserve(bytes); return true; }
+  bool write(const uint8_t* p, size_t n) override { img_.insert(img_.end(), p, p + n); return true; }
+  End end() override { return imageChecksumOk(img_.data(), img_.size()) ? End::Ok : End::Corrupt; }
+  void abort() override { img_.clear(); }
+  bool setBoot() override { return true; }
+ private:
+  std::vector<uint8_t> img_;
+};
+
+// One piece per "pass": the simulated board moves on between pieces, as the loop does.
+class SimPacer : public OtaPacer {
+ public:
+  bool nextPass() override { return true; }
+  void progress(uint32_t bytes) override { gBoard.otaProgress(bytes); }
+};
+
 // ---------------------------------------------------------------- the simulated board, as the server sees it
 class SimBackend : public WebBackend {
  public:
@@ -200,12 +220,17 @@ class SimBackend : public WebBackend {
     if (!box_.post(r)) return false;
     MailRequest taken;
     box_.take(&taken);
+    if (taken.kind == MailKind::UpdateBegin || taken.kind == MailKind::UpdateEnd) {
+      box_.answer(gBoard.otaMail(taken));
+      return box_.collect(r->id, a);
+    }
     MailContext c;
     c.user = gBoard.user();
     c.updating = gBoard.updating();
     c.windowOpen = gBoard.windowOpen();
     c.compressorRunning = gBoard.compressorRunning();
     c.slotBytes = 3342336;
+    c.checkingLeftS = gBoard.checkingLeftS();
     c.nowMs = (uint32_t)(time(nullptr) * 1000);
     c.limit = &limit_;
     const MailAnswer ans = decideMail(taken, c);
@@ -222,17 +247,15 @@ class SimBackend : public WebBackend {
   Refusal startTransfer(TransferKind k) override { return gate_.tryStart(k, 200000, 0); }
   void endTransfer() override { gate_.finish(); }
   bool transferBusy() override { return gate_.busy(); }
-  ApiResult install(const ImageFacts& f, BodyReader& body, uint64_t* left) override {
-    // the review build reads the image to its end and throws it away (never written anywhere)
-    char b[4096];
-    while (*left > 0) {
-      const int k = body.read(b, (size_t)std::min<uint64_t>(*left, sizeof(b)), kUploadStallMs);
-      if (k <= 0) return refuse(Refusal::Stalled);
-      *left -= (uint64_t)k;
-    }
-    if (!gBoard.startUpdate(f.version)) return refuse(Refusal::WindowClosed);
-    return ApiResult{};
+  // the same install as the board (lib/core ota_update.h), into a flash held in memory: the image's
+  // own checksum is checked at the end, as ESP-IDF checks it (with its SHA-256) on the board
+  ApiResult install(const ImageFacts& f, const uint8_t* head, size_t headN, uint32_t total, BodyReader& body,
+                    uint64_t* left, uint8_t* piece) override {
+    MemFlash flash;
+    SimPacer pacer;
+    return runOtaInstall(*this, f, head, headN, total, body, left, piece, flash, pacer);
   }
+  void noteRefused(const ApiResult& r) override { gBoard.otaRefused(r); }
  private:
   Mailbox box_;
   TransferGate gate_;
@@ -261,7 +284,15 @@ static void simPage(int fd) {
     h += "</a></li>";
   }
   h += "</ul><p><a href='/sim/allow-update'>Press Allow update</a> (as on the cabinet's LCD: opens the 5-minute "
-       "window)</p>";
+       "window)</p><h2>The Update page</h2><ul>";
+  for (int i = 0; i < sim::Board::kOtaSceneCount; i++) {
+    h += "<li><a href='/sim/ota?name=";
+    h += sim::Board::kOtaScenes[i];
+    h += "'>";
+    h += sim::Board::kOtaSceneLabels[i];
+    h += "</a></li>";
+  }
+  h += "</ul>";
   reply(fd, 200, "text/html; charset=utf-8", h.data(), h.size());
 }
 
@@ -282,6 +313,12 @@ static void handle(int fd) {
     return;
   }
   if (rq.path == "/sim/allow-update") { gBoard.pressAllowUpdate(); back(fd); return; }
+  if (rq.path == "/sim/ota") {
+    char v[40];
+    if (queryValue(rq.query.c_str(), "name", v, sizeof(v))) gBoard.otaScene(v);
+    back(fd);
+    return;
+  }
   if (rq.path == "/sim/frame") {   // the dashboard at a phone's width, for screenshots (headless Chrome won't go below 500 px)
     char w[8] = "390", h[8] = "2300", p[24] = "overview";
     queryValue(rq.query.c_str(), "w", w, sizeof(w));

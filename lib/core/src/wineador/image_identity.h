@@ -78,8 +78,38 @@ inline ImageVerdict checkImage(const uint8_t* first, size_t n) { return judgeIma
 const char* imageVerdictCode(ImageVerdict v);   // "bench_build"
 const char* imageVerdictText(ImageVerdict v);   // "That is a bench build (short timers): never for the cabinet."
 
-// Fills a block (the firmware's own, Q5d; and the tests' made-up images).
+// Fills a block (the tests' made-up images).
 void makeIdentityBlock(ImageIdentityBlock* b, const char* board, bool bench, bool testBuild, const char* version,
                        uint16_t api);
+
+// The firmware's own block, made at compile time (stage Q5d) so it is plain constant data the linker
+// places at byte 0x120 of the image (src/app/identity.cpp). The version is spec B3's string, built
+// here the same way as makeVersionString(): base, then -BENCH, -TEST, or -ROLLBACK-TEST for the B7
+// test 6 rollback image. test_image_identity proves the two agree for every build.
+namespace detail {
+constexpr void putText(char* dst, size_t cap, size_t* at, const char* s) {
+  for (size_t i = 0; s[i] && *at + 1 < cap; i++) dst[(*at)++] = s[i];
+}
+}  // namespace detail
+constexpr ImageIdentityBlock identityBlockFor(const char* board, bool bench, bool testBuild, bool rollbackTest,
+                                              const char* base, uint16_t api) {
+  ImageIdentityBlock b{};
+  size_t at = 0;
+  detail::putText(b.magic, sizeof(b.magic), &at, WINEADOR_IDENTITY_MAGIC);
+  at = 0;
+  detail::putText(b.board, sizeof(b.board), &at, board);
+  at = 0;
+  detail::putText(b.profile, sizeof(b.profile), &at, bench ? "bench" : "real");
+  b.testBuild = testBuild ? 1 : 0;
+  b.layout = kIdentityLayout;
+  b.apiLo = (uint8_t)(api & 0xFF);
+  b.apiHi = (uint8_t)(api >> 8);
+  at = 0;
+  detail::putText(b.version, sizeof(b.version), &at, base);
+  if (bench) detail::putText(b.version, sizeof(b.version), &at, "-BENCH");
+  if (testBuild) detail::putText(b.version, sizeof(b.version), &at, "-TEST");
+  if (rollbackTest) detail::putText(b.version, sizeof(b.version), &at, "-ROLLBACK-TEST");
+  return b;
+}
 
 }  // namespace wineador

@@ -18,6 +18,7 @@ namespace wineador {
 
 constexpr uint32_t kUploadStallMs = 60000;      // 5.2: no data for 60 s -> abandoned
 constexpr uint32_t kStartedProperlyMs = 60000;  // 5.2: the loop has run 60 s ...
+constexpr uint32_t kSelfRollbackMs = 270000;    // 5.2: not marked good within 4 min 30 s of boot (inside the 5-min boot hold)
 
 // ---------------------------------------------------------------- the Allow update gate
 struct UpdateGateInputs {
@@ -60,6 +61,12 @@ class StartedProperly {
  public:
   void pass(uint32_t nowMs, bool settingsOk, bool hwWatchdogToggling, bool firstFullSweepDone);
   bool good() const { return good_; }
+  // 5.2: not marked good within 4 min 30 s of boot (running, but never meeting the rule): true once
+  // from then on; the firmware rolls itself back, inside the boot hold so it never cuts a run short.
+  bool overdue(uint32_t nowMs) const { return started_ && !good_ && nowMs - firstMs_ >= kSelfRollbackMs; }
+  // The seconds a further upload should wait (being_checked): to 60 s while that is the only thing
+  // left; otherwise to the 4 min 30 s deadline. 0 once good.
+  uint32_t leftS(uint32_t nowMs) const;
   // Why not yet (for the status line): "running 42 s", "settings check failed" ...
   const char* waitingFor(uint32_t nowMs, char* out, size_t n) const;
 

@@ -16,7 +16,7 @@
  * Times are UK local time from the board, never the browser's own zone. */
 "use strict";
 
-const API_VERSION = 2;
+const API_VERSION = 3;
 const STATUS_EVERY = 30000;
 const LONG_EVERY = 300000;
 
@@ -293,6 +293,7 @@ function renderOverview() {
 const UK = (ts) => uPlot.tzDate(new Date(ts * 1e3), "Europe/London");
 const ukTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const ukDay = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short" });
+function ukWhen(utcS) { const d = new Date(utcS * 1000); return `${ukDay.format(d)} ${ukTime.format(d)}`; }
 // the time axis in UK time, 24-hour (5.5): times over a day or less, dates beyond
 const timeAxis = () => axis({ values: (u, splits) => {
   const wide = u.scales.x.max - u.scales.x.min > 2 * 86400;
@@ -606,29 +607,49 @@ async function logsPage() {
 
 // ---------------------------------------------------------------- Update
 let upd = null, updAt = 0, updFile = null, updOk = false;
+const UPDATE_EVERY = 5000;   // the Update page follows an update, a check or a rollback as it happens
+let updAwaitGood = null;     // the version just installed, until it is marked good
 // judgeImage(): web/image_check.js, the board's own rules (proven equal to the C++ by test_image_check)
 function windowLeft() { return upd && upd.window_open ? Math.max(0, upd.window_s - (Date.now() - updAt) / 1000) : 0; }
+function verifyLeft() { return upd && upd.pending_verify ? Math.max(0, (upd.verify_s || 0) - (Date.now() - updAt) / 1000) : 0; }
 function renderUpdateWindow() {
-  if (status) { upd = { ...(upd || {}), window_open: status.update.window_open, window_s: status.update.window_s, updating: status.update.updating, pct: status.update.pct, compressor_running: status.loads.compressor.on }; updAt = statusAt; }
+  // whichever reading is newer: the status (every 30 s) or the Update page's own (every 5 s)
+  if (status && (!upd || statusAt > updAt)) { upd = { ...(upd || {}), window_open: status.update.window_open, window_s: status.update.window_s, updating: status.update.updating, pct: status.update.pct, compressor_running: status.loads.compressor.on }; updAt = statusAt; }
   if (!upd) return;
-  const left = windowLeft(), open = left > 0;
+  const left = windowLeft(), open = left > 0, checking = !!upd.pending_verify;
   const w = $("#u-window");
-  w.classList.toggle("open", open);
-  w.innerHTML = open
-    ? `${icon("system_update_alt")}<div><b>Update allowed</b><span>Allow update was pressed on the cabinet screen. One update can be sent.</span></div><span class="count">${mss(left)}</span>`
-    : `${icon("system_update_alt")}<div><b>Updates are closed</b><span>Press <b>Allow update</b> in Settings on the cabinet's screen: it opens a 5-minute window.</span></div>`;
-  $("#u-send").disabled = !(open && updOk && !upd.updating && !upd.compressor_running);
+  w.classList.toggle("open", open || upd.updating);
+  if (upd.updating) {
+    w.innerHTML = upd.phase === "restarting"
+      ? `${icon("system_update_alt")}<div><b>Installed: restarting</b><span>Written and checked. Every load is off; the board restarts in a moment, then the boot hold applies.</span></div>`
+      : `${icon("system_update_alt")}<div><b>Updating</b><span>Writing the new firmware a piece at a time. Every load is off until it has finished.</span></div><span class="count">${upd.pct} %</span>`;
+  } else if (checking) {
+    w.innerHTML = `${icon("system_update_alt")}<div><b>Checking the new firmware</b><span>It is marked good once it has run 60 s with the settings check passed, the watchdog toggling and every sensor read once. A reset before then rolls back to the one before.</span></div><span class="count">${mss(verifyLeft())}</span>`;
+  } else {
+    w.innerHTML = open
+      ? `${icon("system_update_alt")}<div><b>Update allowed</b><span>${upd.compressor_running ? "The compressor is running: an update never cuts a cooling run short, so it waits until it has stopped." : "Allow update was pressed on the cabinet screen. One update can be sent."}</span></div><span class="count">${mss(left)}</span>`
+      : `${icon("system_update_alt")}<div><b>Updates are closed</b><span>Press <b>Allow update</b> in Settings on the cabinet's screen: it opens a 5-minute window.</span></div>`;
+  }
+  $("#u-send").disabled = !(open && updOk && !upd.updating && !upd.compressor_running && !checking);
   if (open && upd.compressor_running && updOk) { $("#u-check").className = "msg"; $("#u-check").textContent = "The compressor is running: an update never cuts a cooling run short. Wait for it to stop."; }
 }
 setInterval(() => { if (page() === "update") renderUpdateWindow(); }, 1000);
 async function updatePage() {
   upd = await api("/api/update");
   updAt = Date.now();
-  const lastText = { none: "none since this boot", installed: "installed", refused: "refused", abandoned: "abandoned (stalled)", rolled_back: "rolled back", failed: "failed" };
+  if (updAwaitGood && !upd.pending_verify && !upd.updating) {
+    const m = $("#u-check");
+    m.className = upd.last.result === "rolled_back" ? "msg bad" : "msg good";
+    m.textContent = upd.last.result === "rolled_back"
+      ? `${updAwaitGood} didn't start properly and was rolled back: running ${upd.build.version}.`
+      : `${upd.build.version} started properly and is marked good.`;
+    updAwaitGood = null;
+  }
+  const lastText = { none: "none yet", installed: "installed", refused: "refused", abandoned: "abandoned", rolled_back: "rolled back", failed: "failed" };
   $("#u-facts").innerHTML = [
     ["Running", `${esc(upd.build.version)} · ${upd.build.board} · ${upd.build.profile}${upd.build.test ? " · test" : ""}`],
     ["Started properly", upd.pending_verify ? "not yet: a reset now would roll back" : "yes"],
-    ["Last update", `${lastText[upd.last.result] || upd.last.result}${upd.last.detail ? ` · ${esc(upd.last.detail)}` : ""}`],
+    ["Last update", `${lastText[upd.last.result] || upd.last.result}${upd.last.detail ? ` · ${esc(upd.last.detail)}` : ""}${upd.last.utc_s ? ` · ${ukWhen(upd.last.utc_s)}` : ""}`],
     ["Largest image", bytes(upd.slot_bytes)],
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
   renderUpdateWindow();
@@ -640,10 +661,16 @@ $("#u-file").addEventListener("change", async (e) => {
   $("#u-file-name").textContent = updFile ? `${updFile.name} · ${bytes(updFile.size)}` : "Choose firmware.bin";
   if (updFile) {
     const head = new Uint8Array(await updFile.slice(0, 352).arrayBuffer());
-    const { ok, text } = judgeImage(head);
+    const { ok, text, version } = judgeImage(head);
     updOk = ok;
-    m.className = ok ? "msg good" : "msg bad";
-    m.textContent = text + (ok ? " The board checks it again before writing anything." : " Nothing will be sent.");
+    if (ok && version.includes("-ROLLBACK-TEST")) {
+      // B7 test 6's rollback test image: accepted, but said plainly (spec 5.2)
+      m.className = "msg bad";
+      m.textContent = `This is the ROLLBACK TEST image (${version}): it will roll back by itself. Every load stays off, and about 20 s after it starts the board resets and goes back to the firmware before it. B7 test 6 only.`;
+    } else {
+      m.className = ok ? "msg good" : "msg bad";
+      m.textContent = text + (ok ? " The board checks it again before writing anything." : " Nothing will be sent.");
+    }
   } else m.textContent = "";
   renderUpdateWindow();
 });
@@ -663,9 +690,19 @@ $("#u-form").addEventListener("submit", (e) => {
     if (x.status === 200 && r?.installed) {
       m.className = "msg good";
       m.textContent = `Installed ${r.version}. The board is restarting; this page will show it when it answers.`;
-      const want = r.version;
+      const want = r.version, sentAt = Date.now();
       const poll = setInterval(async () => {
-        try { const i = await api("/api/info"); if (i.build.version === want) { clearInterval(poll); m.textContent = `Back on ${i.build.version}. The boot hold applies, as after every restart.`; updatePage(); } } catch (_) { /* restarting */ }
+        try {
+          const i = await api("/api/info");
+          // restarted: its uptime began after the reply came (the version alone can't tell: it may be the same)
+          if (i.uptime_s * 1000 >= Date.now() - sentAt) return;
+          clearInterval(poll);
+          m.textContent = i.build.version === want
+            ? `Back on ${i.build.version}, being checked: it is marked good after 60 s of running. The boot hold applies, as after every restart.`
+            : `Running ${i.build.version}: the new firmware didn't start properly and was rolled back.`;
+          if (i.build.version === want) updAwaitGood = want;
+          updatePage();
+        } catch (_) { /* restarting */ }
       }, 3000);
     } else { m.className = "msg bad"; m.textContent = r?.message || `Refused (HTTP ${x.status}). Nothing was written.`; bar.hidden = true; renderUpdateWindow(); }
   };
@@ -687,7 +724,7 @@ function show() {
   if (p === "events") { job("events", loadEvents, 0); job("events-new", newEvents, STATUS_EVERY); }
   if (p === "settings") job("settings-page", settingsPage, 0);
   if (p === "logs") job("logs", logsPage, 0);
-  if (p === "update") job("update", updatePage, 0);
+  if (p === "update") job("update", updatePage, UPDATE_EVERY);
   document.title = p === "overview" ? "openHumidor" : `${p[0].toUpperCase()}${p.slice(1)} · openHumidor`;
 }
 addEventListener("hashchange", show);

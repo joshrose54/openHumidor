@@ -98,7 +98,7 @@ void test_every_other_image_is_refused_with_its_reason() {
 }
 
 // The real images from the builds, when they have been built: Rev N's is refused by its chip;
-// Rev Q's carries no identity block until stage Q5d adds it (then it is accepted).
+// Rev Q's cabinet build is accepted (its identity block, stage Q5d); a BP2 sketch never.
 static bool readFile(const char* path, std::vector<uint8_t>* out) {
   FILE* f = fopen(path, "rb");
   if (!f) return false;
@@ -112,21 +112,21 @@ static bool readFile(const char* path, std::vector<uint8_t>* out) {
 void test_the_real_images_from_the_builds() {
   std::vector<uint8_t> b;
   int seen = 0;
-  if (readFile(".pio.nosync/build/esp32dev/firmware.bin", &b)) {
+  if (readFile(".pio.nosync/images/esp32dev.bin", &b)) {
     seen++;
     TEST_ASSERT_TRUE(verdict(b) == ImageVerdict::RevNImage);
   }
-  if (readFile(".pio.nosync/build/revq/firmware.bin", &b)) {
+  if (readFile(".pio.nosync/images/revq.bin", &b)) {
     seen++;
     const ImageVerdict v = verdict(b);
-    TEST_ASSERT_TRUE(v == ImageVerdict::NoIdentity || v == ImageVerdict::Accept);
+    TEST_ASSERT_TRUE(v == ImageVerdict::Accept);             // stage Q5d: the cabinet build carries its block
     TEST_ASSERT_EQUAL_UINT16(kChipEsp32S3, readImageFacts(b.data(), b.size()).chip);
   }
-  if (readFile(".pio.nosync/build/bp2_15_boot_state/firmware.bin", &b)) {
+  if (readFile(".pio.nosync/images/bp2_15_boot_state.bin", &b)) {
     seen++;
     TEST_ASSERT_TRUE(verdict(b) == ImageVerdict::NoIdentity);   // a BP2 sketch: never
   }
-  if (seen == 0) TEST_IGNORE_MESSAGE("no firmware.bin built yet: build esp32dev and revq, then run again");
+  if (seen == 0) TEST_IGNORE_MESSAGE("no .pio.nosync/images/*.bin yet: build esp32dev and revq, then run again");
 }
 
 // ---------------------------------------------------------------- the Allow update gate
@@ -178,7 +178,7 @@ void test_a_wrong_image_says_why() {
   TEST_ASSERT_TRUE(r.refusal == Refusal::WrongImage);
   char out[400];
   TEST_ASSERT_TRUE(formatError(out, sizeof(out), r) > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"error\":\"wrong_image\",\"message\":\"That is a bench build (short timers): "
+  TEST_ASSERT_EQUAL_STRING("{\"api\":3,\"error\":\"wrong_image\",\"message\":\"That is a bench build (short timers): "
                            "never for the cabinet.\",\"image\":\"bench_build\"}", out);
 }
 

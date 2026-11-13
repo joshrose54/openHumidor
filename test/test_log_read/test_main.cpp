@@ -352,7 +352,7 @@ void test_events_reply() {
   TEST_ASSERT_TRUE(w.find("\"older\":\"/logs/2026/2026-11-events-s2.csv@100\"") != std::string::npos);
   TEST_ASSERT_TRUE(w.find("\"source\":\"card\",\"note\":null") != std::string::npos);
   EventsReply none(rows, 0, nullptr, nullptr);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":2,\"source\":\"card\",\"note\":null,\"events\":[],\"older\":null,\"newest\":null}",
+  TEST_ASSERT_EQUAL_STRING("{\"api\":3,\"source\":\"card\",\"note\":null,\"events\":[],\"older\":null,\"newest\":null}",
                            jsoncheck::whole(none).c_str());
   // the worst row: every byte a control character (6 bytes each as \u00XX) still fits one step
   EventRow ctl;

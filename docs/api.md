@@ -1,12 +1,15 @@
 # openHumidor dashboard API
 
-API version 2
+API version 3
+
+**Changes in version 3** (stage Q5d, OTA): `phase` and `verify_s` in `GET /api/update`; the
+upload installs (no more `not_built`); error codes `being_checked`, `corrupt_image` and
+`flash_failed`.
 
 **Changes in version 2** (stage Q5b): `ion_enable` in the user settings (read and write); the
 `board` object in `GET /api/status`; `source`, `note` and `sentence` in `GET /api/events`.
-Stage Q5c (the board's server) added two error codes, `no_answer` and `not_built`, and the save
-limit added `too_soon`, each with the usual error body; no reply changed, so the version stays 2.
-`not_built` goes again in stage Q5d.
+Stage Q5c added the error code `no_answer` and the save limit `too_soon` (with `Retry-After`),
+each with the usual error body.
 
 The JSON endpoints the board serves for the web dashboard and for tools on the Mac (spec 5.5).
 Every endpoint and every field is listed here. The firmware's own constant (`kApiVersion` in
@@ -15,7 +18,7 @@ Every endpoint and every field is listed here. The firmware's own constant (`kAp
 or the codes and names below.
 
 **The version changes whenever any endpoint changes** — a field added, renamed or removed, a
-new endpoint, a changed meaning. Every JSON reply carries it as `"api": 2`, so a Mac tool can
+new endpoint, a changed meaning. Every JSON reply carries it as `"api": 3`, so a Mac tool can
 check it and stop with a clear message rather than misread a newer reply.
 
 The board answers on the home network only, as `http://wineador.local/` (plain http). Rev Q
@@ -77,7 +80,7 @@ only: Rev N has no dashboard.
 A refused request gets an HTTP status and this body:
 
 ```json
-{"api":2,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
+{"api":3,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
 ```
 
 `field` is present when the refusal is about one field; `min`, `max` and `step` with
@@ -111,7 +114,9 @@ A refused request gets an HTTP status and this body:
 | `card_unavailable` | 503 | The SD card is failed or out (logs and downloads; events are then served from RAM) |
 | `no_answer` | 503 | The control loop didn't answer a write within 3 s (it answers on its next pass, a few ms; not expected) |
 | `too_soon` | 429 | A settings change or manual exclude less than 10 s after the last change saved from the dashboard (spec 5.5); `message` says how long to wait ("Try again in 7 s."), and the reply carries the same wait as a `Retry-After` header in whole seconds (`Retry-After: 7`) for tools |
-| `not_built` | 501 | Stage Q5c only: an upload that passed every check is refused, nothing written: updates come with stage Q5d |
+| `being_checked` | 409 | Upload refused: the image now running was installed by the last update and hasn't yet started properly (spec 5.2); `message` and `Retry-After` say how long to wait |
+| `corrupt_image` | 422 | The whole image arrived but failed its own check (checksum, SHA-256): nothing changed |
+| `flash_failed` | 500 | Writing the image to flash failed: nothing changed |
 
 ## Reads
 
@@ -125,7 +130,7 @@ Who the board is. Small: for tools, and for the Update page to see the new versi
 restart.
 
 ```json
-{"api":2,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
+{"api":3,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
 ```
 
 - `build.board`: `"rev-q"`. `build.profile`: `"real"` or `"bench"`. `build.test`: a test build
@@ -140,7 +145,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
 (spec 5.5).
 
 ```json
-{"api":2,
+{"api":3,
  "time":{"utc_s":1794573120,"uk":"12:32","uk_date":"2026-11-13","trusted":true},
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "uptime_s":7200,
@@ -215,7 +220,7 @@ The graphs (spec 5.5): hour and day from the readings, week and month from the h
 Columns ready for uPlot: `t`, then one array per line, all the same length.
 
 ```json
-{"api":2,"range":"day","step_s":60,"now":1794573120,
+{"api":3,"range":"day","step_s":60,"now":1794573120,
  "duty":{"compressor":0.231,"heater":0,"humidifier":0.05},
  "t":[1794486780,1794486840,...],
  "cab_t":[19.82,19.85,...],"cab_t_min":[...],"cab_t_max":[...],"cab_rh":[...],
@@ -257,7 +262,7 @@ Columns ready for uPlot: `t`, then one array per line, all the same length.
 Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 
 ```json
-{"api":2,"source":"card","note":null,
+{"api":3,"source":"card","note":null,
  "events":[{"utc":"2026-11-13T14:32:05Z","uk":"13 Nov 2026 14:32:05","trusted":true,"type":"settings",
             "sentence":"Settings changed from dashboard: target_temp_c 20.0 → 20.5",
             "detail":"settings changed (dashboard): target_temp_c 20.0 -> 20.5"}],
@@ -289,7 +294,7 @@ The settings page (spec 5.5): the user settings with their bounds and steps, and
 settings, read only. **Safety values are never sent** (spec 5.5).
 
 ```json
-{"api":2,
+{"api":3,
  "user":{"target_temp_c":{"value":20,"min":15,"max":22,"step":0.5,"unit":"°C"},
          "rh_setpoint_pct":{"value":62,"min":55,"max":70,"step":1,"unit":"%"},
          "heater_enable":{"value":true},
@@ -321,7 +326,7 @@ settings, read only. **Safety values are never sent** (spec 5.5).
 The Logs page: the card and every log file on it, newest first.
 
 ```json
-{"api":2,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
+{"api":3,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
  "files":[{"path":"/logs/2026/2026-11-readings-s2.csv","name":"2026-11-readings-s2.csv","kind":"readings","month":"2026-11","schema":2,"part":1,"bytes":4567890},
           {"path":"/logs/hourly-s2.csv","name":"hourly-s2.csv","kind":"hourly","month":null,"schema":2,"part":1,"bytes":12345}]}
 ```
@@ -343,21 +348,25 @@ A long transfer (above). Not JSON.
 The Update page.
 
 ```json
-{"api":2,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"pct":0,
+{"api":3,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"phase":"idle","pct":0,
  "slot_bytes":3342336,"check_bytes":352,
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
- "pending_verify":false,
- "last":{"result":"installed","detail":"2.0.0","utc_s":1794573120}}
+ "pending_verify":false,"verify_s":null,
+ "last":{"result":"installed","detail":"2.0.0, replacing 1.9.0: started properly","utc_s":1794573120}}
 ```
 
 - `window_open`, `window_s`: the LCD's Allow update window and its seconds left. The page counts
   down by itself from this (spec 5.5).
 - `slot_bytes`: the largest image accepted. `check_bytes`: how much of the start of an image
   the board reads to check it (the page reads the same bytes to warn early).
+- `updating`, `phase`, `pct`: an update in progress: `phase` is `idle`, `writing` (with `pct` of
+  the image written) or `restarting` (written and checked; the board restarts in a moment).
 - `build`: the image running now. `pending_verify`: it hasn't yet "started properly" (spec 5.2);
-  a reset now would roll back.
-- `last.result`: `none`, `installed`, `refused`, `abandoned` (stalled), `rolled_back`, `failed`;
-  `detail` the reason or the version; `utc_s` when (null if unknown).
+  a reset now would roll back. `verify_s`: while pending, the seconds until a further upload may
+  be sent (to 60 s once only the 60 s are left, otherwise to the 4 min 30 s deadline); null otherwise.
+- `last.result`: `none`, `installed`, `refused`, `abandoned` (stalled or cut off), `rolled_back`,
+  `failed` (corrupt, a flash write, or interrupted by a reset or power cut); `detail` says which,
+  with the versions; `utc_s` when (null if unknown). Kept across restarts (NVS).
 
 ## Writes
 
@@ -395,7 +404,7 @@ setting).
 - `channel`: the number 0–5, or as on the serial console the position name (`"mid_rear"`),
   `"ch3"`, or the probe label (`"A1C5"`), any case.
 - The reply echoes what it acted on, as the serial console does:
-  `{"api":2,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
+  `{"api":3,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
 - Excluding enough sensors to leave fewer than 3 cabinet sensors causes a Fault (spec 4.3): the
   page asks first; the board doesn't refuse it.
 - Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`, `too_soon` (it
@@ -411,7 +420,7 @@ Logs a "door test" event with an optional note (spec 5.5), for disturbance-detec
 
 `{}` logs it with no note. The note is text of at most 120 bytes (`too_long`), with no control
 characters such as newlines (`wrong_type`). Reply:
-`{"api":2,"logged":true}`.
+`{"api":3,"logged":true}`.
 
 ### `POST /api/update`
 
@@ -442,8 +451,9 @@ written, the window left open, and `image` saying why:
 
 How it is told (`lib/core/src/wineador/image_identity.h`): byte 0 is 0xE9; bytes 12–13 the chip
 (0 = ESP32, 9 = ESP32-S3); at byte 0x20 the framework's app description (magic 0xABCD5432); at
-byte 0x120, straight after it, the 64-byte identity block every build carries from stage Q5 on
-(ESP-IDF's `.rodata_custom_desc` section; proven on a real image in stage Q5d):
+byte 0x120, straight after it, the 64-byte identity block every Rev Q build carries from stage Q5d on
+(ESP-IDF's `.rodata_custom_desc` section; every board build is checked for it at this place by
+`tools/check_identity.py`, and `test_image_check` judges every built image):
 
 | Bytes | Field | Value |
 |---|---|---|
@@ -458,18 +468,28 @@ byte 0x120, straight after it, the 64-byte identity block every build carries fr
 Only a positive match is accepted: no block, or any field other than `rev-q`, `real`, 0, layout 1,
 is refused.
 
-**Stage Q5c:** an upload that passes every check above is refused with `not_built`, nothing
-written and the window left open. The rest of its body is read and thrown away first, so the
-browser sees the reason.
+**Accepted:** the update starts (the window is used up, spec 5.5): on that pass the loop checks
+again that the compressor isn't running, then every load goes off as spec 5.2 (blowers at idle,
+plenum fan at its idle setting, no sensor sweeps, no fan-stall check), the LCD shows Updating
+with its %, and the image is written in 4 KB pieces, one per control-loop pass, so the hardware
+watchdog line changes between any two flash steps. Then:
 
-**Accepted (from stage Q5d):** the update starts (the window is used up): loads off as spec 5.2, the LCD shows
-Updating with its %, the image is written in 4 KB pieces. An upload with no data for 60 s is
-abandoned (`stalled`): the half-written image is discarded and normal control resumes. When the
-whole image has arrived and its own checksum is right, the board replies
-`{"api":2,"installed":true,"version":"2.0.0","restarting":true}` and restarts. The page then asks
-`GET /api/info` every few seconds until it answers with the new version. If the new image
-doesn't start properly (spec 5.2) the board rolls back by itself; `GET /api/update` then shows
-`rolled_back`.
+- **No data for 60 s**, or the upload stops short of its `Content-Length`: abandoned (`stalled`),
+  the half-written image discarded, normal control at once. If the writing ever stops moving for
+  70 s, the loop ends the update by itself.
+- **The image's own check** (checksum and SHA-256) at the end: if it fails, `corrupt_image`,
+  nothing changed. The window stays used up: press Allow update again.
+- **Installed:** the board replies `{"api":3,"installed":true,"version":"2.0.0","restarting":true}`
+  and restarts 1.5 s later. The page then asks `GET /api/info` every few seconds until it answers
+  with the new version. The normal boot hold applies.
+- **The new image** must start properly (spec 5.2: 60 s of the loop, the settings check passed,
+  the hardware watchdog toggling, the first sweep of all six sensors finished) to be marked good.
+  A reset before then rolls back to the previous image; so does not being marked good within
+  4 min 30 s of boot (inside the 5-minute boot hold, so the rollback never cuts a run short).
+  `GET /api/update` then shows `rolled_back`. Until it is marked good a further upload is refused
+  with `being_checked`.
+- **No readings rows are written while Updating** (no sensor sweeps then): the graphs show a
+  break, and the update events say why.
 
 ## For tools on the Mac
 

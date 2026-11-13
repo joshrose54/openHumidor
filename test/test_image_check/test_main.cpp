@@ -99,11 +99,42 @@ void test_the_page_and_the_board_agree_on_every_image() {
       snprintf(name, sizeof(name), "byte%03zx-%02x", at, v);
       s.add(name, m);
     }
-  // the real images, when they have been built
+  // every real image built (tools/check_identity.py keeps a copy of each in .pio.nosync/images/),
+  // each with the verdict it must get: build the boards first, then run this test
+  struct Want { const char* env; ImageVerdict v; };
+  const Want wants[] = {
+    {"revq", ImageVerdict::Accept}, {"revq_rollback_test", ImageVerdict::Accept},
+    {"revq_bench", ImageVerdict::BenchBuild}, {"revq_bench_test", ImageVerdict::BenchBuild},
+    {"revq_bench_test_boot", ImageVerdict::BenchBuild}, {"revq_real_test", ImageVerdict::TestBuild},
+    {"revq-corrupt", ImageVerdict::Accept},   // tools/make_bad_image.py: identity intact, refused at its own check
+    {"esp32dev", ImageVerdict::RevNImage}, {"bench", ImageVerdict::RevNImage}, {"bench_test", ImageVerdict::RevNImage},
+    {"bench_test_boot", ImageVerdict::RevNImage}, {"real_test", ImageVerdict::RevNImage},
+    {"bp2_15_boot_state", ImageVerdict::NoIdentity}, {"bp2_18_outputs", ImageVerdict::NoIdentity},
+    {"bp2_19_interlock", ImageVerdict::NoIdentity}, {"bp2_20_full_load", ImageVerdict::NoIdentity},
+    {"bp2_21_wifi_rails", ImageVerdict::NoIdentity}, {"bp2_22_blowers", ImageVerdict::NoIdentity},
+    {"bp2_23_blower_reset", ImageVerdict::NoIdentity}, {"bp2_24_watchdog", ImageVerdict::NoIdentity},
+    {"bp2_26_sd_power", ImageVerdict::NoIdentity}, {"bp2_27_12v", ImageVerdict::NoIdentity},
+    {"bp2_28_sensors", ImageVerdict::NoIdentity}, {"bp2_29_lcd_touch", ImageVerdict::NoIdentity},
+    {"bp2_30_rtc", ImageVerdict::NoIdentity}, {"bp2_35_bulb", ImageVerdict::NoIdentity},
+  };
   std::vector<uint8_t> real;
-  for (const char* p : {".pio.nosync/build/revq/firmware.bin", ".pio.nosync/build/revq_bench/firmware.bin",
-                        ".pio.nosync/build/esp32dev/firmware.bin", ".pio.nosync/build/bp2_15_boot_state/firmware.bin"})
-    if (readFirst(p, &real)) s.add("real", real);
+  int realSeen = 0;
+  for (const Want& w : wants) {
+    char p[96];
+    snprintf(p, sizeof(p), ".pio.nosync/images/%s.bin", w.env);
+    if (!readFirst(p, &real)) {
+      if (strcmp(w.env, "revq") == 0) TEST_FAIL_MESSAGE("no .pio.nosync/images/revq.bin: build revq first, then run this test");
+      continue;
+    }
+    char msg[160];
+    snprintf(msg, sizeof(msg), "%s: %s, should be %s", w.env, imageVerdictCode(checkImage(real.data(), real.size())),
+             imageVerdictCode(w.v));
+    TEST_ASSERT_TRUE_MESSAGE(checkImage(real.data(), real.size()) == w.v, msg);
+    printf("  real image %-22s %s\n", w.env, imageVerdictCode(w.v));
+    s.add(w.env, real);
+    realSeen++;
+  }
+  printf("  %d real images, each with its expected verdict\n", realSeen);
   s.manifest += "\n]\n";
   char path[128];
   snprintf(path, sizeof(path), "%s/manifest.json", kDir);

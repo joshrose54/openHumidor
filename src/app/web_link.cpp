@@ -49,6 +49,35 @@ void copy(State* out) {
   xSemaphoreGive(gLock);
 }
 
+static ApiResult gNotes[4];
+static int gNoteHead = 0, gNoteCount = 0;
+static uint32_t gNotesDropped = 0;
+
+void noteRefused(const ApiResult& r) {
+  portENTER_CRITICAL(&gBoxMux);
+  if (gNoteCount < 4) {
+    gNotes[(gNoteHead + gNoteCount) % 4] = r;
+    gNoteCount++;
+  } else {
+    gNotesDropped++;
+  }
+  portEXIT_CRITICAL(&gBoxMux);
+}
+
+bool takeRefused(ApiResult* out) {
+  portENTER_CRITICAL(&gBoxMux);
+  const bool got = gNoteCount > 0;
+  if (got) {
+    *out = gNotes[gNoteHead];
+    gNoteHead = (gNoteHead + 1) % 4;
+    gNoteCount--;
+  }
+  portEXIT_CRITICAL(&gBoxMux);
+  return got;
+}
+
+uint32_t refusedDropped() { return gNotesDropped; }
+
 bool takeMail(MailRequest* out) {
   portENTER_CRITICAL(&gBoxMux);
   const bool got = gBox.take(out);

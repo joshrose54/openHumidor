@@ -40,7 +40,11 @@ class SaveLimit {
   uint32_t lastMs_ = 0;
 };
 
-enum class MailKind : uint8_t { None, Settings, Exclude, DoorTest, UpdateStart };
+// UpdateStart: the upload's gate (before a byte is read). UpdateBegin: the writing is about to start
+// (the loop checks the compressor on that pass, uses the window up, sets Updating). UpdateEnd: the
+// writing has finished (outcome). UpdateBegin and UpdateEnd are handled by the loop's own OTA state
+// (ota_update.h OtaLoop), not decideMail.
+enum class MailKind : uint8_t { None, Settings, Exclude, DoorTest, UpdateStart, UpdateBegin, UpdateEnd };
 
 struct MailRequest {
   uint32_t id = 0;
@@ -48,6 +52,8 @@ struct MailRequest {
   const FlatJson* json = nullptr;   // Settings, Exclude, DoorTest: the body, already read (stays put until answered)
   uint32_t length = 0;              // UpdateStart: the upload's Content-Length
   bool transferBusy = false;        // UpdateStart: a log download is running (the server's transfer gate)
+  char version[28] = "";            // UpdateBegin: the image's version (its identity block)
+  uint8_t outcome = 0;              // UpdateEnd: OtaOutcome
 };
 
 struct MailAnswer {
@@ -91,6 +97,7 @@ struct MailContext {
   bool windowOpen = false;          // the LCD's Allow update window
   bool compressorRunning = false;
   uint32_t slotBytes = 0;           // the OTA app slot
+  uint32_t checkingLeftS = 0;       // the image running is still being checked (5.2): being_checked
   uint32_t nowMs = 0;               // for the save limit
   const SaveLimit* limit = nullptr; // the dashboard's save limit (nullptr: none)
 };

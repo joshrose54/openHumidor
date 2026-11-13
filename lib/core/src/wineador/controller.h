@@ -29,6 +29,7 @@ struct PassInputs {
   bool strippingActive = false;  // RH stripping (TemperatureControl)
   bool heaterIneffectiveHold = false;   // heater held off after a failed check (TemperatureControl)
   bool humidIneffectiveHold = false;    // humidifier held off after a failed check (HumidControl)
+  bool updating = false;         // 5.2: an OTA update is running: nothing asked for, no relay exercise
 };
 
 class Controller {

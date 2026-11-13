@@ -46,7 +46,7 @@ BuildFacts Board::build() const {
   b.board = "rev-q";
   b.profile = Profile::Real;
   b.testBuild = false;
-  b.version = "2.0.0";
+  b.version = version_.c_str();
   return b;
 }
 
@@ -349,7 +349,35 @@ void Board::step(uint32_t dtMs, bool live) {
   if (ms_ - lastLogMs_ >= logEvery) { lastLogMs_ = ms_; logRow(); }
   drainEvents();
   if (live) {
-    if (updatePct_ >= 0) {
+    // OTA: the loop's own watch, the simulated restart, "started properly" 60 s later
+    if (ota_.watch(now, ota_.bytes())) {
+      char e[200];
+      formatOtaLoopGaveUp(e, sizeof(e), ota_.version(), ota_.bytes(), ota_.total());
+      event(kEvTypeOta, e);
+      otaRec_ = otaRecordEnded(otaRec_, OtaOutcome::Cancelled, utcNow());
+      updatePct_ = -1;
+    }
+    if (!sceneFrozen_ && ota_.restartDue(now)) {
+      version_ = ota_.version();
+      slot_ = 1 - slot_;
+      bootMs_ = ms_;                    // a restart: the uptime starts again (the page sees it)
+      ota_ = OtaLoop{};
+      updatePct_ = -1;
+      pending_ = true;
+      pendingSinceMs_ = ms_;
+      char e[200];
+      snprintf(e, sizeof(e), "%s: %s, waiting to start properly (review build: a simulated restart)", kEvOtaWaiting,
+               version_.c_str());
+      event(kEvTypeOta, e);
+    }
+    if (!sceneFrozen_ && pending_ && ms_ - pendingSinceMs_ >= kStartedProperlyMs) {
+      pending_ = false;
+      char e[220];
+      formatOtaGood(e, sizeof(e), version_.c_str());
+      event(kEvTypeOta, e);
+      otaRec_ = otaRecordGood(otaRec_, utcNow());
+    }
+    if (updatePct_ >= 0 && !ota_.updating()) {   // the shown "Updating" state
       updatePct_ += 2;
       if (updatePct_ > 100) {
         updatePct_ = -1;
@@ -472,12 +500,99 @@ void Board::doorTest(const char* note) {
   event(kEvTypeDoor, d);
 }
 
-bool Board::startUpdate(const char* version) {
-  if (!ui_.window().consume(nowMs())) return false;
-  updatePct_ = 0;
-  char d[120];
-  snprintf(d, sizeof(d), "OTA update started: %s (review build: the image is not written)", version);
-  event(kEvTypeBoot, d);
+uint32_t Board::checkingLeftS() const {
+  if (!pending_) return 0;
+  const uint64_t ran = ms_ - pendingSinceMs_;
+  return ran >= kStartedProperlyMs ? 1 : (uint32_t)((kStartedProperlyMs - ran + 999) / 1000);
+}
+
+MailAnswer Board::otaMail(const MailRequest& r) {
+  MailAnswer a;
+  a.id = r.id;
+  a.user = s_.user;
+  char e[220];
+  if (r.kind == MailKind::UpdateBegin) {
+    sceneFrozen_ = false;
+    a.result = ota_.begin(nowMs(), r.length, r.version, compressorRunning(), ui_.window(), checkingLeftS());
+    if (a.result.ok()) {
+      updatePct_ = 0;
+      lastUpdate_ = UpdateResult::None;
+      formatOtaStarted(e, sizeof(e), r.version, r.length, version_.c_str());
+      event(kEvTypeOta, e);
+      otaRec_ = otaRecordStarted(r.version, version_.c_str(), utcNow(), (uint8_t)(1 - slot_));
+    }
+  } else if (r.kind == MailKind::UpdateEnd && ota_.updating()) {
+    const OtaOutcome o = (OtaOutcome)r.outcome;
+    ota_.end(nowMs(), o);
+    formatOtaEnded(e, sizeof(e), o, r.version);
+    event(kEvTypeOta, e);
+    otaRec_ = otaRecordEnded(otaRec_, o, utcNow());
+    if (o != OtaOutcome::Installed) updatePct_ = -1;
+    else updatePct_ = 100;
+  }
+  return a;
+}
+
+void Board::otaProgress(uint32_t bytes) {
+  ota_.watch(nowMs(), bytes);
+  updatePct_ = ota_.pct();
+}
+
+void Board::otaRefused(const ApiResult& r) {
+  if (!otaLimit_.allow(0, nowMs())) return;
+  char e[220];
+  formatOtaRefused(e, sizeof(e), r);
+  event(kEvTypeOta, e);
+}
+
+const char* const Board::kOtaScenes[] = {"closed", "open", "compressor", "writing", "restarting", "pending",
+                                         "good", "rolled-back", "abandoned", "corrupt", "interrupted"};
+const char* const Board::kOtaSceneLabels[] = {
+  "Window closed", "Window open", "Window open, compressor running", "Writing, 43 %", "Written: restarting",
+  "New image being checked (42 s left)", "Marked good", "Rolled back", "Abandoned (stalled)", "Corrupt image",
+  "Interrupted by a power cut"};
+const int Board::kOtaSceneCount = (int)(sizeof(kOtaScenes) / sizeof(kOtaScenes[0]));
+
+bool Board::otaScene(const char* key) {
+  int i = 0;
+  while (i < kOtaSceneCount && strcmp(kOtaScenes[i], key) != 0) i++;
+  if (i == kOtaSceneCount) return false;
+  sceneFrozen_ = strcmp(key, "closed") != 0 && strcmp(key, "open") != 0;   // held still for the pictures
+  ota_ = OtaLoop{};
+  pending_ = false;
+  updatePct_ = -1;
+  version_ = "2.0.0";
+  ui_.window().close();
+  otaRec_ = OtaRecord{};
+  const int64_t t = utcNow() - 1800;
+  auto rec = [&](UpdateResult res, const char* detail) {
+    otaRec_.result = (uint8_t)res;
+    otaRec_.step = OtaRecord::Done;
+    otaRec_.utcS = t;
+    snprintf(otaRec_.detail, sizeof(otaRec_.detail), "%s", detail);
+  };
+  const std::string k = key;
+  if (k == "compressor") setState(State::Cooling, utcNow());   // (closes the window: opened again below)
+  else if (state_ == State::Cooling) setState(State::Normal, utcNow());
+  if (k == "open" || k == "compressor") ui_.window().open(nowMs());
+  if (k == "writing" || k == "restarting") {
+    ui_.window().open(nowMs());
+    ota_.begin(nowMs(), 1385360, "2.0.1", false, ui_.window(), 0);
+    ota_.watch(nowMs(), k == "writing" ? 1385360u * 43u / 100u : 1385360u);
+    if (k == "restarting") ota_.end(nowMs(), OtaOutcome::Installed);
+    updatePct_ = ota_.pct();
+  }
+  if (k == "pending") {
+    version_ = "2.0.1";
+    pending_ = true;
+    pendingSinceMs_ = ms_ - 18000;
+    rec(UpdateResult::Installed, "2.0.1, replacing 2.0.0: restarting");
+  }
+  if (k == "good") { version_ = "2.0.1"; rec(UpdateResult::Installed, "2.0.1, replacing 2.0.0: started properly"); }
+  if (k == "rolled-back") rec(UpdateResult::RolledBack, "from 2.0.1 to 2.0.0: it didn't start properly");
+  if (k == "abandoned") rec(UpdateResult::Abandoned, "2.0.1: no data for 60 s; nothing changed");
+  if (k == "corrupt") rec(UpdateResult::Failed, "2.0.1: the image's own check failed (corrupt); nothing changed");
+  if (k == "interrupted") rec(UpdateResult::Failed, "2.0.1: interrupted during the write (a reset or power cut); still 2.0.0");
   return true;
 }
 
@@ -485,14 +600,24 @@ UpdateState Board::updateState() {
   UpdateState u;
   u.windowOpen = windowOpen();
   u.windowLeftS = windowLeftS();
-  u.compressorRunning = live_.cool;
-  u.updating = updatePct_ >= 0;
-  u.pct = (uint8_t)(updatePct_ < 0 ? 0 : updatePct_);
+  u.compressorRunning = compressorRunning();
+  u.updating = updatePct_ >= 0 || ota_.updating();
+  u.phase = ota_.phase() == OtaLoop::Phase::Restarting ? "restarting" : u.updating ? "writing" : "idle";
+  u.pct = ota_.updating() ? ota_.pct() : (uint8_t)(updatePct_ < 0 ? 0 : updatePct_);
   u.slotBytes = 3342336;
   u.running = build();
-  u.last = lastUpdate_;
-  snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", lastUpdateDetail_.c_str());
-  u.lastUtcS = lastUpdateUtc_;
+  u.pendingVerify = pending_;
+  u.verifyLeftS = checkingLeftS();
+  if (otaRec_.result != (uint8_t)UpdateResult::None || otaRec_.step != OtaRecord::None) {
+    u.last = (UpdateResult)otaRec_.result;
+    if (pending_) snprintf(u.lastDetail, sizeof(u.lastDetail), "%s: waiting to start properly", version_.c_str());
+    else snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", otaRec_.detail);
+    u.lastUtcS = otaRec_.utcS;
+  } else {
+    u.last = lastUpdate_;
+    snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", lastUpdateDetail_.c_str());
+    u.lastUtcS = lastUpdateUtc_;
+  }
   return u;
 }
 

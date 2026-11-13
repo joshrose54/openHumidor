@@ -40,5 +40,12 @@ void answerMail(const wineador::MailAnswer& a);
 void copy(State* out);              // the last published state
 // Posts a request and waits up to kMailWaitMs for the loop's answer. False: no answer (withdrawn).
 bool ask(wineador::MailRequest* r, wineador::MailAnswer* a);
+// A refused upload, for the loop to log (5.4, capped). Never waits: if four are already waiting,
+// this one is counted as dropped.
+void noteRefused(const wineador::ApiResult& r);
+
+// ---- the loop's side
+bool takeRefused(wineador::ApiResult* out);
+uint32_t refusedDropped();
 
 }  // namespace weblink

@@ -82,7 +82,9 @@ struct UpdateState {
   uint8_t pct = 0;
   uint32_t slotBytes = 0;
   BuildFacts running;
+  const char* phase = "idle";          // "idle", "writing", "restarting" (API 3)
   bool pendingVerify = false;          // this image hasn't yet "started properly" (5.2)
+  uint32_t verifyLeftS = 0;            // while pendingVerify: seconds until a further upload may come (API 3)
   UpdateResult last = UpdateResult::None;
   char lastDetail[120] = "";           // the reason, or the version installed / rolled back from
   int64_t lastUtcS = 0;                // when (0 = unknown)

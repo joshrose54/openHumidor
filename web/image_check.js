@@ -3,7 +3,8 @@
  * The board's check is the one that counts. test_image_check (native) runs this file under node on
  * the same images as the C++ check and fails if the two ever disagree.
  *
- * judgeImage(bytes) -> { ok, code, text }: code is the C++ imageVerdictCode(). */
+ * judgeImage(bytes) -> { ok, code, text, version }: code is the C++ imageVerdictCode(); version the
+ * image's own (from its identity block; "" when it has none). */
 "use strict";
 
 const IMAGE_CHECK_BYTES = 352;          // kImageCheckBytes
@@ -11,7 +12,8 @@ const IDENTITY_OFFSET = 0x120;          // kIdentityOffset
 const IDENTITY_MAGIC = "openHumidor-ID";
 
 function judgeImage(b) {
-  const say = (code, text) => ({ ok: code === "accept", code, text });
+  let version = "";
+  const say = (code, text) => ({ ok: code === "accept", code, text, version });
   if (b.length < IMAGE_CHECK_BYTES) return say("too_short", "The file is too short to be a firmware image.");
   if (b[0] !== 0xE9) return say("not_firmware", "That file isn't a firmware image (use firmware.bin from the revq build).");
   const chip = b[12] | (b[13] << 8);
@@ -29,10 +31,11 @@ function judgeImage(b) {
     return say("no_identity", "That image carries no openHumidor identity: a BP2 test sketch, or firmware from before stage Q5.");
   }
   if (b[id + 33] !== 1) return say("unknown_identity_layout", "That image's identity is in a newer layout this page can't read.");
+  version = txt(id + 36, 28);
   if (txt(id + 16, 8) !== "rev-q") return say("wrong_board", "That image is built for another board.");
   if (txt(id + 24, 8) !== "real") return say("bench_build", "That is a bench build (short timers): never for the cabinet.");
   if (b[id + 32] !== 0) return say("test_build", "That is a test build (scripted readings): never for the cabinet.");
-  return say("accept", `A Rev Q cabinet build, version ${txt(id + 36, 28)}.`);
+  return say("accept", `A Rev Q cabinet build, version ${version}.`);
 }
 
 if (typeof module !== "undefined") module.exports = { judgeImage, IMAGE_CHECK_BYTES };

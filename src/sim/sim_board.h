@@ -31,6 +31,8 @@
 #include "wineador/web_lists.h"
 #include "wineador/web_api.h"
 #include "wineador/ota_rules.h"
+#include "wineador/ota_update.h"
+#include "wineador/web_mail.h"
 
 namespace sim {
 
@@ -68,7 +70,7 @@ class Board {
   const wineador::UserSettings& user() const { return s_.user; }
   const wineador::TuningSettings& tuning() const { return s_.tuning; }
   bool updating() const { return updatePct_ >= 0; }
-  bool compressorRunning() const { return live_.cool; }
+  bool compressorRunning() const { return live_.cool || state_ == State::Cooling; }
   bool windowOpen() { return ui_.window().active(nowMs()); }
   uint32_t windowLeftS() { return ui_.window().remainingMs(nowMs()) / 1000; }
   bool sdOk() const { return state_ != State::SdFail; }
@@ -77,8 +79,20 @@ class Board {
   // Writes (already checked by lib/core): applied as the control loop applies them.
   void applyUser(const wineador::UserSettings& u, const char* from);
   void doorTest(const char* note);
-  bool startUpdate(const char* version);   // false if the window had closed
   wineador::UpdateState updateState();
+
+  // OTA (stage Q5d): the loop's side, as the board's loop does it (lib/core ota_update.h): the
+  // start (the compressor checked, the window used up), the end, the record, the simulated restart
+  // into "being checked" and, 60 s later, marked good.
+  wineador::MailAnswer otaMail(const wineador::MailRequest& r);
+  void otaProgress(uint32_t bytes);
+  void otaRefused(const wineador::ApiResult& r);
+  uint32_t checkingLeftS() const;
+  // Review only: the Update page in each of its states (the /sim page). False: no such scene.
+  bool otaScene(const char* key);
+  static const char* const kOtaScenes[];
+  static const char* const kOtaSceneLabels[];
+  static const int kOtaSceneCount;
 
   // The card: files and their contents, events kept in RAM.
   std::vector<wineador::LogFileEntry> files() const;
@@ -127,6 +141,14 @@ class Board {
   uint64_t weekReadyAtMs_ = 0;
   State state_ = State::Normal;
   int updatePct_ = -1;
+  wineador::OtaLoop ota_;
+  wineador::OtaRecord otaRec_;
+  bool pending_ = false;            // the image "running" hasn't yet started properly
+  bool sceneFrozen_ = false;        // a review scene: held still (no restart, no countdown to good)
+  int slot_ = 0;                    // the app slot "running"
+  uint64_t pendingSinceMs_ = 0;
+  std::string version_ = "2.0.0";   // the image "running"
+  wineador::BusEventLimiter otaLimit_;
   wineador::UpdateResult lastUpdate_ = wineador::UpdateResult::None;
   std::string lastUpdateDetail_;
   int64_t lastUpdateUtc_ = 0;
