@@ -1631,10 +1631,15 @@ applies.
   ends Updating by itself, so the loads are never left off.
 - **"First full sensor read"** = the first sweep of all six channels has finished, whatever its
   results — a dead sensor never rolls back a good image.
-- **Not marked good within 5 minutes of boot** (running, but never meeting the rule): the image
-  rolls itself back, logged.
+- **Not marked good within 4 minutes 30 seconds of boot** (running, but never meeting the rule):
+  the image rolls itself back, logged — inside the 5-minute boot hold, so a rollback restart never
+  cuts a run short.
 - **During an update** no sensor sweeps and no fan-stall check (the flash pauses would cause false
-  timeouts and stalls; every load is off); both resume after the restart.
+  timeouts and stalls; every load is off); both resume after the restart. **No readings rows are
+  written while Updating** (5.4): the gap shows as a break in the graphs, and the update events mark
+  why.
+- **The Update page names the image before it is sent**, and says plainly when it is the rollback
+  test image (B7 test 6).
 - **While a new image is still being checked** (not yet marked good), a further upload is refused:
   "the last update is still being checked: try again in N s".
 - **Rev Q only:** the identity block is in Rev Q builds; a Rev N image is refused by its chip ID.
