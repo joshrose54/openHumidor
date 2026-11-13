@@ -18,7 +18,8 @@ namespace i2cbus {
 static BusResult gInject[kNumSensors] = {BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok, BusResult::Ok};
 #endif
 
-constexpr uint32_t kBusHz = 25000;          // spec 2.3 / 5.3
+constexpr uint32_t kBusHz = 25000;          // spec 2.3 / 5.3 (Rev Q: I2C0, the mux)
+constexpr uint32_t kRtcBusHz = 100000;      // Rev Q: I2C1, RTC and touch, 100 kHz (3A.7)
 constexpr uint16_t kWireTimeoutMs = 20;     // hard timeout on every transaction (5.2)
 constexpr uint32_t kResetLowMs = 1;         // RST held low this long (datasheet needs nanoseconds)
 constexpr uint32_t kResetRecoverMs = 1;
@@ -62,6 +63,17 @@ static bool gWritePending = false, gWriteClearOsf = false;
 static wineador::DateTime gWriteTime;
 static int gWriteResult = 0;
 
+// The RTC's bus. Rev N: the one bus, shared with the mux, as through B3 and B4. Rev Q: I2C1
+// (GPIO21 SDA / GPIO14 SCL, 100 kHz) with the touch controller, so a sensor holding I2C0
+// can't stop the clock being read (3A.7). The RTC steps are the same on both.
+#if defined(WINEADOR_BOARD_REVQ)
+static TwoWire& rtcWire() { return Wire1; }
+static bool gRtcRestart = false;      // an RTC step failed: restart I2C1 before the next one
+static uint32_t gRtcRestarts = 0;
+#else
+static TwoWire& rtcWire() { return Wire; }
+#endif
+
 // ---------------------------------------------------------------- transactions
 static bool muxWrite(uint8_t mask) {
   Wire.beginTransmission(i2caddr::kMux);
@@ -88,18 +100,18 @@ static BusResult shtRead6(uint8_t b[6]) {
 
 // RTC in two steps, one transaction each: point at register 0x00, then read 7 bytes.
 static bool rtcPointer() {
-  Wire.beginTransmission(i2caddr::kRtc);
-  Wire.write((uint8_t)0x00);
-  return Wire.endTransmission() == 0;
+  rtcWire().beginTransmission(i2caddr::kRtc);
+  rtcWire().write((uint8_t)0x00);
+  return rtcWire().endTransmission() == 0;
 }
 
 static void rtcRead() {
-  if (Wire.requestFrom(i2caddr::kRtc, (size_t)7) != 7) {
-    while (Wire.available()) Wire.read();
+  if (rtcWire().requestFrom(i2caddr::kRtc, (size_t)7) != 7) {
+    while (rtcWire().available()) rtcWire().read();
     return;
   }
   uint8_t r[7];
-  for (int i = 0; i < 7; i++) r[i] = (uint8_t)Wire.read();
+  for (int i = 0; i < 7; i++) r[i] = (uint8_t)rtcWire().read();
   wineador::DateTime dt;
   if (!wineador::decodeDs3231(r, dt)) return;
   gTime = dt;
@@ -109,17 +121,17 @@ static void rtcRead() {
 }
 
 static bool rtcStatusPointer() {
-  Wire.beginTransmission(i2caddr::kRtc);
-  Wire.write((uint8_t)0x0F);
-  return Wire.endTransmission() == 0;
+  rtcWire().beginTransmission(i2caddr::kRtc);
+  rtcWire().write((uint8_t)0x0F);
+  return rtcWire().endTransmission() == 0;
 }
 
 static void rtcStatusRead() {
-  if (Wire.requestFrom(i2caddr::kRtc, (size_t)1) != 1) {
-    while (Wire.available()) Wire.read();
+  if (rtcWire().requestFrom(i2caddr::kRtc, (size_t)1) != 1) {
+    while (rtcWire().available()) rtcWire().read();
     return;
   }
-  gStatus = (uint8_t)Wire.read();
+  gStatus = (uint8_t)rtcWire().read();
   gStatusKnown = true;
 }
 
@@ -127,18 +139,18 @@ static void rtcStatusRead() {
 static bool rtcWriteTime(const wineador::DateTime& dt) {
   uint8_t r[7];
   wineador::encodeDs3231(dt, r);
-  Wire.beginTransmission(i2caddr::kRtc);
-  Wire.write((uint8_t)0x00);
-  for (int i = 0; i < 7; i++) Wire.write(r[i]);
-  return Wire.endTransmission() == 0;
+  rtcWire().beginTransmission(i2caddr::kRtc);
+  rtcWire().write((uint8_t)0x00);
+  for (int i = 0; i < 7; i++) rtcWire().write(r[i]);
+  return rtcWire().endTransmission() == 0;
 }
 
 // Clears OSF (bit 7) and leaves the other status bits as they were read.
 static bool rtcClearOsf() {
-  Wire.beginTransmission(i2caddr::kRtc);
-  Wire.write((uint8_t)0x0F);
-  Wire.write((uint8_t)(gStatus & 0x7F));
-  if (Wire.endTransmission() != 0) return false;
+  rtcWire().beginTransmission(i2caddr::kRtc);
+  rtcWire().write((uint8_t)0x0F);
+  rtcWire().write((uint8_t)(gStatus & 0x7F));
+  if (rtcWire().endTransmission() != 0) return false;
   gStatus &= 0x7F;
   return true;
 }
@@ -151,6 +163,10 @@ static bool rtcClearOsf() {
 static void pullupsOff() {
   gpio_pullup_dis((gpio_num_t)pins::kI2cSda);
   gpio_pullup_dis((gpio_num_t)pins::kI2cScl);
+#if defined(WINEADOR_BOARD_REVQ)
+  gpio_pullup_dis((gpio_num_t)pins::kI2c1Sda);
+  gpio_pullup_dis((gpio_num_t)pins::kI2c1Scl);
+#endif
 }
 
 // Wire set up as spec 5.3: 25 kHz, hard timeout, the ESP32's internal pull-ups off.
@@ -160,6 +176,28 @@ static void wireStart() {
   Wire.setTimeOut(kWireTimeoutMs);
   pullupsOff();
 }
+
+#if defined(WINEADOR_BOARD_REVQ)
+// I2C1 set up the same way: 100 kHz, the same hard timeout, internal pull-ups off.
+static void rtcWireStart() {
+  Wire1.begin(pins::kI2c1Sda, pins::kI2c1Scl);
+  Wire1.setClock(kRtcBusHz);
+  Wire1.setTimeOut(kWireTimeoutMs);
+  pullupsOff();
+}
+// Before an RTC step: if the last one failed, restart I2C1 (its driver frees a stuck line).
+static void rtcBusCheck() {
+  if (!gRtcRestart) return;
+  gRtcRestart = false;
+  gRtcRestarts++;
+  Wire1.end();
+  rtcWireStart();
+}
+static void rtcFailed() { gRtcRestart = true; }
+#else
+static void rtcBusCheck() {}
+static void rtcFailed() {}
+#endif
 
 // A sensor transaction failed: check the main bus before blaming the sensor.
 static void failed(BusResult r) {
@@ -177,12 +215,27 @@ void begin(uint32_t nowMs) {
   gSt = St::ResetLow;
 
   wireStart();
+#if defined(WINEADOR_BOARD_REVQ)
+  rtcWireStart();
+#endif
 }
 
 bool internalPullupsOff() {
   bool sda = REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2cSda], FUN_PU) != 0;
   bool scl = REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2cScl], FUN_PU) != 0;
+#if defined(WINEADOR_BOARD_REVQ)
+  sda = sda || REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2c1Sda], FUN_PU) != 0;
+  scl = scl || REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2c1Scl], FUN_PU) != 0;
+#endif
   return !sda && !scl;
+}
+
+uint32_t rtcBusRestarts() {
+#if defined(WINEADOR_BOARD_REVQ)
+  return gRtcRestarts;
+#else
+  return 0;
+#endif
 }
 
 bool idle() { return gSt == St::Idle; }
@@ -279,20 +332,26 @@ static void step(uint32_t nowMs) {
     case St::RtcPointer:
       gRtcOk = false;
       gIdx = 0;
-      gSt = rtcPointer() ? St::RtcRead : (gBootSweep ? St::StatusPointer : St::Select);
+      rtcBusCheck();                    // Rev Q: restart I2C1 first if the last RTC step failed
+      if (rtcPointer()) gSt = St::RtcRead;
+      else { rtcFailed(); gSt = gBootSweep ? St::StatusPointer : St::Select; }
       break;
 
     case St::RtcRead:
       rtcRead();                        // sets gRtcOk on a good read
+      if (!gRtcOk) rtcFailed();
       gSt = gBootSweep ? St::StatusPointer : St::Select;
       break;
 
     case St::StatusPointer:             // boot only: the status register, for OSF (5.6)
-      gSt = rtcStatusPointer() ? St::StatusRead : St::Select;
+      rtcBusCheck();
+      if (rtcStatusPointer()) gSt = St::StatusRead;
+      else { rtcFailed(); gSt = St::Select; }
       break;
 
     case St::StatusRead:
       rtcStatusRead();
+      if (!gStatusKnown) rtcFailed();
       gSt = St::Select;
       break;
 
@@ -401,7 +460,8 @@ static void step(uint32_t nowMs) {
       break;
 
     case St::RtcWrite:
-      if (!rtcWriteTime(gWriteTime)) { gWriteResult = -1; gSt = St::Idle; break; }
+      rtcBusCheck();
+      if (!rtcWriteTime(gWriteTime)) { rtcFailed(); gWriteResult = -1; gSt = St::Idle; break; }
       if (gWriteClearOsf && gStatusKnown) { gSt = St::StatusWrite; break; }
       gWriteResult = 1;
       gSt = St::Idle;
@@ -409,6 +469,7 @@ static void step(uint32_t nowMs) {
 
     case St::StatusWrite:
       gWriteResult = rtcClearOsf() ? 1 : -1;
+      if (gWriteResult < 0) rtcFailed();
       gSt = St::Idle;
       break;
   }

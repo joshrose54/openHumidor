@@ -4,6 +4,7 @@
 #include "esp_sntp.h"
 #include "wineador/clock_state.h"
 #include "wineador/ntp_window.h"
+#include "wineador/wifi_watch.h"
 #include "board.h"
 
 // The credentials file also holds a blocking syncTime() for test sketches; the
@@ -54,6 +55,26 @@ static void startSntp() {
   sntp_set_sync_interval(wineador::kNtpIntervalMs);   // every 24 h after the first sync
 }
 
+// Rev Q (5.4): WiFi stays connected. The same NTP window as Rev N decides when SNTP runs:
+// at boot, 24 h after a sync, 1 h after a window without one. The window only starts and
+// stops SNTP; the radio stays on. SNTP is (re)started every 10 s while the window is open
+// and WiFi is connected, until the sync comes (the Rev N lesson, 2026-11-11).
+static volatile bool gSntpOn = false;
+static void sntpTask(void*) {
+  uint32_t sntpAtMs = 0;
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));      // woken by the loop, or every 0.5 s
+    if (gWant && WiFi.status() == WL_CONNECTED && (!gSntpOn || millis() - sntpAtMs >= 10000)) {
+      startSntp();
+      gSntpOn = true;
+      sntpAtMs = millis();
+    } else if (!gWant && gSntpOn) {
+      esp_sntp_stop();
+      gSntpOn = false;
+    }
+  }
+}
+
 static void radioTask(void*) {
   bool sntpStarted = false;
   uint32_t sntpAtMs = 0;
@@ -86,9 +107,14 @@ void begin() {
     xTaskCreatePinnedToCore(radioTask, "radio", 4096, nullptr, 1, &gRadioTask, 0);
     return;                                             // update() opens the first window
   }
-  radioUp();                                            // the next board: always connected
-  startSntp();
+  // Rev Q: always connected, and it reconnects by itself (setAutoReconnect).
+  radioUp();
+  // Core 0, priority 1, as Rev N's radio task: above the SD task and the idle task, below WiFi.
+  xTaskCreatePinnedToCore(sntpTask, "sntp", 4096, nullptr, 1, &gRadioTask, 0);
 }
+
+static wineador::WifiWatch gWatch;
+static wineador::WifiWatch::Event gWifiEvent = wineador::WifiWatch::Event::None;
 
 static void want(bool on) {
   gWant = on;
@@ -96,20 +122,29 @@ static void want(bool on) {
 }
 
 void update(uint32_t nowMs) {
-  if (!board::kWifiOnlyForNtp) return;
+  if (!board::kWifiOnlyForNtp) {
+    // Rev Q: watch the connection for the "WiFi lost" / "back after N s" events (5.4).
+    const wineador::WifiWatch::Event e = gWatch.update(WiFi.status() == WL_CONNECTED, nowMs);
+    if (e == wineador::WifiWatch::Event::Lost || e == wineador::WifiWatch::Event::Back) gWifiEvent = e;
+  }
   const uint32_t openMs = gWindow.openForMs(nowMs);
+  const bool revN = board::kWifiOnlyForNtp;
   switch (gWindow.update(nowMs, vSyncs)) {
     case wineador::NtpWindow::Action::Open:
       want(true);
-      snprintf(gNote, sizeof(gNote), "WiFi on for the NTP sync (Rev N: WiFi only for NTP; off after the sync or 2 min)");
+      snprintf(gNote, sizeof(gNote), revN ? "WiFi on for the NTP sync (Rev N: WiFi only for NTP; off after the sync or 2 min)"
+                                          : "NTP sync started (WiFi stays on; SNTP stops after the sync or 2 min)");
       break;
     case wineador::NtpWindow::Action::CloseSynced:
       want(false);
-      snprintf(gNote, sizeof(gNote), "WiFi off: NTP synced after %lu s; next sync in 24 h", (unsigned long)(openMs / 1000));
+      snprintf(gNote, sizeof(gNote), revN ? "WiFi off: NTP synced after %lu s; next sync in 24 h"
+                                          : "NTP synced after %lu s; next sync in 24 h", (unsigned long)(openMs / 1000));
       break;
     case wineador::NtpWindow::Action::CloseTimedOut:
       want(false);
-      snprintf(gNote, sizeof(gNote), "WiFi off: no NTP sync within 2 min; next try in 1 h");
+      if (revN) snprintf(gNote, sizeof(gNote), "WiFi off: no NTP sync within 2 min; next try in 1 h");
+      else snprintf(gNote, sizeof(gNote), "no NTP sync within 2 min (WiFi %s); next try in 1 h",
+                    WiFi.status() == WL_CONNECTED ? "connected" : "not connected");
       break;
     default:
       break;
@@ -129,6 +164,14 @@ bool takeNote(char* out, size_t n) {
 void syncNow() { gWindow.requestNow(); }
 
 bool wifiUp() { return WiFi.status() == WL_CONNECTED; }
+
+int takeWifiEvent(uint32_t* outageMs) {
+  const wineador::WifiWatch::Event e = gWifiEvent;
+  gWifiEvent = wineador::WifiWatch::Event::None;
+  if (e == wineador::WifiWatch::Event::Lost) return -1;
+  if (e == wineador::WifiWatch::Event::Back) { if (outageMs) *outageMs = gWatch.lastOutageMs(); return 1; }
+  return 0;
+}
 
 bool takeSync() {
   if (!vSynced) return false;

@@ -93,6 +93,12 @@ struct ReadingsRow {
   uint32_t heapFree = 0;
   uint32_t heapMin = 0;              // lowest free heap since boot (5.2)
   uint32_t sdWorstMs = 0;            // worst SD write since the last row
+  // Rev Q (5.4): the 12V mean and lowest 1 s average in the interval; the lowest-ever free
+  // PSRAM. Empty columns where the board has no 12V sense or no PSRAM (Rev N).
+  bool hasV12 = false;
+  float v12MeanV = 0, v12Min1sV = 0;
+  bool hasPsram = false;
+  uint32_t psramMin = 0;
 };
 int formatReadingsRow(char* out, size_t n, const ReadingsRow& r, bool testBuild);
 

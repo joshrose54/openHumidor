@@ -37,7 +37,7 @@ static bool writeFile(const char* path, const char* header, const char* body) {
   return true;
 }
 
-static void makeCard(const char* root, const char* board, Profile profile, bool testBuild) {
+static void makeCard(const char* root, const char* board, Profile profile, bool testBuild, bool revQ) {
   char logs[200], dir[220], path[300];
   snprintf(logs, sizeof(logs), "%s/logs", root);
   snprintf(dir, sizeof(dir), "%s/2026", logs);
@@ -71,6 +71,10 @@ static void makeCard(const char* root, const char* board, Profile profile, bool 
     r.cab.cabinetOk = 4; r.cab.meanC = 19.95f; r.cab.minC = 19.8f; r.cab.maxC = 20.1f;
     r.cab.meanRhPct = 62.0f; r.cab.controlC = 19.95f;
     r.fanPct = 30; r.fanRpm = 700; r.loopMaxUs = 4100; r.heapFree = 90000; r.heapMin = 85000; r.sdWorstMs = 30;
+    if (revQ) {   // Rev Q's columns (5.4); empty on Rev N, which has no 12V sense or PSRAM
+      r.hasV12 = true; r.v12MeanV = 12.03f - 0.01f * (k % 3); r.v12Min1sV = (k == 12) ? 10.62f : 11.96f;
+      r.hasPsram = true; r.psramMin = 1081344 - 64 * k;
+    }
     formatReadingsRow(row, sizeof(row), r, testBuild);
     strncat(body, row, sizeof(body) - strlen(body) - 1);
   }
@@ -90,6 +94,17 @@ static void makeCard(const char* root, const char* board, Profile profile, bool 
   formatEventRow(row, sizeof(row), "2026-11-13T10:07:00Z", true, 421000, "crc",
                  "ch1 bottom_front: CRC failure (1 since boot)");
   strncat(body, row, sizeof(body) - strlen(body) - 1);
+  if (revQ) {
+    formatEventRow(row, sizeof(row), "2026-11-13T10:12:03Z", true, 725000, "12v", "12V DIP: below 11.0 V for 1 s (10.71 V now)");
+    strncat(body, row, sizeof(body) - strlen(body) - 1);
+    formatEventRow(row, sizeof(row), "2026-11-13T10:12:06Z", true, 728000, "12v",
+                   "12V recovered: back above 11.0 V after 3200 ms; lowest 10.55 V");
+    strncat(body, row, sizeof(body) - strlen(body) - 1);
+    formatEventRow(row, sizeof(row), "2026-11-13T10:15:00Z", true, 902000, "wifi", "WiFi lost");
+    strncat(body, row, sizeof(body) - strlen(body) - 1);
+    formatEventRow(row, sizeof(row), "2026-11-13T10:15:42Z", true, 944000, "wifi", "WiFi back after 42 s");
+    strncat(body, row, sizeof(body) - strlen(body) - 1);
+  }
   logPath(path, sizeof(path), LogKind::Events, 2026, 11);
   snprintf(full, sizeof(full), "%s%s", root, path);
   TEST_ASSERT_TRUE(writeFile(full, hdr, body));
@@ -109,6 +124,7 @@ static void makeCard(const char* root, const char* board, Profile profile, bool 
     c.cabinetOk = 4; c.meanC = 19.95f; c.meanRhPct = 62; c.controlC = 19.95f;
     h.addSweep(ok, t, rh, c, 30, 700);
     h.noteHeapMin(85000);
+    if (revQ) { h.noteSupply(12.02f, hr == 10 ? 10.62f : 11.95f); h.notePsramMin(1080000); }
     h.formatRow(row, sizeof(row));
     strncat(body, row, sizeof(body) - strlen(body) - 1);
   }
@@ -118,14 +134,14 @@ static void makeCard(const char* root, const char* board, Profile profile, bool 
 }
 
 void test_write_revq_sample_card() {
-  makeCard(".pio.nosync/sample-cards/revq", "rev-q (channel n = mux n)", Profile::Real, false);
+  makeCard(".pio.nosync/sample-cards/revq", "rev-q (channel n = mux n)", Profile::Real, false, true);
   struct stat st;
   TEST_ASSERT_EQUAL_INT(0, stat(".pio.nosync/sample-cards/revq/logs/hourly-s2.csv", &st));
   TEST_ASSERT_EQUAL_INT(0, stat(".pio.nosync/sample-cards/revq/logs/2026/2026-11-readings-s2.csv", &st));
 }
 
 void test_write_revn_sample_card() {
-  makeCard(".pio.nosync/sample-cards/revn", "rev-n (channel n = mux n+2)", Profile::Bench, true);
+  makeCard(".pio.nosync/sample-cards/revn", "rev-n (channel n = mux n+2)", Profile::Bench, true, false);
   struct stat st;
   TEST_ASSERT_EQUAL_INT(0, stat(".pio.nosync/sample-cards/revn/logs/2026/2026-11-events-s2.csv", &st));
 }

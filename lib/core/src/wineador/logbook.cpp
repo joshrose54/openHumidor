@@ -113,7 +113,7 @@ int formatReadingsHeader(char* out, size_t n, const LogHeaderInfo& h) {
     o.add(",ch%u_t,ch%u_rh,ch%u_rh_raw,ch%u_flag", c, c, c, c);
   }
   o.add(",cab_mean_t,cab_min_t,cab_max_t,cab_mean_rh,control_t,fan_pwm,fan_rpm,compressor,heater_duty,humidifier,"
-        "interlock,loop_max_ms,heap_free,heap_min,sd_worst_ms");
+        "interlock,loop_max_ms,heap_free,heap_min,sd_worst_ms,v12_mean,v12_min_1s,psram_min");
   if (h.testBuild)
     for (int i = 0; i < kNumSensors; i++) {
       const unsigned c = kSensors[i].channel;
@@ -136,6 +136,8 @@ int formatHourlyHeader(char* out, size_t n, const LogHeaderInfo& h) {
   headerCommon(o, "hourly", h);
   o.add("# one row per UTC hour: min/max/mean of each value over the hour's sensor reads (healthy sensors only);\n");
   o.add("# *_on_s = seconds that load was on in the hour; heap_min = lowest free heap since boot, at the row\n");
+  o.add("# v12_mean, v12_min_1s = the hour's 12V mean and lowest 1 s average; psram_min = lowest free PSRAM since boot"
+        " (Rev Q; empty on Rev N)\n");
   o.add("hour,time_trusted,samples");
   for (int i = 0; i < kNumSensors; i++) {
     const unsigned c = kSensors[i].channel;
@@ -143,7 +145,7 @@ int formatHourlyHeader(char* out, size_t n, const LogHeaderInfo& h) {
   }
   o.add(",cab_mean_t_min,cab_mean_t_max,cab_mean_t_mean,cab_mean_rh_min,cab_mean_rh_max,cab_mean_rh_mean,"
         "control_t_min,control_t_max,control_t_mean,fan_pwm_mean,fan_rpm_mean,compressor_on_s,heater_on_s,humidifier_on_s,"
-        "heap_min\n");
+        "heap_min,v12_mean,v12_min_1s,psram_min\n");
   return (int)o.len;
 }
 
@@ -166,6 +168,10 @@ int formatReadingsRow(char* out, size_t n, const ReadingsRow& r, bool testBuild)
         (unsigned)r.heaterDutyPct, r.humid ? 1 : 0, r.relayHeating ? "heat" : "cool",
         (unsigned long)(r.loopMaxUs / 1000), (unsigned long)((r.loopMaxUs % 1000) / 100), (unsigned long)r.heapFree,
         (unsigned long)r.heapMin, (unsigned long)r.sdWorstMs);
+  if (r.hasV12) o.add(",%.2f,%.2f", r.v12MeanV, r.v12Min1sV);
+  else          o.add(",,");
+  if (r.hasPsram) o.add(",%lu", (unsigned long)r.psramMin);
+  else            o.add(",");
   if (testBuild)
     for (int i = 0; i < kNumSensors; i++) addChannel(o, r.real[i]);
   o.add("\n");

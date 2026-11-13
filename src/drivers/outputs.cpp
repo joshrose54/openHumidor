@@ -13,6 +13,11 @@ void begin() {
   pinMode(pins::kHeater, OUTPUT);     digitalWrite(pins::kHeater, LOW);
   pinMode(pins::kRelayK1, OUTPUT);    digitalWrite(pins::kRelayK1, LOW);
   pinMode(pins::kHumidifier, OUTPUT); digitalWrite(pins::kHumidifier, LOW);
+#if defined(WINEADOR_BOARD_REVQ)
+  // The ion generator (GPIO17, Q6, no U9): high = on. Kept OFF in stages Q1-Q3 (3A.11); its
+  // rules (4.6c) come after BP2.
+  pinMode(pins::kIon, OUTPUT);        digitalWrite(pins::kIon, LOW);
+#endif
   gNow = wineador::LoadOutputs{};
 }
 
@@ -42,7 +47,16 @@ void allOff() {
   digitalWrite(pins::kHeater, LOW);
   digitalWrite(pins::kHumidifier, LOW);
   digitalWrite(pins::kRelayK1, LOW);
+#if defined(WINEADOR_BOARD_REVQ)
+  digitalWrite(pins::kIon, LOW);
+#endif
   gNow = wineador::LoadOutputs{};
+}
+
+void ionOff() {
+#if defined(WINEADOR_BOARD_REVQ)
+  digitalWrite(pins::kIon, LOW);      // every pass: held off until its rules (4.6c) exist
+#endif
 }
 
 wineador::LoadOutputs current() { return gNow; }

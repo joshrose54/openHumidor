@@ -7,6 +7,8 @@
 #include "app/eventlog.h"
 #include "drivers/sd_log.h"
 #include "board.h"
+#include "drivers/heap.h"
+#include "drivers/sd_power.h"
 
 namespace serialui {
 
@@ -138,10 +140,20 @@ void printLog() {
   Serial.printf("    retries       %lu writes recovered by a retry%s%s\n", (unsigned long)s.retries, s.retries ? "; last: " : "",
                 s.retries ? s.lastRetry : "");
   Serial.printf("    failures      %lu since boot\n", (unsigned long)s.failures);
-  const uint32_t lowest = esp_get_minimum_free_heap_size();
-  Serial.printf("    heap          now %lu, lowest since boot %lu, largest block %lu (floor %lu KB: %s)\n\n",
-                (unsigned long)ESP.getFreeHeap(), (unsigned long)lowest, (unsigned long)ESP.getMaxAllocHeap(),
+  if (sdpower::fitted())
+    Serial.printf("    power cycles  %lu (the retry's remount failed; 3A.11), %lu of them saved the write\n",
+                  (unsigned long)s.powerCycles, (unsigned long)s.powerCycleSaves);
+  const uint32_t lowest = heap::lowest();               // internal RAM only (5.2)
+  Serial.printf("    heap          internal RAM now %lu, lowest since boot %lu, largest block %lu (floor %lu KB: %s)\n",
+                (unsigned long)heap::freeNow(), (unsigned long)lowest, (unsigned long)heap::largestBlock(),
                 (unsigned long)(wineador::kHeapFloorBytes / 1024), lowest >= wineador::kHeapFloorBytes ? "ok" : "BELOW");
+  if (heap::psramTotal() > 0)
+    Serial.printf("    PSRAM         %lu KB: now %lu free, lowest since boot %lu; outage buffers %s\n",
+                  (unsigned long)(heap::psramTotal() / 1024), (unsigned long)heap::psramFree(),
+                  (unsigned long)heap::psramLowest(), s.buffersInPsram ? "in PSRAM" : "in internal RAM");
+  else if (s.psramMissing)
+    Serial.println("    PSRAM         NOT FOUND: outage buffers at Rev N's sizes in internal RAM");
+  Serial.println();
 }
 
 void printSettings(const View& v) {

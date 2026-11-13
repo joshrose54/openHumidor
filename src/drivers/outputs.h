@@ -1,5 +1,6 @@
 #pragma once
-// The four load outputs: P26 cooling (SSR), P27 heater, P32 relay K1, P33 humidifier.
+// The four load outputs: cooling (SSR), heater, relay K1, humidifier (pins.h, per board).
+// Rev Q also: the ion generator, GPIO17, driven LOW (off) at boot and every pass.
 //
 // begin() drives all four LOW from the first instruction. After that the only
 // way to change them is apply(), with what the Controller decided this pass
@@ -18,7 +19,8 @@ void apply(const wineador::LoadOutputs& want);
 // Heater PWM cap (heater_pwm.h): while the heater is ON, gates its pin. Never
 // raises the pin when the heater is off, so it cannot break the interlock.
 void heaterGate(bool pinOn);
-void allOff();                         // load signals low first, then the relay
+void allOff();                         // load signals low first, then the relay (Rev Q: and the ion output)
+void ionOff();                         // Rev Q: the ion generator held off, every pass (3A.11; Rev N: nothing)
 wineador::LoadOutputs current();       // what is being driven right now
 
 }  // namespace outputs

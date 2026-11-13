@@ -39,6 +39,7 @@ struct StatusInfo {
   bool        timeTrusted = true;       // false adds "UNTRUSTED" after the timestamp (5.4)
   bool        rtcLostTime = false;      // true adds "RTC LOST TIME" (OSF, not yet corrected by NTP)
   const char* netText    = nullptr;     // e.g. "wifi up ntp ok"; nullptr = left out
+  const char* boardText  = nullptr;     // Rev Q: "12V 12.04 | psram min ... | hwdog max 9ms"; nullptr = left out
   const char* healthText = nullptr;     // excluded sensors and the 4.3 hold; nullptr = left out
   bool        rtcOk      = true;        // false adds "RTC FAIL"
   bool        i2cPullupsOn = false;     // true adds "I2C PULLUPS ON" — must never happen (5.3)

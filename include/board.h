@@ -42,6 +42,12 @@ constexpr bool     kWifiOnlyForNtp = true;
 // writes never overlap (heap and SD supply).
 constexpr bool     kSdPauseWhileWifi = true;
 
+// What Rev N doesn't have: no 12V sense, no PSRAM (outage buffers in internal RAM), no SD
+// power switch, no hardware watchdog, no blowers or ion output, no LCD.
+constexpr bool     kOutageInPsram  = false;
+constexpr bool     kHasSupplySense = false;
+constexpr float    k12vScale       = 0.0f;
+
 }  // namespace board_revn
 
 // ======================================================================== Rev Q
@@ -53,14 +59,20 @@ constexpr const char* kLogBoard = "rev-q (channel n = mux n)";
 // Rev Q wires sensor channel n to mux channel n (spec 3A.7): no mapping.
 constexpr uint8_t kSensorMuxChannel[6] = {0, 1, 2, 3, 4, 5};
 
-// PLACEHOLDERS (stage Q1): Rev N's sizes. Spec 3A.11: Rev Q's outage buffers go in PSRAM
-// and are larger; their sizes are proposed at stage Q2 with the PSRAM buffers.
-constexpr uint16_t kSdEventsKept   = 60;
-constexpr size_t   kSdEventsBytes  = 12000;
-constexpr uint16_t kSdRowsKept     = 30;
-constexpr size_t   kSdRowsBytes    = 14000;
-constexpr uint16_t kSdHourlyKept   = 24;
-constexpr size_t   kSdHourlyBytes  = 9000;
+// Outage buffers in PSRAM (spec 5.4): about 0.94 MB of the 2 MB. If PSRAM is not found at
+// boot: an event, and Rev N's sizes in internal RAM (board_revn above).
+constexpr bool     kOutageInPsram  = true;
+constexpr uint16_t kSdEventsKept   = 1000;
+constexpr size_t   kSdEventsBytes  = 200000;  // ~200 characters an event
+constexpr uint16_t kSdRowsKept     = 1440;    // readings rows: 24 h at the steady 60 s rate (~6 h at 15 s)
+constexpr size_t   kSdRowsBytes    = 700000;  // test-build rows up to ~490 characters (cabinet ~280)
+constexpr uint16_t kSdHourlyKept   = 168;     // a week
+constexpr size_t   kSdHourlyBytes  = 64000;   // ~360 characters a row
+
+// 12V sense, GPIO8 (3A.3, 3A.11): volts = pin mV / 1000 x this. The divider's nominal
+// (100k + 15k) / 15k until BP2 test 27 measures it (then the build log's value goes here).
+constexpr bool     kHasSupplySense = true;
+constexpr float    k12vScale       = 115.0f / 15.0f;
 
 // Spec 5.4 / 3A.11: WiFi stays connected and reconnects by itself; card writes are not paused for it.
 // (The always-connected WiFi itself is stage Q2.)

@@ -46,6 +46,8 @@
 #include "wineador/heater_pwm.h"
 #include "wineador/logbook.h"
 #include "wineador/hourly.h"
+#include "wineador/supply.h"
+#include "wineador/wdi_toggle.h"
 #include "drivers/outputs.h"
 #include "drivers/fan.h"
 #include "drivers/i2c_bus.h"
@@ -56,6 +58,12 @@
 #include "drivers/time_sync.h"
 #include "drivers/sd_log.h"
 #include "drivers/user_store.h"
+#include "drivers/heap.h"
+#include "drivers/hw_watchdog.h"
+#include "drivers/supply_sense.h"
+#include "drivers/blowers.h"
+#include "drivers/backlight.h"
+#include "drivers/lcd.h"
 #include "board.h"
 #include "app/console.h"
 #include "app/eventlog.h"
@@ -99,6 +107,9 @@ static bool gHeatWasOn = false;
 // Logging (5.4)
 static GuardBlockTracker gGuardTrack;    // guard-block events
 static BusEventLimiter gBusLimit;        // CRC/timeout events: 10 per channel per hour
+static BusEventLimiter gDipLimit;        // Rev Q: 12V dips, 10 an hour (index 0 only; 5.4)
+static BusEventLimiter gWifiLimit;       // Rev Q: WiFi outages, 10 an hour (index 0 only; 5.4)
+static bool gDipLogged = false;          // the dip in progress was logged, so its recovery is too
 static HourlyStats gHourly;
 static bool gHourlyStarted = false;
 static MaxTracker gLoopMaxLog;           // longest pass per log interval
@@ -199,9 +210,23 @@ static void printStatus() {
     else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
   }
   s.sdText = sd;
+  char brd[96] = "";
+  {
+    int k = 0;
+    auto add = [&](const char* fmt, auto... a) { if (k >= 0 && (size_t)k < sizeof(brd)) k += snprintf(brd + k, sizeof(brd) - k, fmt, a...); };
+    if (supplysense::fitted()) {
+      if (supplysense::logic().haveAverage()) add("12V %.2f%s", supplysense::logic().lastAverage(),
+                                                 supplysense::logic().inDip() ? " DIP" : "");
+      else add("12V --");
+    }
+    if (heap::psramTotal() > 0) add("%spsram min %lu", k ? " | " : "", (unsigned long)heap::psramLowest());
+    if (hwdog::fitted()) add("%shwdog %s max %lums", k ? " | " : "", hwdog::running() ? "on" : "OFF",
+                             (unsigned long)hwdog::longestGapMs());
+  }
+  s.boardText = brd;
   s.loopMaxUs = gLoopMax.take();
-  s.heapFree = gHeapLast ? gHeapLast : ESP.getFreeHeap();
-  s.heapMin = esp_get_minimum_free_heap_size();
+  s.heapFree = gHeapLast ? gHeapLast : heap::freeNow();   // internal RAM only (5.2)
+  s.heapMin = heap::lowest();
   s.rtcOk = i2cbus::rtcOk();
   s.i2cPullupsOn = !i2cbus::internalPullupsOff();
   s.readingsAgeMs = elapsedMs(millis(), gLastSweepDoneMs);
@@ -473,6 +498,9 @@ void setup() {
   // Loads off from the first instruction, then the fan kickstart — before
   // any other startup step (4.6).
   outputs::begin();
+  hwdog::begin();          // Rev Q: GPIO1 an input, both pulls off - the hardware watchdog disabled until the loop runs
+  blowers::begin();        // Rev Q: GPIO15 high - full speed, as undriven (stages Q1-Q3)
+  backlight::begin();      // Rev Q: 5 kHz PWM, backlight off (before the B7 screens, 3A.11)
   fan::begin();
   gFan.command(gSettings.tuning.fanIdlePct, millis());
   fan::setDuty(gFan.output(millis()));
@@ -508,6 +536,8 @@ void setup() {
   gFanMon.begin(gSettings.safety.fanStallRetryMs);
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
+  supplysense::begin();    // Rev Q: 12V sense on GPIO8, ADC1 at 12 dB
+  lcd::begin();            // Rev Q: its own task resets the LCD and clears it to black
 
   // SLOW, BOOT ONLY: mounting the SD card. Timed, and shown in the banner.
   watchdog::feed();
@@ -695,15 +725,54 @@ static void afterSweep(uint32_t now) {
 
 // The heap floor (5.2): an event the first time the lowest free heap since boot
 // (ESP-IDF's own low-water mark) goes below it.
+// Rev Q events (5.4): 12V dips and their recovery, WiFi lost and back, a long gap in the
+// hardware watchdog's toggling. Dips and WiFi outages: up to 10 an hour each, then one
+// "N more this hour" line; a dip's recovery (and an outage's "back") is logged when its
+// start was. Rev N has none of these, so nothing is ever logged there.
+static void logBoardEvents(uint32_t now) {
+  SupplySense::Event e;
+  while (supplysense::logic().takeEvent(e)) {
+    if (e.kind == SupplySense::Event::Kind::Dip) {
+      gDipLogged = gDipLimit.allow(0, now);
+      if (gDipLogged) eventlog::log("12v", "12V DIP: below %.1f V for 1 s (%.2f V now)", (double)SupplySense::kDipBelowV,
+                                    (double)e.lowestV);
+    } else if (gDipLogged) {
+      eventlog::log("12v", "12V recovered: back above %.1f V after %lu ms; lowest %.2f V", (double)SupplySense::kDipBelowV,
+                    (unsigned long)e.durationMs, (double)e.lowestV);
+      gDipLogged = false;
+    }
+  }
+  static bool wifiLogged = false;
+  uint32_t outMs = 0;
+  const int w = timesync::takeWifiEvent(&outMs);
+  if (w < 0) {
+    wifiLogged = gWifiLimit.allow(0, now);
+    if (wifiLogged) eventlog::log("wifi", "WiFi lost");
+  } else if (w > 0 && wifiLogged) {
+    eventlog::log("wifi", "WiFi back after %lu s", (unsigned long)((outMs + 500) / 1000));
+    wifiLogged = false;
+  }
+  int idx;
+  uint32_t more;
+  while (gDipLimit.takeSuppressed(now, &idx, &more))
+    eventlog::log("12v", "%lu more 12V dips in the last hour (only the first 10 logged)", (unsigned long)more);
+  while (gWifiLimit.takeSuppressed(now, &idx, &more))
+    eventlog::log("wifi", "%lu more WiFi outages in the last hour (only the first 10 logged)", (unsigned long)more);
+  uint32_t gap;
+  if (hwdog::takeLongGap(&gap))
+    eventlog::log("hwdog", "HARDWARE WATCHDOG: %lu ms between toggles (the limit is %lu ms; U5 resets at 1.12 s minimum)",
+                  (unsigned long)gap, (unsigned long)WdiToggle::kMaxGapMs);
+}
+
 static void checkHeapFloor() {
   static bool logged = false;
   if (logged) return;
-  const uint32_t lowest = esp_get_minimum_free_heap_size();
+  const uint32_t lowest = heap::lowest();         // internal RAM only (5.2)
   if (lowest >= wineador::kHeapFloorBytes) return;
   logged = true;
   eventlog::log("heap", "FREE HEAP BELOW THE %lu KB FLOOR: lowest since boot %lu bytes; now %lu, largest block %lu",
-                (unsigned long)(wineador::kHeapFloorBytes / 1024), (unsigned long)lowest, (unsigned long)ESP.getFreeHeap(),
-                (unsigned long)ESP.getMaxAllocHeap());
+                (unsigned long)(wineador::kHeapFloorBytes / 1024), (unsigned long)lowest, (unsigned long)heap::freeNow(),
+                (unsigned long)heap::largestBlock());
 }
 
 // NTP (5.4): after each sync, check the DS3231 and correct it if more than 2 s out,
@@ -783,6 +852,10 @@ static void startLogging() {
                 gVersion, board::kName,
                 kBuildProfile == Profile::Bench ? "BENCH" : "REAL", kTestBuild ? " TEST-BUILD" : "", gBoot.userNote,
                 !gClockSet ? "NOT SET (RTC unreadable)" : gClock.trusted() ? "set from the RTC" : "set from the RTC, LOST TIME");
+  if (sdlog::stats().psramMissing)
+    eventlog::log("psram", "NO PSRAM FOUND at boot: the SD outage buffers are Rev N's sizes in internal RAM "
+                  "(%u events, %u readings rows, %u hourly rows) instead of Rev Q's",
+                  (unsigned)board_revn::kSdEventsKept, (unsigned)board_revn::kSdRowsKept, (unsigned)board_revn::kSdHourlyKept);
 }
 
 static void logReadingsRow(uint32_t now) {
@@ -817,10 +890,15 @@ static void logReadingsRow(uint32_t now) {
   row.humid = l.humid;
   row.relayHeating = l.relayHeating;
   row.loopMaxUs = gLoopMaxLog.take();
-  if (!sdlog::writing()) gHeapLast = ESP.getFreeHeap();   // never sampled during a card write (5.2)
+  if (!sdlog::writing()) gHeapLast = heap::freeNow();   // never sampled during a card write (5.2)
   row.heapFree = gHeapLast;
-  row.heapMin = esp_get_minimum_free_heap_size();
+  row.heapMin = heap::lowest();                        // internal RAM only (5.2)
   row.sdWorstMs = sdlog::takeWorstMs();
+  // Rev Q (5.4): the 12V mean and lowest 1 s average in this interval; the lowest-ever free
+  // PSRAM. Empty where the board has neither (Rev N).
+  row.hasV12 = supplysense::fitted() && supplysense::logic().takeInterval(&row.v12MeanV, &row.v12Min1sV);
+  row.hasPsram = heap::psramTotal() > 0;
+  row.psramMin = row.hasPsram ? heap::psramLowest() : 0;
   static char line[600];   // = the SD queue line size (sd_log.cpp kLine)
   formatReadingsRow(line, sizeof(line), row, kTestBuild);
   sdlog::reading(line);
@@ -837,7 +915,10 @@ static void logHourly() {
   if (!gHourlyStarted || key != gHourly.hourKey()) {
     if (gHourlyStarted && gHourly.samples() > 0 && gLogStarted) {
       static char row[1500];
-      gHourly.noteHeapMin(esp_get_minimum_free_heap_size());
+      gHourly.noteHeapMin(heap::lowest());
+      float mean, low;                     // Rev Q (5.4): the hour's 12V and the lowest free PSRAM
+      if (supplysense::fitted() && supplysense::logic().takeHour(&mean, &low)) gHourly.noteSupply(mean, low);
+      if (heap::psramTotal() > 0) gHourly.notePsramMin(heap::psramLowest());
       gHourly.formatRow(row, sizeof(row));
       sdlog::hourly(row);
     }
@@ -946,6 +1027,13 @@ void loop() {
   const uint32_t t0 = micros();
   const uint32_t now = millis();
   watchdog::feed();
+  // Rev Q's hardware watchdog (3A.11): an input until now; from the first pass its level
+  // changes every pass, here in the loop. Rev N: nothing.
+  static bool firstPass = true;
+  if (firstPass) { hwdog::start(now); firstPass = false; }
+  else hwdog::kick(now);
+  outputs::ionOff();                      // Rev Q: the ion generator held off (stages Q1-Q3)
+  supplysense::update(now);               // Rev Q: one 12V reading every 100 ms
   eventlog::setClock(gClockSet, gClock.trusted());
 
   // 1. Minimum job, every pass. Uses the health and readings already to hand; waits for nothing.
@@ -1062,7 +1150,7 @@ void loop() {
       console::printSensorCheck();
       printNow = true;                    // one status line straight after the boot check
     }
-    if (gHeapBaseline == 0) gHeapBaseline = ESP.getFreeHeap();   // after all initialisation
+    if (gHeapBaseline == 0) gHeapBaseline = heap::freeNow();   // after all initialisation
   }
   // Rev N: the radio on only for the NTP sync. The first window waits for the clock
   // (from the RTC, or 10 s without one), so its event isn't dated 1970.
@@ -1073,6 +1161,7 @@ void loop() {
     if (timesync::takeNote(note, sizeof(note))) eventlog::log("ntp", "%s", note);
   }
   checkHeapFloor();
+  logBoardEvents(now);
   if (afterNtp(now)) printNow = true;
   startLogging();                         // the 10 s fallback if the clock never came
   watchSd(now);

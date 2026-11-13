@@ -16,8 +16,9 @@ What it checks
               matches its file; time_trusted is 0/1; file dates are real (not
               1980); loop_max_ms present (its maximum is reported).
               Schemas (spec 5.4): 1 = B1-B4 cards, channels ch2-ch7 (Rev N's mux numbers),
-              no -sN in the file names; 2 = channels ch0-ch5, a "# board" line, and -s2
-              in every file name (hourly-s2.csv too). A card may hold both.
+              no -sN in the file names; 2 = channels ch0-ch5, a "# board" line, -s2
+              in every file name (hourly-s2.csv too), and the v12_mean, v12_min_1s and
+              psram_min columns (empty on Rev N). A card may hold both.
   --test24    every 5.4 event type present (disturbance exempt until B6), the RTC
               lost-time and NTP-correction events, the retention deletion.
   --stress    B4's SD stress run (events file): every write made, none lost, retries
@@ -196,6 +197,37 @@ def check_readings(path, table):
                    f"lowest {min(lows)} bytes")
     else:
         report(None, f"{name}: no heap_min column (written by a build before the 30 KB floor)")
+    # Schema 2 (5.4): the 12V mean and lowest 1 s average in each interval, and the lowest-ever
+    # free PSRAM - filled on Rev Q, empty on Rev N (no 12V sense, no PSRAM).
+    if (file_schema(comments) or 1) >= 2:
+        cols = ("v12_mean", "v12_min_1s", "psram_min")
+        missing = [c for c in cols if c not in idx]
+        report(not missing, f"{name}: 12V and PSRAM columns present", f"missing {missing}" if missing else "")
+        if not missing:
+            revn = "# board rev-n (channel n = mux n+2)" in comments
+            good = [r for r in rows if len(r) == len(header)]
+            filled = {c: [r[idx[c]] for r in good if r[idx[c]] != ""] for c in cols}
+            if revn:
+                report(all(not v for v in filled.values()), f"{name}: 12V and PSRAM columns empty (Rev N has neither)",
+                       ", ".join(f"{c} {len(v)} filled" for c, v in filled.items() if v))
+            else:
+                def num(x):
+                    try:
+                        return float(x)
+                    except ValueError:
+                        return None
+                bad = [x for c in cols for x in filled[c] if num(x) is None]
+                volts = [num(x) for c in cols[:2] for x in filled[c] if num(x) is not None]
+                odd = [v for v in volts if not 0.0 <= v <= 30.0]
+                report(not bad and not odd, f"{name}: 12V and PSRAM values are numbers (12V within 0-30 V)",
+                       f"{len(bad)} not numbers, {len(odd)} outside 0-30 V" if bad or odd else "")
+                lows = [num(x) for x in filled["v12_min_1s"] if num(x) is not None]
+                if lows:
+                    lowest = min(lows)
+                    report(None, f"{name}: 12V lowest 1 s average {lowest:.2f} V" + (" (below 11.0 V: see the 12v events)" if lowest < 11.0 else ""))
+                ps = [num(x) for x in filled["psram_min"] if num(x) is not None]
+                if ps:
+                    report(None, f"{name}: lowest free PSRAM since boot {int(min(ps))} bytes")
     return header, rows
 
 
@@ -346,6 +378,27 @@ def main():
         check_header(hourly, comments, "hourly", a.profile, table)
         bad = sum(1 for r in rows if len(r) != len(h))
         report(bad == 0, f"{hn}: {len(rows)} rows with {len(h)} columns", f"{bad} wrong" if bad else "")
+        if (file_schema(comments) or 1) >= 2:            # 5.4: on Rev Q the hour's 12V and the lowest PSRAM
+            cols = ("v12_mean", "v12_min_1s", "psram_min")
+            missing = [c for c in cols if c not in h]
+            report(not missing, f"{hn}: 12V and PSRAM columns present", f"missing {missing}" if missing else "")
+            if not missing:
+                good = [r for r in rows if len(r) == len(h)]
+                filled = sum(1 for r in good for c in cols if r[h.index(c)] != "")
+                if "# board rev-n (channel n = mux n+2)" in comments:
+                    report(filled == 0, f"{hn}: 12V and PSRAM columns empty (Rev N has neither)", f"{filled} filled" if filled else "")
+                else:
+                    def num(x):
+                        try:
+                            return float(x)
+                        except ValueError:
+                            return None
+                    vals = [r[h.index(c)] for r in good for c in cols if r[h.index(c)] != ""]
+                    bad = [x for x in vals if num(x) is None]
+                    volts = [num(r[h.index(c)]) for r in good for c in cols[:2] if r[h.index(c)] != "" and num(r[h.index(c)]) is not None]
+                    odd = [v for v in volts if not 0.0 <= v <= 30.0]
+                    report(not bad and not odd, f"{hn}: 12V and PSRAM values are numbers (12V within 0-30 V)",
+                           f"{len(bad)} not numbers, {len(odd)} outside 0-30 V" if bad or odd else "")
         if "heap_min" in h:
             k = h.index("heap_min")
             lows = [int(r[k]) for r in rows if len(r) == len(h) and r[k].isdigit()]

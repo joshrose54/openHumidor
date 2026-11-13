@@ -3,6 +3,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include "pins.h"
+#include "sd_power.h"
 
 namespace sdcard {
 
@@ -19,6 +20,7 @@ bool begin() {
   static bool ran = false;
   if (ran) return gMounted;
   ran = true;
+  sdpower::begin();     // Rev Q: GPIO39 input, pull-up off - the soft-start "on" state (3A.11). Rev N: nothing
   gSpi.begin(pins::kSdSck, pins::kSdMiso, pins::kSdMosi, pins::kSdCs);
   gMounted = SD.begin(pins::kSdCs, gSpi, kSpiHz);
   gMB = gMounted ? SD.cardSize() / (1024ULL * 1024ULL) : 0;

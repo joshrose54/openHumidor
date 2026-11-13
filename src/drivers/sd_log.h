@@ -59,6 +59,10 @@ struct Stats {
   bool paused = false;          // Rev N: writes held while the radio is on
   uint32_t failures = 0;        // times it has failed since boot (a write failed twice)
   uint32_t retries = 0;         // writes that failed once and worked on the retry after a remount
+  uint32_t powerCycles = 0;     // Rev Q: the retry's remount failed, so the card was power-cycled (3A.11)
+  uint32_t powerCycleSaves = 0; //   ... and the retry then worked
+  bool buffersInPsram = false;  // the outage buffers are in PSRAM (Rev Q)
+  bool psramMissing = false;    // Rev Q, but no PSRAM found at boot: Rev N's sizes in internal RAM
   char lastRetry[64] = {};      // which file, and at which step the first attempt failed
   uint32_t spiKhz = 0;          // the card's SPI clock in normal running
   uint32_t rowsBuffered = 0;    // readings rows in RAM, not yet written (the batch, or kept while out)

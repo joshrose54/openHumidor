@@ -1,4 +1,7 @@
 #pragma once
+// Rev Q (3A.7): the mux and sensors on I2C0 (GPIO35/36, 25 kHz); the DS3231 on I2C1 (GPIO21/14,
+// 100 kHz), its own bus, restarted before the next RTC step if one fails. Rev N: one bus for all.
+//
 // The I2C bus: mux reset, the six SHT40s through the TCA9548A, and the DS3231
 // clock — from soak_test.cpp and sensor_check.cpp, rebuilt as a state machine so
 // nothing waits. One short transaction per loop pass; the SHT40's 10 ms
@@ -66,7 +69,8 @@ int takeRtcWriteResult();                      // 0 none yet, 1 written, -1 fail
 bool rtcOk();                                  // last RTC read succeeded
 bool rtcDateTime(wineador::DateTime& dt);      // last good RTC read
 uint32_t rtcReadAtMs();                        // millis() when that read happened
-bool internalPullupsOff();                     // checked from the IO_MUX registers
+bool internalPullupsOff();                     // checked from the IO_MUX registers (Rev Q: both buses)
+uint32_t rtcBusRestarts();                     // Rev Q: times I2C1 was restarted after a failed RTC step
 
 #if defined(WINEADOR_TEST_BUILD)
 // TEST BUILDS ONLY (B3 test 24): the next measurement read of this sensor reports

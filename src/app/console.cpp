@@ -8,6 +8,8 @@
 #include "drivers/i2c_bus.h"
 #include "drivers/sd_card.h"
 #include "board.h"
+#include "drivers/heap.h"
+#include "drivers/sd_log.h"
 
 using namespace wineador;
 
@@ -45,14 +47,6 @@ void printBanner(const Settings& s, const BootInfo& b) {
                  kTestBuild ? "TEST BUILD" : "cabinet build");
   Serial.printf ("  Boot reason: %s\n", b.bootReason);
   Serial.println("=====================================================================");
-
-#if defined(WINEADOR_BOARD_REVQ)
-  // Stage Q1: the Rev Q build compiles with every pin named, but its drivers are stage Q2.
-  Serial.println("#####################################################################");
-  Serial.println("##   REV Q, STAGE Q1 BUILD  -  NOT FOR USE                         ##");
-  Serial.println("##   The Rev Q drivers (RTC bus, watchdog, SD power...) are Q2.    ##");
-  Serial.println("#####################################################################");
-#endif
 
   if (s.profile == Profile::Bench) {
     Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -101,8 +95,27 @@ void printBanner(const Settings& s, const BootInfo& b) {
                  (unsigned)board::kSensorMuxChannel[2], (unsigned)board::kSensorMuxChannel[3],
                  (unsigned)board::kSensorMuxChannel[4], (unsigned)board::kSensorMuxChannel[5], board::kName);
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
+#if defined(WINEADOR_BOARD_REVQ)
+  Serial.printf ("    I2C         I2C0 (mux, sensors) 25 kHz; I2C1 (RTC, touch) 100 kHz; internal pull-ups %s\n",
+                 b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
+  Serial.printf ("    hw watchdog GPIO1: an input until the loop runs, then toggled every pass (U5 resets after 1.12-2.4 s)\n");
+  Serial.printf ("    12V sense   GPIO8, ADC1 at 12 dB, every 100 ms, 1 s averages; scale %.4f%s\n", (double)board::k12vScale,
+                 board::k12vScale == 115.0f / 15.0f ? " (nominal: calibrated at BP2 test 27)" : "");
+  Serial.printf ("    blowers     full speed (GPIO15 high)    ion generator OFF (GPIO17 low)    LCD cleared to black, backlight off\n");
+  {
+    const sdlog::Stats st = sdlog::stats();
+    if (heap::psramTotal() > 0)
+      Serial.printf("    PSRAM       %lu KB, %lu KB free; SD outage buffers in PSRAM (%u events, %u rows, %u hourly)\n",
+                    (unsigned long)(heap::psramTotal() / 1024), (unsigned long)(heap::psramFree() / 1024),
+                    (unsigned)board::kSdEventsKept, (unsigned)board::kSdRowsKept, (unsigned)board::kSdHourlyKept);
+    else
+      Serial.printf("    PSRAM       !! NOT FOUND: SD outage buffers at Rev N's sizes in internal RAM%s\n",
+                    st.psramMissing ? " (logged)" : "");
+  }
+#else
   Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
+#endif
   if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, SPI %lu kHz, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
                             (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",

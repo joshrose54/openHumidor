@@ -9,8 +9,11 @@
 #include "pins.h"
 #include "board.h"
 #include "sd_card.h"
+#include "sd_power.h"
+#include "heap.h"
 #include "wineador/logbook.h"
 #include "wineador/line_ring.h"
+#include "wineador/sd_power_seq.h"
 
 namespace sdlog {
 
@@ -38,6 +41,7 @@ volatile bool gBusy = false;
 volatile uint32_t gBusySince = 0;
 volatile uint32_t gWorstSinceTake = 0;
 bool gRetryNote = false;               // a write was recovered by a retry: log it (from the task loop)
+int gCycleNote = 0;                    // Rev Q power cycle: 1 saved the write, -1 remount failed, -2 retry failed
 int gYear = 0, gMonth = 0;
 
 // The card's settings, read at every mount: normally 1 MHz with the retry on. Only
@@ -260,8 +264,8 @@ void record(bool stress, uint32_t writeNo, bool retried, bool recovered, const A
   r.attemptMs = attemptMs;
   r.fileOffset = (uint32_t)a.before;
   r.len = (uint32_t)a.len;
-  r.heapFree = esp_get_free_heap_size();
-  r.heapLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  r.heapFree = heap::freeData();      // internal RAM only (5.2): on Rev Q the plain call adds PSRAM
+  r.heapLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   r.wifiUp = gWifiUp;
   withStats([&](Stats&) {
     r.seq = ++gFailSeq;
@@ -287,8 +291,18 @@ bool appendFile(const char* path, const char* header, const Payload& data) {
   const uint32_t firstMs = millis() - t0;
   if (!ok) {
     const Attempt first = a;
-    const bool retried = gRetry && mountCard();
+    bool retried = gRetry && mountCard();
+    // Rev Q (3A.11): when the retry's remount fails, power-cycle the card once (off at least
+    // 100 ms, on, remount) before giving up. Only this task touches the card, so it can wait.
+    int cycled = 0;                    // 1 remounted after a power cycle, -1 the remount failed even so
+    if (gRetry && !retried && sdpower::fitted()) {
+      retried = sdpower::cycle() && mountCard();
+      withStats([&](Stats& s) { s.powerCycles++; });
+      cycled = retried ? 1 : -1;
+    }
     if (retried) ok = appendOnce(path, header, data, first.grew, a);
+    if (cycled == 1 && ok) withStats([&](Stats& s) { s.powerCycleSaves++; });
+    if (cycled != 0) gCycleNote = cycled == -1 ? -1 : ok ? 1 : -2;   // logged from the task loop
     record(false, 0, retried, ok, first, firstMs);
     if (ok) {
       withStats([&](Stats& s) {
@@ -571,8 +585,8 @@ void stressRun() {
     } else {
       expectedKnown = false;           // after a lost write the size is not known; start again
     }
-    const uint32_t heapNow = esp_get_free_heap_size();
-    const uint32_t largestNow = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    const uint32_t heapNow = heap::freeData();      // internal RAM only (5.2)
+    const uint32_t largestNow = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     withStats([&](Stats& s) {
       StressStats& x = s.stress;
       x.writes = ok + fail;
@@ -588,7 +602,7 @@ void stressRun() {
       }
       if (mismatch) x.sizeMismatch++;
       if (x.heapMin == 0 || heapNow < x.heapMin) { x.heapMin = heapNow; x.heapMinLargest = largestNow; }
-      x.heapMinEver = esp_get_minimum_free_heap_size();
+      x.heapMinEver = heap::lowest();     // internal RAM only (5.2)
     });
     vTaskDelay(1);                       // let the idle task run
     // pass a queued line through now and then, so logging carries on
@@ -634,6 +648,18 @@ void task(void*) {
     if (!cardOk() && millis() - gLastRemount >= kRemountMs) tryRemount();
     if (cardOk() && !gRetentionDone) retention();
     if (cardOk() && millis() - gLastSpace >= kSpaceRefreshMs) refreshSpace();
+    if (gCycleNote != 0) {
+      const int n = gCycleNote;
+      gCycleNote = 0;
+      Stats st = stats();
+      char d[200];
+      snprintf(d, sizeof(d), "SD remount for the retry failed: card power-cycled (off %lu ms, on, remount) - %s "
+               "(%lu power cycles since boot)", (unsigned long)wineador::SdPowerSeq::kCycleOffMs,
+               n == 1 ? "remount OK, write retried OK" : n == -2 ? "remount OK but the retried write failed"
+                                                               : "remount FAILED",
+               (unsigned long)st.powerCycles);
+      selfEvent("sd", d);
+    }
     if (gRetryNote) {
       gRetryNote = false;
       Stats st = stats();
@@ -670,13 +696,25 @@ void begin(const char* readingsHeader, const char* eventsHeader, const char* hou
   gHeadH = dupe(hourlyHeader);
   // The outage buffers, once, from the heap (sizes per board).
   // If the heap ever could not supply one, that buffer holds nothing (lines are dropped and counted).
-  auto ring = [](size_t bytes, uint16_t lines) {
-    char* b = (char*)malloc(bytes);
+  // Rev Q: in PSRAM (5.4); if no PSRAM was found, Rev N's sizes in internal RAM (and an event).
+  const bool psram = board::kOutageInPsram && heap::psramTotal() > 0;
+  auto ring = [psram](size_t bytes, uint16_t lines) {
+    char* b = psram ? (char*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : (char*)malloc(bytes);
     return new LineRing(b, b ? bytes : 0, b ? lines : 0);
   };
-  gEvP = ring(board::kSdEventsBytes, board::kSdEventsKept);
-  gRowP = ring(board::kSdRowsBytes, board::kSdRowsKept);
-  gHrP = ring(board::kSdHourlyBytes, board::kSdHourlyKept);
+  if (psram || !board::kOutageInPsram) {
+    gEvP = ring(board::kSdEventsBytes, board::kSdEventsKept);
+    gRowP = ring(board::kSdRowsBytes, board::kSdRowsKept);
+    gHrP = ring(board::kSdHourlyBytes, board::kSdHourlyKept);
+  } else {
+    gEvP = ring(board_revn::kSdEventsBytes, board_revn::kSdEventsKept);
+    gRowP = ring(board_revn::kSdRowsBytes, board_revn::kSdRowsKept);
+    gHrP = ring(board_revn::kSdHourlyBytes, board_revn::kSdHourlyKept);
+  }
+  withStats([&](Stats& s) {
+    s.buffersInPsram = psram;
+    s.psramMissing = board::kOutageInPsram && !psram;
+  });
   const bool mounted = sdcard::mounted();     // mounted at boot by sdcard::begin
   withStats([&](Stats& s) {
     s.mounted = mounted;

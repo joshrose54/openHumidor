@@ -99,7 +99,7 @@ void test_readings_header_has_profile_serials_and_columns() {
   TEST_ASSERT_NOT_NULL(strstr(h, "# ch5 serial 0x0E42EFBA ambient rh_gain 1.0151 rh_offset -3.475"));
   const char* cols = lastLine(h);
   TEST_ASSERT_EQUAL_INT(0, strncmp(cols, "timestamp,time_trusted,ch0_t,ch0_rh,ch0_rh_raw,ch0_flag", 54));
-  TEST_ASSERT_NOT_NULL(strstr(cols, ",loop_max_ms,heap_free,heap_min,sd_worst_ms,"));
+  TEST_ASSERT_NOT_NULL(strstr(cols, ",loop_max_ms,heap_free,heap_min,sd_worst_ms,v12_mean,v12_min_1s,psram_min,"));
   TEST_ASSERT_NOT_NULL(strstr(cols, ",ch5_bus_real\n"));
   TEST_ASSERT_NULL(strstr(h, "ch6"));                            // nothing left of the 2-7 numbering
   TEST_ASSERT_NULL(strstr(h, "ch7"));
@@ -135,6 +135,15 @@ void test_readings_row_matches_header_columns() {
     row.loopMaxUs = 3456;
     formatReadingsRow(r, sizeof(r), row, tb);
     TEST_ASSERT_EQUAL_INT(countChar(lastLine(h), ','), countChar(r, ','));   // same number of columns
+    TEST_ASSERT_NOT_NULL(strstr(r, ",3.4,0,0,0,,,"));    // Rev N: no 12V sense, no PSRAM - empty columns
+    {
+      ReadingsRow q = row;
+      q.hasV12 = true; q.v12MeanV = 12.04f; q.v12Min1sV = 11.87f; q.hasPsram = true; q.psramMin = 1123456;
+      char rq[1500];
+      formatReadingsRow(rq, sizeof(rq), q, tb);
+      TEST_ASSERT_EQUAL_INT(countChar(lastLine(h), ','), countChar(rq, ','));
+      TEST_ASSERT_NOT_NULL(strstr(rq, ",12.04,11.87,1123456"));
+    }
     TEST_ASSERT_NOT_NULL(strstr(r, "2026-11-08T16:00:00Z,1,20.00,"));
     TEST_ASSERT_NOT_NULL(strstr(r, ",,,,absent,"));      // a failed read: values blank, flag kept
     TEST_ASSERT_NOT_NULL(strstr(r, ",40,0,1,0,0,cool,3.4,"));
@@ -251,7 +260,16 @@ void test_hourly_row() {
   TEST_ASSERT_NOT_NULL(strstr(hdr, ",ch5_rh_mean,cab_mean_t_min,"));
   TEST_ASSERT_NOT_NULL(strstr(r, "2026-11-08T16:00:00Z,1,2,20.00,22.00,21.00,62.00,62.00,62.00,"));
   TEST_ASSERT_NOT_NULL(strstr(r, ",,,,,,,"));            // ch5 not healthy: blank
-  TEST_ASSERT_NOT_NULL(strstr(r, ",30.0,650,90,0,0,54321\n"));  // fan mean, rpm mean, compressor 90 s, heap_min
+  TEST_ASSERT_NOT_NULL(strstr(r, ",30.0,650,90,0,0,54321,,,\n"));  // fan, rpm, compressor 90 s, heap_min; Rev N: no 12V, PSRAM
+  TEST_ASSERT_NOT_NULL(strstr(hdr, ",heap_min,v12_mean,v12_min_1s,psram_min\n"));
+  h.noteSupply(12.03f, 11.71f);                           // Rev Q (5.4)
+  h.notePsramMin(1081344);
+  h.formatRow(r, sizeof(r));
+  TEST_ASSERT_EQUAL_INT(countChar(lastLine(hdr), ','), countChar(r, ','));
+  TEST_ASSERT_NOT_NULL(strstr(r, ",54321,12.03,11.71,1081344\n"));
+  h.begin(1235, "2026-11-08T17:00:00Z", true);            // a new hour starts with them unset again
+  h.formatRow(r, sizeof(r));
+  TEST_ASSERT_NOT_NULL(strstr(r, ",,,\n"));
 }
 
 void test_worst_case_rows_fit_the_sd_queue_line() {
@@ -270,6 +288,7 @@ void test_worst_case_rows_fit_the_sd_queue_line() {
   row.cab.cabinetOk = 4; row.cab.meanC = row.cab.minC = row.cab.maxC = row.cab.controlC = -10.55f; row.cab.meanRhPct = 100.0f;
   row.fanPct = 100; row.fanRpm = 99999; row.cool = true; row.heaterDutyPct = 100; row.humid = true; row.relayHeating = true;
   row.loopMaxUs = 999999; row.heapFree = 999999; row.sdWorstMs = 99999;
+  row.hasV12 = true; row.v12MeanV = row.v12Min1sV = 99.99f; row.hasPsram = true; row.psramMin = 4294967295u;   // Rev Q columns
   const int len = formatReadingsRow(r, sizeof(r), row, true);
   TEST_ASSERT_LESS_THAN_INT(599, len);
   HourlyStats h;
@@ -280,6 +299,9 @@ void test_worst_case_rows_fit_the_sd_queue_line() {
   h.addSweep(ok, t, rh, row.cab, 100, 99999);
   LoadOutputs on; on.cool = on.humid = true;
   h.addOnTime(3600000UL, on);
+  h.noteHeapMin(4294967295u);
+  h.noteSupply(99.99f, 99.99f);
+  h.notePsramMin(4294967295u);
   TEST_ASSERT_LESS_THAN_INT(599, h.formatRow(r, sizeof(r)));
 }
 

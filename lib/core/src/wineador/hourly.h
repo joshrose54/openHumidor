@@ -38,6 +38,10 @@ class HourlyStats {
 
   // The lowest free heap since boot, for the row (5.2).
   void noteHeapMin(uint32_t bytes) { heapMin_ = bytes; }
+  // Rev Q (5.4), set before the row is written: the hour's 12V mean and lowest 1 s average,
+  // and the lowest free PSRAM since boot. Left unset (Rev N), the columns are empty.
+  void noteSupply(float meanV, float lowest1sV) { hasV12_ = true; v12Mean_ = meanV; v12Low_ = lowest1sV; }
+  void notePsramMin(uint32_t bytes) { hasPsram_ = true; psramMin_ = bytes; }
 
   // The row for the hour so far (one line, newline included).
   int formatRow(char* out, size_t n) const;
@@ -51,6 +55,9 @@ class HourlyStats {
   Acc cabT_, cabRh_, ctl_, fan_, rpm_;
   uint64_t onMs_[3] = {};
   uint32_t heapMin_ = 0;
+  bool hasV12_ = false, hasPsram_ = false;
+  float v12Mean_ = 0, v12Low_ = 0;
+  uint32_t psramMin_ = 0;
 };
 
 }  // namespace wineador

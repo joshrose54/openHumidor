@@ -2,7 +2,26 @@
 
 *Updated 2026-11-13.*
 
-## Port to Rev Q: stage Q1 built, waiting for Josh's sign-off (2026-11-13)
+## Port to Rev Q: stage Q2 (accepted 2026-11-13)
+
+Q1 accepted and committed (`c18774d`); the channel names and labels (`e7f7924`); docs (`ffbef5f`).
+
+**Q2 — the Rev Q drivers** (no board yet: native tests and builds only):
+- Hardware watchdog (GPIO1): an input until the loop runs, then toggled every pass from the loop;
+  the longest gap is in the status line, an event over 0.9 s. `hwdog::pause()` / `resume()` for later.
+- SD on SPI3 with the power switch (GPIO39): soft-on at boot; when the retry's remount fails, the
+  card is power-cycled once (release lines, cut, 150 ms, soft on, 10 ms, remount) before SD FAIL.
+- I2C0 (mux, sensors, 25 kHz) and I2C1 (RTC and touch, 100 kHz); I2C1 restarted after a failed RTC step.
+- 12V sense (GPIO8, 12 dB): 100 ms readings, 1 s averages; `v12_mean`, `v12_min_1s` columns; dip and
+  recovered events. `psram_min` column. All three in the readings AND hourly rows, empty on Rev N.
+  Heap measured as internal RAM only.
+- Blowers full speed (GPIO15 high), ion off (GPIO17 low, every pass), backlight 5 kHz PWM off, the LCD
+  cleared to black in its own task at boot. LCD drawing and touch reads exist for the test 29 sketch.
+- WiFi always on: the NTP window starts and stops SNTP; "WiFi lost" / "back after N s" events.
+- Outage buffers 1,000 / 1,440 / 168 in PSRAM (964,000 bytes); without PSRAM, an event and Rev N's sizes.
+- Native tests **295/295**.
+
+## Port to Rev Q: stage Q1 (accepted 2026-11-13)
 
 Rev N is no longer available: build and native tests only until Rev Q arrives.
 
