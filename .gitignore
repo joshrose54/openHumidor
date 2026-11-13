@@ -17,3 +17,6 @@ compile_commands.json
 
 # Python bytecode (tools/)
 __pycache__/
+
+# Claude Code: this machine's own settings (permissions, skill choices) — never shared
+.claude/settings.local.json
