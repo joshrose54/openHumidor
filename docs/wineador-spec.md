@@ -985,6 +985,9 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   including WiFi reconnects, SD writes and OTA updates. To pause it, set the pin back to an input **with both
   internal pulls off** (never pad hold) — and pause it for an OTA erase, which can block for
   seconds, or erase in pieces. The 5s software watchdog (5.2) stays.
+- **Reset reason:** the S3 reports every EN-pin reset as a power-up (POWERON), so a U5 watchdog
+  reset, SW1 and a supply dip below U5's threshold cannot be told apart from power-on. The boot
+  event logs the reason as reported; the software watchdog and brown-out keep their own reasons.
 - **SD power (GPIO39):** drive **high to cut** power. **To switch the card back on, set the pin to
   an input with its internal pull-up off** (the soft start); never drive it low — that switches the
   card on hard. Before cutting power, set the four SD lines low or to inputs, or the card is
@@ -2310,7 +2313,7 @@ on the top range unless stated; "open" means OL.
 | 32b | Power-up with the cable attached | Cable still on J23; 12V on | Boots normally, once; console text appears; a key typed in the monitor is received | Pending |
 | 33 | Power in any order | (a) USB in, then 12V on and off twice. (b) 12V on, USB in and out twice. (c) With 12V off and USB in: no load moves | No damage; boots normally each time 12V comes on; (c) as stated | Pending |
 | 34 | Fast power cycling | 12V off and on 20 times at short, irregular intervals (from under a second to a few seconds) | Boots every time; every load quiet through boot; no hang. Afterwards R38–R40 still read 3.3Ω across the three | Pending |
-| 35 | Bulb surge | **USB out.** The 21W 12V bulb on J10 3–4 (K1 energised), switched on 50 times by `bp2_35_bulb` (on 2s, off 3s, after `g`) | No freeze — the failure Rev N showed (build log). Any reset is clean and the board restarts (the bulb's cold surge can outlast the hold-up; the heater pad has none) | Pending |
+| 35 | Bulb surge | **USB out.** The 21W 12V bulb on J10 3–4 (K1 energised), switched on 50 times by `bp2_35_bulb` (on 2s, off 3s, after `g`). Run twice: first with the hardware watchdog paused (the sketch's default), so a freeze shows as a freeze; then with `hwdog on`, as the firmware runs | No freeze — the failure Rev N showed (build log). Any reset is clean and the board restarts (the bulb's cold surge can outlast the hold-up; the heater pad has none) | Pending |
 | 36 | Supply dip | A short dip on the 12V (PSU output switched off and straight back on, then the lead pulled and replugged) while running | Either rides through, or a clean reset ending in a normal boot — never a hang | Pending |
 
 ### E — Firmware and soak
@@ -2324,12 +2327,17 @@ on the top range unless stated; "open" means OL.
 
 **Rev Q exceptions to the B3 tests:**
 - **Test 11 (watchdog):** with GPIO1 toggling, `stall` is caught by the **hardware watchdog**
-  first (1.12–2.4s). Run it twice: as written (hardware reset, then boot hold), and with the hardware
-  watchdog paused (GPIO1 an input, both pulls off) to prove the 5s software watchdog.
+  first (1.12–2.4s). Run it twice: as written (one reset 1.12–2.4s after `stall`, reason POWERON —
+  3A.11 — then the boot hold), and with the hardware watchdog paused (GPIO1 an input, both pulls
+  off) to prove the 5s software watchdog, its own reason shown.
 - **Test 16 (RTC lost time):** the cell is soldered (3A.8). A test-build command sets the DS3231's
   EOSC bit, which stops its oscillator once it is on the cell; cut the power for a minute, restore
   it with WiFi; the command clears the bit afterwards. Same pass criteria. Test 24's lost-time event
   is made the same way.
+- **Test 24 (logging):** the two Rev Q events are required. **12V dip:** PSU turned down to
+  10.5V for about 5s, then back to 12.0V — a dip event, then its recovery with a lowest reading
+  near 10.5V and a duration near 5s. **WiFi:** the router switched off for about a minute, then
+  on — a WiFi lost event, then back after about that many seconds.
 - **The 12V-bulb rule (B3) does not apply:** Rev Q runs the bulb with USB out (test 35).
 
 ## B5 — Install in the cabinet
