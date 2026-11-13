@@ -1000,9 +1000,11 @@ GPIO39 is released, then about a 1ms rise. The socket's card-detect contact is n
   Backlight on until the firmware drives GPIO13; PWM dims it.
 - **LCD at boot:** cleared to black, backlight off until the first walk-past screen has been sent;
   then full, dimmed per 5.5. The BP2 test sketches keep their own behaviour.
-- **LCD drawing never holds up the loop:** screens are drawn in pieces across passes, and no drawing
-  step holds the loop for more than **50ms** (a full screen at 15MHz takes about 165ms, so redraw
-  only what changed, or send it by DMA in the background).
+- **Nothing the LCD or the web server does holds the loop more than 50ms:** screens are drawn in
+  pieces across passes (a full screen at 15MHz takes about 165ms, so redraw only what changed, or
+  send it by DMA in the background); the web server runs in its own task and never calls the
+  control code. **The one exception is an OTA update** (5.2): flash erases stall the loop, which is
+  harmless with every load off.
   **Backlight PWM 5kHz, 8-bit.**
 - **SD card recovery (Rev Q):** when the remount for a failed write's retry (5.4) fails, power-cycle
   the card once (off, at least 100ms, on, remount) before setting SD FAIL.
@@ -1609,15 +1611,22 @@ own buffers dip it to ~29 KB, which is logged (card writes are paused). **Rev Q 
 it at all times.**
 
 **OTA updates** (from B6/B7): on Rev Q only inside the LCD's Allow update window, and only a Rev Q cabinet build (5.5); a new image that fails to start properly rolls
-back to the previous one (two app slots: `min_spiffs` on Rev N, `default_8MB` on Rev Q); after any update the normal boot hold
+back to the previous one. **Started properly** = the control loop has run 60s with the settings
+check passed, the hardware watchdog toggling and the first full sensor read done; only then is the
+new image marked good, and a reset before that rolls back. A rollback is logged and shown on the
+Update page (two app slots: `min_spiffs` on Rev N, `default_8MB` on Rev Q); after any update the normal boot hold
 applies.
 - **Starts only when the compressor is not running** — otherwise it is refused with a message, so
   an update never cuts a cooling run short.
 - **During an update:** cooling, heater, humidifier and ion generator off; blowers at idle; plenum
-  fan at its idle setting; the hardware watchdog paused for the erase (3A.11). During the restart
+  fan at its idle setting. **Flash erased in 4 KB pieces with the hardware watchdog still running**
+  (each erase well under its 0.9s; if one ever ran longer the board would reset with the old image
+  still in place), or the watchdog paused for the erase (3A.11). During the restart
   itself the blowers and plenum fan run at full speed (hardware default).
 - After the restart the normal boot rules apply (boot hold; 4.4's timing state, so the compressor
   waits its full minimum off).
+- **An upload that stalls** (no data for 60s) is abandoned: the half-written image is discarded,
+  normal control resumes, and an event is logged.
 
 ## 5.3 Sensor handling
 
@@ -1699,7 +1708,7 @@ interlock change · harvest start and end · guard blocks · CRC failures and ti
 sensor excluded or recovered · fan tach stall · settings changed with old and new values and where from (LCD, dashboard or serial) · boot,
 with reason · SD flush failure · I²C bus fault, with the channel excluded and the mux reset · RTC
 lost time at boot and the NTP correction · crossover · RH stripping start and stop with reason ·
-disturbance detected with direction, magnitude, hold-off and cap · relay exercise · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · humidifier
+disturbance detected with direction, magnitude, hold-off and cap · relay exercise · door test, with its note · OTA update started, done, refused (with the reason), abandoned, rolled back · LCD Allow update pressed · LCD drawing step over 50ms (at most once a minute) · LCD screens off at boot (no PSRAM) · humidifier
 on/off with reason · heater, cooling or humidifier ineffective · heap below the 30 KB floor (first
 time) · 12V dip and recovery with the lowest value (Rev Q) · WiFi lost, and back after N seconds
 (Rev Q). **12V dips and WiFi events:** up to 10 an hour each (a dip with its recovery, or an outage with its
@@ -1822,7 +1831,7 @@ normal and the LCD still works.
     back to full, and that first touch only wakes the screen.
   - **Icons and fonts** are drawn by the firmware or come from openly licensed sets, with the licence
     noted in the source.
-  - **Colours:** the palette approved at stage Q4 is `lib/lcdgfx/palette.h` in the firmware; the
+  - **Colours:** the palette approved at stage Q4 is `lib/lcdgfx/src/lcdgfx/palette.h` in the firmware; the
     web dashboard uses the same values.
   - **Without PSRAM** (5.4's fallback) the screens stay off — cleared to black, backlight off —
     and an event is logged; control is unaffected.
@@ -1834,16 +1843,48 @@ normal and the LCD still works.
   - **No password.** Anything on the home network can read and change user settings; every value
     is clamped to its bounds and safety values are never exposed. **OTA only inside the LCD's
     Allow update window** (above), and only per the OTA rules (5.2). Plain http — no https.
-  - **Refresh:** the page fetches new figures every **30s**.
-  - **Graphs:** hour and day from the readings; week and month from the hourly rows.
+  - **Rev Q only:** the dashboard and OTA. Rev N builds stay as they are (WiFi for NTP only).
+  - **One page file** holding all seven pages.
+  - **Fetch only what the open page shows, and only while it is visible** (nothing while the tab
+    is hidden or the phone screen is off; it catches up on return):
+    - Overview and Sensors: the status every 30s; the header on every page (mode icons, time,
+      alert) comes from the same reply;
+    - Graphs: loaded when opened or the range changes; the hour view adds its newest points every
+      30s; day, week and month refresh every few minutes;
+    - Events: loaded when opened, then checked for new ones every 30s; 50 at a time, paging back
+      through the card's monthly event files;
+    - Settings: loaded when opened, never refreshed while open (it would overwrite an edit);
+    - Logs: loaded when opened;
+    - Update: the window countdown runs in the browser from the seconds left; the browser shows
+      its own upload progress; after the restart it checks every few seconds until the board
+      answers with its new version.
+  - **Graphs:** hour and day from the readings; week and month from the hourly rows. Drawn with
+    **uPlot** (MIT), a copy kept in the repo and served from flash.
+  - **Weekly counts** (crossovers, RH strips, humidifier runs, disturbances) are counted from the
+    last 7 days of event files at boot, then kept up live — no log change.
+  - **Times** are UK local time from the board, as on the LCD, never the browser's own zone.
+  - **Overview** also shows the blower speed and the ion generator's state. The ion settings
+    appear on Settings once 4.6c is built.
+  - **Door test:** a button on the Events page logs a "door test" event, with an optional note.
+  - **Allow update window, at the edges:** a refused upload (wrong build, compressor running)
+    doesn't use the window up; an upload started inside it finishes even if the 5 minutes run
+    out; settings writes are refused while Updating, as on the LCD.
   - **OTA accepts only a Rev Q cabinet build** (real profile, not a test build); a bench, test or
     Rev N image is refused before anything is written. The image carries its build identity and
     the firmware checks it.
-  - **Limits:** at most **2 browser connections** at once; log downloads sent in pieces, within
-    the 50ms drawing-and-loop rule (3A.11) and the 30 KB internal-heap floor (5.2).
+  - **Limits:** at most **2 browser connections** at once, and at most one long transfer (a
+    download or an update) at a time; log downloads sent in pieces, read by the SD task between its
+    own log writes, within the 50ms rule (3A.11) and the 30 KB internal-heap floor (5.2). **A new
+    transfer is refused when free internal RAM is near the floor**, the margin set from BP2 test 39.
+    Downloads run at the card's normal clock: a month of readings takes a few minutes.
+  - **Writes only as JSON** (an OTA image as a raw file), and the board grants no other website
+    permission to send to it — so, with no password, a web page open elsewhere can't quietly change
+    a setting.
   - **Served from the ESP32's flash, working with no internet:** small and compressed; nothing
     loaded from outside — no web fonts or chart libraries from the internet (system fonts, or
     files stored on the board).
+  - **Name and logo:** the pages show **openHumidor** with the logo `docs/brand/openhumidor-logo.svg`;
+    the board's network name stays `wineador.local`.
   - **Works on a phone** as well as a computer. **Same colours and icons as the LCD.**
 
 **Display:** current temperature and RH, all six sensors · cabinet mean, min, max, spread · state:
@@ -1941,10 +1982,11 @@ for wide ranges.
 
 **The JSON endpoints are a documented API**, used by the dashboard and by tools on the Mac alike:
 - **Read** — status, readings, events, hourly data, and log file downloads. Open on the LAN.
-- **Write** — user settings (the manual exclude included), and a door-test marker; tuning settings only in the B6 tuning build; the same bounds as
+- **Write** — user settings (the manual exclude included), and a door-test marker; tuning settings only in the B6 tuning build (refused in every other build); the same bounds as
   everywhere else. **No password** (above); OTA only inside the LCD's Allow update window.
-- **Documented in the repo**, every endpoint and its JSON, with a **version number** that changes when
-  any endpoint does, so tools on the Mac fail clearly rather than silently.
+- **Documented in the repo** (`docs/api.md`), every endpoint and its JSON, with a **version number** that changes when
+  any endpoint does, so tools on the Mac fail clearly rather than silently. Every reply carries
+  the version; a native test fails if the document and the firmware disagree.
 - **Safety settings are never exposed**, through the API or anywhere else.
 
 ## 5.6 Fault handling
@@ -2226,7 +2268,8 @@ plugging USB in.
 The `boot` command reprints the banner and boot reason.
 
 **Version string:** `0.1.0-stage<n>` during B3, with `-BENCH` and `-TEST` added when they apply;
-`1.0.0` once B3 passes.
+`1.0.0` once B3 passes (Rev N). **Rev Q's cabinet build is `2.0.0`** (new board, schema 2), with
+`-BENCH` and `-TEST` as above; the OTA identity block carries the same string.
 
 **Tests run when their parts exist.** A test is first run at the build stage that provides what it
 checks, and is **logged only once every pass criterion is met** — a test whose criteria need a later
@@ -2391,7 +2434,7 @@ on the top range unless stated; "open" means OL.
 |---|---|---|---|---|
 | 37 | B3 re-run | Every B3 test on Rev Q (every pin and bus moves), with the Rev Q exceptions below | As B3 | Pending |
 | 38 | Deep SD test | Test build, **WiFi connected all the time**: at least 20,000 large readings batches back to back; then the card pulled for a few minutes and replaced | **Zero first-try failures** — the stress build's own retry never power-cycles the card, so this is the card unaided; every buffered row and event written in order after the pull. With the normal build, a card pull shows one power-cycle event, then SD FAIL, then recovery when the card is back | Pending |
-| 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice) | **Never below 30 KB** | Pending |
+| 39 | Heap floor | Throughout tests 38 and 40: lowest free internal heap from the readings, WiFi connects and reconnects included (router switched off and on twice); and with a log download and an OTA upload running at once from two browsers. **Set the margin** for refusing a new transfer near the floor (5.5; build log) | **Never below 30 KB** | Pending |
 | 40 | Soak | As B4 test 1, on Rev Q with WiFi always on | As B4 test 1 | Pending |
 
 **Rev Q exceptions to the B3 tests:**
@@ -2493,6 +2536,7 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 | 3 | Defaults | NVS defaults against the B6 findings | Match | Pending |
 | 4 | Persistence | Change settings, cut power, restore | Settings survive | Pending |
 | 5 | Final soak | One week unattended | Comparable to the B6 baseline | Pending |
+| 6 | OTA (Rev Q) | **Loads unplugged; Josh's go before each flash** (the cabinet build switches loads by itself). Allow update on the LCD, then from the dashboard: a cabinet build; a bench, a test and a Rev N image; an upload outside the window; one with the compressor running (cabinet model, or a forced state in a test build); an upload stopped part way; a deliberately broken image | The cabinet build installs, restarts, passes the boot hold and is marked good. Every other case refused with its reason and nothing written; the stopped upload abandoned after 60s; the broken image rolls back by itself, logged and shown on the Update page | Pending |
 
 ---
 
