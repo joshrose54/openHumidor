@@ -14,11 +14,9 @@ void begin() {
   pinMode(pins::kHeater, OUTPUT);     digitalWrite(pins::kHeater, LOW);
   pinMode(pins::kRelayK1, OUTPUT);    digitalWrite(pins::kRelayK1, LOW);
   pinMode(pins::kHumidifier, OUTPUT); digitalWrite(pins::kHumidifier, LOW);
-#if defined(WINEADOR_BOARD_REVQ)
   // The ion generator (GPIO17, Q6, no U9): high = on. Off at boot; the loop then sets it every
   // pass from its rule (4.6c).
   pinMode(pins::kIon, OUTPUT);        digitalWrite(pins::kIon, LOW);
-#endif
   gNow = wineador::LoadOutputs{};
 }
 
@@ -48,30 +46,22 @@ void allOff() {
   digitalWrite(pins::kHeater, LOW);
   digitalWrite(pins::kHumidifier, LOW);
   digitalWrite(pins::kRelayK1, LOW);
-#if defined(WINEADOR_BOARD_REVQ)
   digitalWrite(pins::kIon, LOW);
-#endif
   gIon = false;
   gNow = wineador::LoadOutputs{};
 }
 
 void setIon(bool on) {
-#if defined(WINEADOR_BOARD_REVQ)
   if (on == gIon) return;             // every pass: only a change touches the pin
   digitalWrite(pins::kIon, on ? HIGH : LOW);
   gIon = on;
-#else
-  (void)on;
-#endif
 }
 
 bool ionOn() { return gIon; }
 
 void ionOff() {
   gIon = false;
-#if defined(WINEADOR_BOARD_REVQ)
   digitalWrite(pins::kIon, LOW);
-#endif
 }
 
 wineador::LoadOutputs current() { return gNow; }

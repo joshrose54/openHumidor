@@ -6,8 +6,6 @@
 
 namespace touch {
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 static wineador::TouchSetup gSetup;
 
 // One register write: one short I2C1 transaction.
@@ -52,15 +50,5 @@ bool readReg(uint8_t reg, uint8_t& val) {
 bool setupDone() { return gSetup.done(lcd::resetCount()); }
 bool takeSetupFailure() { return gSetup.takeFailure(); }
 bool fitted() { return true; }
-
-#else
-
-bool read(wineador::TouchPoint& t) { t = wineador::TouchPoint{}; return false; }
-bool readReg(uint8_t, uint8_t&) { return false; }
-bool setupDone() { return false; }
-bool takeSetupFailure() { return false; }
-bool fitted() { return false; }
-
-#endif
 
 }  // namespace touch

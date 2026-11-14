@@ -1,5 +1,4 @@
 #include "web_link.h"
-#if defined(WINEADOR_BOARD_REVQ)
 #include <Arduino.h>
 #include <new>
 #include <string.h>
@@ -120,4 +119,3 @@ bool ask(MailRequest* r, MailAnswer* a) {
 
 }  // namespace weblink
 
-#endif  // WINEADOR_BOARD_REVQ

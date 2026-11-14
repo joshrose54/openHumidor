@@ -868,9 +868,9 @@ void begin(const char* readingsHeader, const char* eventsHeader, const char* hou
     gRowP = ring(board::kSdRowsBytes, board::kSdRowsKept);
     gHrP = ring(board::kSdHourlyBytes, board::kSdHourlyKept);
   } else {
-    gEvP = ring(board_revn::kSdEventsBytes, board_revn::kSdEventsKept);
-    gRowP = ring(board_revn::kSdRowsBytes, board_revn::kSdRowsKept);
-    gHrP = ring(board_revn::kSdHourlyBytes, board_revn::kSdHourlyKept);
+    gEvP = ring(board::kNoPsramEventsBytes, board::kNoPsramEventsKept);   // the no-PSRAM fallback (5.4)
+    gRowP = ring(board::kNoPsramRowsBytes, board::kNoPsramRowsKept);
+    gHrP = ring(board::kNoPsramHourlyBytes, board::kNoPsramHourlyKept);
   }
   withStats([&](Stats& s) {
     s.buffersInPsram = psram;

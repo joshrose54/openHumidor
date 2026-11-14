@@ -1,7 +1,6 @@
 #include "ion_store.h"
 #include "wineador/build_info.h"
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include <Preferences.h>
 
 namespace ionstore {
@@ -30,12 +29,3 @@ bool save(const uint8_t* blob, size_t n) {
 
 }  // namespace ionstore
 
-#else   // Rev N: no ion generator
-
-namespace ionstore {
-const char* nvsNamespace() { return ""; }
-size_t load(uint8_t*, size_t) { return 0; }
-bool save(const uint8_t*, size_t) { return false; }
-}  // namespace ionstore
-
-#endif

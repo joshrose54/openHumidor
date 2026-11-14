@@ -1,17 +1,19 @@
 # PlatformIO post-build step (extra_scripts, every board build): checks the image just built carries
 # the right openHumidor identity block at byte 0x120 (spec 5.5; lib/core image_identity.h), and keeps
 # a copy of the image in .pio.nosync/images/<env>.bin for test_image_check (PlatformIO clears the
-# build folders when another set of environments runs, so the tests read the copies).
+# build folders when another set of environments runs, so the tests read the copies). After the
+# revq build it also makes the two made-up images the tests refuse (tools/make_bad_image.py):
+# revq-corrupt.bin and revq-esp32-chip.bin (a Rev N image's chip ID; Rev N can no longer be built).
 #
 #   Rev Q firmware builds: the app description (magic 0xABCD5432) at 0x20 and the identity block at
 #     0x120: magic, board rev-q, the build's profile and test flag, layout 1, the API version, and the
 #     version string spec B3 gives (2.0.0, -BENCH, -TEST, -ROLLBACK-TEST).
-#   Rev N builds and the BP2 sketches: no identity block (Rev N is refused by its chip ID; a sketch
-#     must never be accepted).
+#   The BP2 sketches: no identity block (a sketch must never be accepted).
 # Anything else fails the build.
 #
 # Also runnable by hand:  python3 tools/check_identity.py <firmware.bin> <env> "<build flags>"
 
+import importlib.util
 import os
 import re
 import shutil
@@ -32,7 +34,7 @@ def project_dir(here):
 
 def expected(env, flags, root):
     """What the block must say for this build, or None if it must carry none."""
-    if env.startswith("bp2_") or "WINEADOR_BOARD_REVQ" not in flags:
+    if env.startswith("bp2_"):
         return None
     board_h = open(os.path.join(root, "include", "board.h"), encoding="utf-8").read()
     revq = board_h[board_h.index("namespace board_revq"):]
@@ -51,6 +53,8 @@ def check(path, env, flags, root):
     problems = []
     if len(b) < ID_OFFSET + 64 or b[0] != 0xE9:
         return ["not an ESP32 image"]
+    if "WINEADOR_BOARD_REVQ" not in flags:
+        return ["not a Rev Q build (no -DWINEADOR_BOARD_REVQ): the only board built now"]
     desc_magic = int.from_bytes(b[APP_DESC_OFFSET:APP_DESC_OFFSET + 4], "little")
     if desc_magic != 0xABCD5432:
         problems.append("no app description at 0x20")
@@ -76,6 +80,13 @@ def keep(path, env, root):
     d = os.path.join(root, ".pio.nosync", "images")
     os.makedirs(d, exist_ok=True)
     shutil.copyfile(path, os.path.join(d, env + ".bin"))
+    if env == "revq":
+        spec = importlib.util.spec_from_file_location("make_bad_image", os.path.join(root, "tools", "make_bad_image.py"))
+        bad = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bad)
+        src = os.path.join(d, "revq.bin")
+        print("  " + bad.make(src, os.path.join(d, "revq-corrupt.bin"), False))
+        print("  " + bad.make(src, os.path.join(d, "revq-esp32-chip.bin"), True))
 
 
 def report(path, env, flags, root):

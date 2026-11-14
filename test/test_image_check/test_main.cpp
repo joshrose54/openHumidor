@@ -107,8 +107,9 @@ void test_the_page_and_the_board_agree_on_every_image() {
     {"revq_bench", ImageVerdict::BenchBuild}, {"revq_bench_test", ImageVerdict::BenchBuild},
     {"revq_bench_test_boot", ImageVerdict::BenchBuild}, {"revq_real_test", ImageVerdict::TestBuild},
     {"revq-corrupt", ImageVerdict::Accept},   // tools/make_bad_image.py: identity intact, refused at its own check
-    {"esp32dev", ImageVerdict::RevNImage}, {"bench", ImageVerdict::RevNImage}, {"bench_test", ImageVerdict::RevNImage},
-    {"bench_test_boot", ImageVerdict::RevNImage}, {"real_test", ImageVerdict::RevNImage},
+    // tools/make_bad_image.py --esp32-chip: a Rev N image's chip ID (Rev N is retired and can't be built;
+    // B7 test 6 uploads the last real one, kept in ~/wineador-logs/rev-n-last/)
+    {"revq-esp32-chip", ImageVerdict::RevNImage},
     {"bp2_15_boot_state", ImageVerdict::NoIdentity}, {"bp2_18_outputs", ImageVerdict::NoIdentity},
     {"bp2_19_interlock", ImageVerdict::NoIdentity}, {"bp2_20_full_load", ImageVerdict::NoIdentity},
     {"bp2_21_wifi_rails", ImageVerdict::NoIdentity}, {"bp2_22_blowers", ImageVerdict::NoIdentity},
@@ -124,6 +125,8 @@ void test_the_page_and_the_board_agree_on_every_image() {
     snprintf(p, sizeof(p), ".pio.nosync/images/%s.bin", w.env);
     if (!readFirst(p, &real)) {
       if (strcmp(w.env, "revq") == 0) TEST_FAIL_MESSAGE("no .pio.nosync/images/revq.bin: build revq first, then run this test");
+      if (strcmp(w.env, "revq-esp32-chip") == 0)
+        TEST_FAIL_MESSAGE("no .pio.nosync/images/revq-esp32-chip.bin: the revq build makes it (tools/check_identity.py)");
       continue;
     }
     char msg[160];

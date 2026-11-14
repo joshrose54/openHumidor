@@ -41,12 +41,22 @@ void test_rev_q_sizes_are_the_spec() {
   TEST_ASSERT_EQUAL_UINT(1440, board_revq::kSdRowsKept);       // 24 h at the steady 60 s rate
   TEST_ASSERT_EQUAL_UINT(168, board_revq::kSdHourlyKept);      // a week
   TEST_ASSERT_TRUE(board_revq::kOutageInPsram);
-  TEST_ASSERT_FALSE(board_revn::kOutageInPsram);
   const size_t total = board_revq::kSdEventsBytes + board_revq::kSdRowsBytes + board_revq::kSdHourlyBytes;
   char m[80];
   snprintf(m, sizeof(m), "Rev Q outage buffers: %u bytes in PSRAM", (unsigned)total);
   TEST_MESSAGE(m);
   TEST_ASSERT_TRUE(total <= 1000000);                          // "about 0.94 MB" of the 2 MB
+}
+
+// The no-PSRAM fallback (5.4): 60 events, 30 readings rows, 24 hourly rows in internal RAM - the
+// sizes Rev N ran, with their byte budgets as they were proven there.
+void test_no_psram_fallback_is_the_spec() {
+  TEST_ASSERT_EQUAL_UINT(60, board_revq::kNoPsramEventsKept);
+  TEST_ASSERT_EQUAL_UINT(12000, board_revq::kNoPsramEventsBytes);
+  TEST_ASSERT_EQUAL_UINT(30, board_revq::kNoPsramRowsKept);
+  TEST_ASSERT_EQUAL_UINT(14000, board_revq::kNoPsramRowsBytes);
+  TEST_ASSERT_EQUAL_UINT(24, board_revq::kNoPsramHourlyKept);
+  TEST_ASSERT_EQUAL_UINT(9000, board_revq::kNoPsramHourlyBytes);
 }
 
 // 1,440 everyday rows (2 bytes each for the length) fit the readings budget, test build included.
@@ -101,6 +111,7 @@ void test_full_size_ring_keeps_the_newest() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_rev_q_sizes_are_the_spec);
+  RUN_TEST(test_no_psram_fallback_is_the_spec);
   RUN_TEST(test_a_day_of_rows_fits);
   RUN_TEST(test_hourly_and_events_fit);
   RUN_TEST(test_full_size_ring_keeps_the_newest);

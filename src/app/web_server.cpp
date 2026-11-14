@@ -1,7 +1,6 @@
 #include "web_server.h"
 #include <stdio.h>
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include <Arduino.h>
 #include <new>
 #include <string.h>
@@ -529,13 +528,3 @@ void formatStatus(char* out, size_t n) {
 
 }  // namespace web
 
-#else   // Rev N: no dashboard
-
-namespace web {
-bool begin() { return false; }
-bool running() { return false; }
-const char* problem() { return "no dashboard on this board"; }
-void formatStatus(char* out, size_t n) { snprintf(out, n, "web: no dashboard on this board (Rev Q only)"); }
-}  // namespace web
-
-#endif

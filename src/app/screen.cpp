@@ -6,16 +6,12 @@
 #include "drivers/touch.h"
 #include "drivers/backlight.h"
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include "esp_heap_caps.h"
 #include "lcdgfx/screens.h"
-#endif
 
 namespace screen {
 
 using namespace wineador;
-
-#if defined(WINEADOR_BOARD_REVQ)
 
 // board::kLcdSendBytes is tuned at BP2: each of its two buffers must hold at least one full-width
 // row, and one piece must go out well inside 3A.11's 50 ms.
@@ -201,27 +197,5 @@ void formatStatus(char* out, size_t n) {
            gStats.passMaxUs > kLongStepUs ? " OVER 50 ms" : "", (unsigned long)gStats.lastFrameMs,
            (unsigned long)gStats.maxFrameMs, gStress ? " | STRESS" : "");
 }
-
-#else   // Rev N: no LCD
-
-static UpdateWindow gWindow;
-static LcdUi gNoUi;
-bool begin(uint32_t, const char*) { return false; }
-bool running() { return false; }
-bool logicRunning() { return false; }
-const LcdUi& ui() { return gNoUi; }
-const char* problem() { return "no LCD on this board"; }
-void update(const UiInputs&) {}
-bool takeSave(float*, float*) { return false; }
-bool takeWindowOpened() { return false; }
-UpdateWindow& window() { return gWindow; }
-bool takeLongStep(uint32_t*, const char**, uint32_t*) { return false; }
-void stress(bool) {}
-bool stressing() { return false; }
-Stats stats() { return Stats{}; }
-void resetMax() {}
-void formatStatus(char* out, size_t n) { if (n) out[0] = 0; }
-
-#endif
 
 }  // namespace screen

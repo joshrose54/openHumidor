@@ -97,8 +97,9 @@ void test_every_other_image_is_refused_with_its_reason() {
   }
 }
 
-// The real images from the builds, when they have been built: Rev N's is refused by its chip;
-// Rev Q's cabinet build is accepted (its identity block, stage Q5d); a BP2 sketch never.
+// The real images from the builds, when they have been built: Rev Q's cabinet build is accepted
+// (its identity block, stage Q5d); a Rev N image is refused by its chip (the made-up one,
+// tools/make_bad_image.py --esp32-chip, made by the revq build: Rev N is retired); a BP2 sketch never.
 static bool readFile(const char* path, std::vector<uint8_t>* out) {
   FILE* f = fopen(path, "rb");
   if (!f) return false;
@@ -112,9 +113,10 @@ static bool readFile(const char* path, std::vector<uint8_t>* out) {
 void test_the_real_images_from_the_builds() {
   std::vector<uint8_t> b;
   int seen = 0;
-  if (readFile(".pio.nosync/images/esp32dev.bin", &b)) {
+  if (readFile(".pio.nosync/images/revq-esp32-chip.bin", &b)) {
     seen++;
     TEST_ASSERT_TRUE(verdict(b) == ImageVerdict::RevNImage);
+    TEST_ASSERT_EQUAL_UINT16(kChipEsp32, readImageFacts(b.data(), b.size()).chip);
   }
   if (readFile(".pio.nosync/images/revq.bin", &b)) {
     seen++;
@@ -126,7 +128,7 @@ void test_the_real_images_from_the_builds() {
     seen++;
     TEST_ASSERT_TRUE(verdict(b) == ImageVerdict::NoIdentity);   // a BP2 sketch: never
   }
-  if (seen == 0) TEST_IGNORE_MESSAGE("no .pio.nosync/images/*.bin yet: build esp32dev and revq, then run again");
+  if (seen == 0) TEST_IGNORE_MESSAGE("no .pio.nosync/images/*.bin yet: build revq, then run again");
 }
 
 // ---------------------------------------------------------------- the Allow update gate

@@ -8,7 +8,6 @@
 // dropping it (the section isn't marked "keep").
 #include "identity.h"
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include "board.h"
 #include "wineador/build_info.h"
 #include "wineador/web_api.h"
@@ -34,14 +33,3 @@ const wineador::ImageIdentityBlock& identity() {
 bool hasIdentity() { return true; }
 }  // namespace firmware
 
-#else   // Rev N: no identity block (spec 5.5: Rev Q only; a Rev N image is refused by its chip ID)
-
-namespace firmware {
-const wineador::ImageIdentityBlock& identity() {
-  static const wineador::ImageIdentityBlock none{};
-  return none;
-}
-bool hasIdentity() { return false; }
-}  // namespace firmware
-
-#endif

@@ -83,7 +83,6 @@ void printBanner(const Settings& s, const BootInfo& b) {
                  (unsigned)board::kSensorMuxChannel[2], (unsigned)board::kSensorMuxChannel[3],
                  (unsigned)board::kSensorMuxChannel[4], (unsigned)board::kSensorMuxChannel[5], board::kName);
   Serial.printf ("    watchdog    %s\n", b.watchdogOk ? "5 s, armed" : "!! FAILED TO ARM");
-#if defined(WINEADOR_BOARD_REVQ)
   Serial.printf ("    I2C         I2C0 (mux, sensors) 25 kHz; I2C1 (RTC, touch) 100 kHz; internal pull-ups %s\n",
                  b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
   Serial.printf ("    hw watchdog GPIO1: an input until the loop runs, then toggled every pass (U5 resets after 1.12-2.4 s)\n");
@@ -105,10 +104,6 @@ void printBanner(const Settings& s, const BootInfo& b) {
       Serial.printf("    PSRAM       !! NOT FOUND: SD outage buffers at Rev N's sizes in internal RAM%s\n",
                     st.psramMissing ? " (logged)" : "");
   }
-#else
-  Serial.printf ("    I2C         25 kHz, ESP32 internal pull-ups %s\n",
-                 b.pullupsOff ? "OFF (correct)" : "!! ON - SHOULD BE OFF");
-#endif
   if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, SPI %lu kHz, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
                             (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
   else        Serial.printf("    SD card     NOT MOUNTED after %lu ms: logging paused, retried every 30 s (control unaffected)\n",

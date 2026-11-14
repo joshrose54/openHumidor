@@ -70,13 +70,9 @@ static int gWriteResult = 0;
 // The RTC's bus. Rev N: the one bus, shared with the mux, as through B3 and B4. Rev Q: I2C1
 // (GPIO21 SDA / GPIO14 SCL, 100 kHz) with the touch controller, so a sensor holding I2C0
 // can't stop the clock being read (3A.7). The RTC steps are the same on both.
-#if defined(WINEADOR_BOARD_REVQ)
 static TwoWire& rtcWire() { return Wire1; }
 static bool gRtcRestart = false;      // an RTC step failed: restart I2C1 before the next one
 static uint32_t gRtcRestarts = 0;
-#else
-static TwoWire& rtcWire() { return Wire; }
-#endif
 
 // ---------------------------------------------------------------- transactions
 static bool muxWrite(uint8_t mask) {
@@ -180,10 +176,8 @@ static bool rtcClearOsf() {
 static void pullupsOff() {
   gpio_pullup_dis((gpio_num_t)pins::kI2cSda);
   gpio_pullup_dis((gpio_num_t)pins::kI2cScl);
-#if defined(WINEADOR_BOARD_REVQ)
   gpio_pullup_dis((gpio_num_t)pins::kI2c1Sda);
   gpio_pullup_dis((gpio_num_t)pins::kI2c1Scl);
-#endif
 }
 
 // Wire set up as spec 5.3: 25 kHz, hard timeout, the ESP32's internal pull-ups off.
@@ -194,7 +188,6 @@ static void wireStart() {
   pullupsOff();
 }
 
-#if defined(WINEADOR_BOARD_REVQ)
 // I2C1 set up the same way: 100 kHz, the same hard timeout, internal pull-ups off.
 static void rtcWireStart() {
   Wire1.begin(pins::kI2c1Sda, pins::kI2c1Scl);
@@ -211,10 +204,6 @@ static void rtcBusCheck() {
   rtcWireStart();
 }
 static void rtcFailed() { gRtcRestart = true; }
-#else
-static void rtcBusCheck() {}
-static void rtcFailed() {}
-#endif
 
 // A sensor transaction failed: check the main bus before blaming the sensor.
 static void failed(BusResult r) {
@@ -232,18 +221,14 @@ void begin(uint32_t nowMs) {
   gSt = St::ResetLow;
 
   wireStart();
-#if defined(WINEADOR_BOARD_REVQ)
   rtcWireStart();
-#endif
 }
 
 bool internalPullupsOff() {
   bool sda = REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2cSda], FUN_PU) != 0;
   bool scl = REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2cScl], FUN_PU) != 0;
-#if defined(WINEADOR_BOARD_REVQ)
   sda = sda || REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2c1Sda], FUN_PU) != 0;
   scl = scl || REG_GET_BIT(GPIO_PIN_MUX_REG[pins::kI2c1Scl], FUN_PU) != 0;
-#endif
   return !sda && !scl;
 }
 
@@ -253,11 +238,7 @@ void requestEosc(bool on) { gEoscWant = on; gEoscPending = true; gEoscResult = 0
 int takeEoscResult() { int r = gEoscResult; gEoscResult = 0; return r; }
 
 uint32_t rtcBusRestarts() {
-#if defined(WINEADOR_BOARD_REVQ)
   return gRtcRestarts;
-#else
-  return 0;
-#endif
 }
 
 bool idle() { return gSt == St::Idle; }

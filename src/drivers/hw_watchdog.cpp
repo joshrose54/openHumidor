@@ -6,8 +6,6 @@
 
 namespace hwdog {
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 static wineador::WdiToggle gT;
 
 // Input, both internal pulls off, no pad hold: an undriven WDI disables U5's watchdog (3A.5).
@@ -52,19 +50,5 @@ bool fitted() { return true; }
 bool running() { return gT.running(); }
 uint32_t longestGapMs() { return gT.longestGapMs(); }
 bool takeLongGap(uint32_t* gapMs) { return gT.takeLongGap(gapMs); }
-
-#else   // Rev N: no hardware watchdog
-
-void begin() {}
-void start(uint32_t) {}
-void kick(uint32_t) {}
-void pause() {}
-void resume(uint32_t) {}
-bool fitted() { return false; }
-bool running() { return false; }
-uint32_t longestGapMs() { return 0; }
-bool takeLongGap(uint32_t*) { return false; }
-
-#endif
 
 }  // namespace hwdog

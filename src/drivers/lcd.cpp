@@ -2,19 +2,15 @@
 #include <Arduino.h>
 #include "pins.h"
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_io_spi.h"
-#endif
 
 namespace lcd {
 
 using wineador::LcdOrientation;
 using wineador::Rect;
-
-#if defined(WINEADOR_BOARD_REVQ)
 
 using namespace wineador;
 
@@ -268,28 +264,5 @@ void setSpiHz(uint32_t hz) {
   gHz = hz;
   makeIo();
 }
-
-#else   // Rev N: no LCD
-
-bool begin(LcdOrientation, size_t) { return false; }
-bool ready() { return false; }
-bool fitted() { return false; }
-uint32_t resetReleasedMs() { return 0; }
-uint32_t resetCount() { return 0; }
-LcdOrientation orientation() { return LcdOrientation::Portrait; }
-size_t pieceBytes() { return 0; }
-void setFrame(const uint16_t*, uint16_t, uint16_t) {}
-void queue(Rect) {}
-bool step() { return false; }
-bool idle() { return true; }
-uint32_t piecesSent() { return 0; }
-void resetAndInit() {}
-void setOrientation(LcdOrientation) {}
-void fill(uint16_t, uint16_t, uint16_t, uint16_t, uint16_t) {}
-void colourBars() {}
-void pushFrame() {}
-void setSpiHz(uint32_t) {}
-
-#endif
 
 }  // namespace lcd

@@ -1,9 +1,8 @@
-// Both boards' pin and board tables (include/pins.h, include/board.h), checked on the Mac.
-//   Rev N: every value exactly as before stage Q1 (spec 3.1; the B3/B4-proven board).
-//   Rev Q: every pin as spec 3A.4; sensor channel n on mux channel n (3A.7).
-//   Both:  no pin used twice; sensor channels 0-5 map to the right mux channels.
+// The board's pin and board tables (include/pins.h, include/board.h), checked on the Mac.
+//   Rev Q: every pin as spec 3A.4; sensor channel n on mux channel n (3A.7); no pin used twice.
+//   (Rev N, retired, had channel n on mux n+2: git tag rev-n-last.)
 //   Console: a channel typed as a number, position name or probe label (spec 5.5).
-#define WINEADOR_BOARD_ANY   // compile both blocks, choose neither
+#define WINEADOR_BOARD_ANY   // compile the tables without choosing a board
 #include <unity.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,42 +16,6 @@ using namespace wineador;
 
 void setUp() {}
 void tearDown() {}
-
-// ---------------------------------------------------------------- Rev N unchanged
-void test_revn_pins_unchanged() {
-  namespace p = pins_revn;
-  TEST_ASSERT_EQUAL_INT(21, p::kI2cSda);
-  TEST_ASSERT_EQUAL_INT(22, p::kI2cScl);
-  TEST_ASSERT_EQUAL_INT(16, p::kMuxReset);
-  TEST_ASSERT_EQUAL_INT(25, p::kFanPwm);
-  TEST_ASSERT_EQUAL_INT(34, p::kFanTach);
-  TEST_ASSERT_EQUAL_INT(17, p::kSdCs);
-  TEST_ASSERT_EQUAL_INT(18, p::kSdSck);
-  TEST_ASSERT_EQUAL_INT(19, p::kSdMiso);
-  TEST_ASSERT_EQUAL_INT(23, p::kSdMosi);
-  TEST_ASSERT_EQUAL_INT(26, p::kCoolingSsr);
-  TEST_ASSERT_EQUAL_INT(27, p::kHeater);
-  TEST_ASSERT_EQUAL_INT(32, p::kRelayK1);
-  TEST_ASSERT_EQUAL_INT(33, p::kHumidifier);
-}
-
-void test_revn_board_settings_unchanged() {
-  namespace b = board_revn;
-  TEST_ASSERT_EQUAL_UINT(60, b::kSdEventsKept);
-  TEST_ASSERT_EQUAL_UINT(12000, b::kSdEventsBytes);
-  TEST_ASSERT_EQUAL_UINT(30, b::kSdRowsKept);
-  TEST_ASSERT_EQUAL_UINT(14000, b::kSdRowsBytes);
-  TEST_ASSERT_EQUAL_UINT(24, b::kSdHourlyKept);
-  TEST_ASSERT_EQUAL_UINT(9000, b::kSdHourlyBytes);
-  TEST_ASSERT_TRUE(b::kWifiOnlyForNtp);
-  TEST_ASSERT_TRUE(b::kSdPauseWhileWifi);
-}
-
-// Rev N: channel n -> mux n+2, so the same mux select byte reaches the same sensor as before Q1.
-void test_revn_channel_n_is_mux_n_plus_2() {
-  for (int i = 0; i < kNumSensors; i++) TEST_ASSERT_EQUAL_UINT(i + 2, board_revn::kSensorMuxChannel[i]);
-  TEST_ASSERT_EQUAL_STRING("rev-n (channel n = mux n+2)", board_revn::kLogBoard);
-}
 
 // ---------------------------------------------------------------- Rev Q per 3A.4
 void test_revq_pins_per_spec_3A4() {
@@ -103,13 +66,6 @@ static bool noDuplicates(const int* p, int n) {
     for (int j = i + 1; j < n; j++)
       if (p[i] == p[j]) return false;
   return true;
-}
-
-void test_revn_no_pin_twice() {
-  namespace p = pins_revn;
-  const int all[] = {p::kI2cSda, p::kI2cScl, p::kMuxReset, p::kFanPwm, p::kFanTach, p::kSdCs, p::kSdSck,
-                     p::kSdMiso, p::kSdMosi, p::kCoolingSsr, p::kHeater, p::kRelayK1, p::kHumidifier};
-  TEST_ASSERT_TRUE(noDuplicates(all, sizeof(all) / sizeof(all[0])));
 }
 
 void test_revq_no_pin_twice_and_none_on_reserved_pins() {
@@ -226,12 +182,8 @@ void test_channel_echo_names_what_was_acted_on() {
 
 int main(int, char**) {
   UNITY_BEGIN();
-  RUN_TEST(test_revn_pins_unchanged);
-  RUN_TEST(test_revn_board_settings_unchanged);
-  RUN_TEST(test_revn_channel_n_is_mux_n_plus_2);
   RUN_TEST(test_revq_pins_per_spec_3A4);
   RUN_TEST(test_revq_channel_n_is_mux_n);
-  RUN_TEST(test_revn_no_pin_twice);
   RUN_TEST(test_revq_no_pin_twice_and_none_on_reserved_pins);
   RUN_TEST(test_sensor_table_channels_are_0_to_5_in_order);
   RUN_TEST(test_channel_commands_take_0_to_5_only);

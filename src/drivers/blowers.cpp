@@ -5,8 +5,6 @@
 
 namespace blowers {
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 static uint8_t gPct = 100;
 static bool gPwm = false;
 
@@ -32,14 +30,5 @@ void setPct(uint8_t pct) {
 
 uint8_t pct() { return gPct; }
 bool fitted() { return true; }
-
-#else   // Rev N: no blowers on the board
-
-void begin() {}
-void setPct(uint8_t) {}
-uint8_t pct() { return 0; }
-bool fitted() { return false; }
-
-#endif
 
 }  // namespace blowers

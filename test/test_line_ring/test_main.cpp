@@ -77,8 +77,9 @@ void test_line_too_big_is_refused() {
   TEST_ASSERT_EQUAL_UINT16(1, r.count());
 }
 
-void test_rev_n_sizes_hold_the_spec_counts() {
-  // Rev N's budgets (include/board.h) must hold the full counts of typical lines.
+void test_no_psram_fallback_holds_the_spec_counts() {
+  // The no-PSRAM fallback's budgets (include/board.h, 5.4: the sizes Rev N ran) must hold the full
+  // counts of typical lines.
   static char ev[12000], rows[14000], hr[9000];
   LineRing e(ev, sizeof(ev), 60), r(rows, sizeof(rows), 30), h(hr, sizeof(hr), 24);
   char line[600];
@@ -102,6 +103,6 @@ int main(int, char**) {
   RUN_TEST(test_line_limit_drops_oldest_and_counts);
   RUN_TEST(test_byte_budget_drops_oldest_and_wraps);
   RUN_TEST(test_line_too_big_is_refused);
-  RUN_TEST(test_rev_n_sizes_hold_the_spec_counts);
+  RUN_TEST(test_no_psram_fallback_holds_the_spec_counts);
   return UNITY_END();
 }

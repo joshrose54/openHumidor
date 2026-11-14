@@ -74,7 +74,6 @@
 #include "app/screen.h"
 #include "wineador/lcd_ui.h"
 #include "app/web_server.h"
-#if defined(WINEADOR_BOARD_REVQ)
 #include "esp_ota_ops.h"
 #include "app/web_link.h"
 #include "app/ota.h"
@@ -83,7 +82,6 @@
 #include "wineador/ota_rules.h"
 #include "wineador/web_mail.h"
 #include "wineador/web_status.h"
-#endif
 #include "wineador/blower_rule.h"
 #include "wineador/ion_schedule.h"
 #if defined(WINEADOR_TEST_BUILD)
@@ -143,7 +141,6 @@ static uint64_t gLastCompressorStopMs = 0;
 static bool gFirstSweepDone = false;     // the LCD judges sensor alerts only after it (5.5)
 static bool gStepRounded = false;        // a stored setpoint was off its step: rounded at boot (5.5)
 static float gWasTemp = 0, gWasRh = 0;
-#if defined(WINEADOR_BOARD_REVQ)
 static bool gWebOn = false;              // the web dashboard is running (5.5)
 static uint32_t gSlotBytes = 0;          // the OTA app slot, read at boot
 // OTA (5.2, stage Q5d): the loop's side, the record, "started properly"
@@ -163,9 +160,6 @@ static BlowerRule gBlowers;
 static IonSchedule gIon;
 static uint8_t gIonBlob[IonSchedule::kBlobBytes];   // the cap record: read at boot, written at each run's start and end
 static size_t gIonBlobLen = 0;
-#else
-static bool otaUpdating() { return false; }
-#endif
 #if defined(WINEADOR_TEST_BUILD)
 static CabinetModel gModel;
 static ScenarioRunner gScenario;
@@ -266,14 +260,12 @@ static void printStatus() {
     if (heap::psramTotal() > 0) add("%spsram min %lu", k ? " | " : "", (unsigned long)heap::psramLowest());
     if (hwdog::fitted()) add("%shwdog %s max %lums", k ? " | " : "", hwdog::running() ? "on" : "OFF",
                              (unsigned long)hwdog::longestGapMs());
-#if defined(WINEADOR_BOARD_REVQ)
     {
       char b[48], i[48];
       formatBlowerState(b, sizeof(b), gBlowers, millis());
       formatIonState(i, sizeof(i), gIon);
       add("%sblowers %s | %s", k ? " | " : "", b, i);
     }
-#endif
     if (lcd::fitted()) {
       char l[100];
       screen::formatStatus(l, sizeof(l));
@@ -375,11 +367,9 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::None: break;
     case Command::Boot: {
       console::printBanner(gSettings, gBoot);
-#if defined(WINEADOR_BOARD_REVQ)
   if (gWebOn) Serial.printf("  Web dashboard: http://wineador.local/ (at most 2 connections)%s%s\n",
                             web::problem() ? " - " : "", web::problem() ? web::problem() : "");
   else Serial.printf("  Web dashboard NOT running: %s (control is unaffected)\n", web::problem());
-#endif
       console::printSensorCheck();
       char clock[240];
       formatClockSummary(clock, sizeof(clock), gClock);
@@ -704,10 +694,8 @@ void setup() {
   gHealth.begin(gSettings);
   gGate.begin(gSettings.safety.sensorRecoveryHoldMs);
   gFanMon.begin(gSettings.safety.fanStallRetryMs);
-#if defined(WINEADOR_BOARD_REVQ)
   gBlowers.begin(gSettings.tuning);
   gIon.begin(gSettings.safety);
-#endif
   i2cbus::begin(millis());
   gBoot.pullupsOff = i2cbus::internalPullupsOff();
   supplysense::begin();    // Rev Q: 12V sense on GPIO8, ADC1 at 12 dB
@@ -740,7 +728,6 @@ void setup() {
   // BOOT ONLY: start WiFi and SNTP. Both return at once and connect in the background.
   timesync::begin();
   watchdog::feed();
-#if defined(WINEADOR_BOARD_REVQ)
   // BOOT ONLY: the web dashboard (5.5): its PSRAM, the server's tasks on core 0, mDNS (up to 2 s).
   {
     const esp_partition_t* slot = esp_ota_get_next_update_partition(nullptr);
@@ -760,7 +747,6 @@ void setup() {
       Serial.printf("  IDENTITY BLOCK MISMATCH: the block says %s, this build is %s\n", firmware::identity().version, gVersion);
     watchdog::feed();
   }
-#endif
 
 #if defined(WINEADOR_TEST_BUILD)
   gModel.begin(ModelRates{});
@@ -809,9 +795,7 @@ static void updateScreen(uint32_t now) {
   in.bootHold = gCtl.hold().active();
   in.bootHoldLeftMs = gCtl.hold().remainingMs();
   in.updating = otaUpdating();                // OTA (5.2): the LCD shows Updating with its %
-#if defined(WINEADOR_BOARD_REVQ)
   in.updatePct = gOta.pct();
-#endif
   AlertInputs& a = in.alerts;
   a.sensorsKnown = gFirstSweepDone;
   a.sensorFault = sensorFaultFrom(gHealth.chamberHealthy(), in.cabinetOk, gSettings.safety.minHealthyCabinet,
@@ -866,7 +850,6 @@ static void updateScreen(uint32_t now) {
 //   - the mailbox: a write or the start of an upload from the dashboard, decided here against the
 //     real settings and state, applied as any other change (logged "dashboard"), answered;
 //   - the state copy: about once a second (and straight after a change), what the pages show.
-#if defined(WINEADOR_BOARD_REVQ)
 static uint32_t gLastWebStateMs = 0;
 static bool gWebStateDue = true;
 static DayLow gV12Low;                   // the Board section's lowest 12V today
@@ -1141,7 +1124,6 @@ static void serveWeb(uint32_t now) {
     }
   }
 }
-#endif
 
 // ---------------------------------------------------------------- loop
 static const char* loadWord(int L) { return L == 0 ? "cooling" : L == 1 ? "heater" : "humidifier"; }
@@ -1428,7 +1410,7 @@ static void startLogging() {
   if (sdlog::stats().psramMissing)
     eventlog::log("psram", "NO PSRAM FOUND at boot: the SD outage buffers are Rev N's sizes in internal RAM "
                   "(%u events, %u readings rows, %u hourly rows) instead of Rev Q's",
-                  (unsigned)board_revn::kSdEventsKept, (unsigned)board_revn::kSdRowsKept, (unsigned)board_revn::kSdHourlyKept);
+                  (unsigned)board::kNoPsramEventsKept, (unsigned)board::kNoPsramRowsKept, (unsigned)board::kNoPsramHourlyKept);
 }
 
 static void logReadingsRow(uint32_t now) {
@@ -1605,7 +1587,6 @@ static void watchSd(uint32_t now) {
   }
 }
 
-#if defined(WINEADOR_BOARD_REVQ)
 // The blowers (4.6b) and the ion generator (4.6c), every pass after the sweep step (stage Q6). Uses
 // what the loop already has; waits for nothing (the cap record's NVS write, a few ms, only at a
 // run's start and end).
@@ -1662,7 +1643,6 @@ static void passBlowersIon(uint32_t now, bool swept) {
     eventlog::log(kEvTypeIon, "%s", t);
   }
 }
-#endif
 
 void loop() {
   const uint32_t t0 = micros();
@@ -1672,11 +1652,7 @@ void loop() {
   // changes every pass, here in the loop. Rev N: nothing.
   static bool firstPass = true;
   if (firstPass) { hwdog::start(now); firstPass = false; }
-#if defined(WINEADOR_BOARD_REVQ)
   else if (!gRollbackStop) hwdog::kick(now);   // (the rollback test image stops it on purpose)
-#else
-  else hwdog::kick(now);
-#endif
   supplysense::update(now);               // Rev Q: one 12V reading every 100 ms
   eventlog::setClock(gClockSet, gClock.trusted());
 
@@ -1810,10 +1786,8 @@ void loop() {
     gGate.update(gHealth.chamberHealthy() && cabOk >= gSettings.safety.minHealthyCabinet,
                  cabOk >= gSettings.safety.minHealthyCabinet, now);
   }
-#if defined(WINEADOR_BOARD_REVQ)
   // 3b. The blowers and the ion generator (4.6b, 4.6c): after the sweep, so a new spread is judged at once.
   passBlowersIon(now, sweptThisPass);
-#endif
   // Rev N: the radio on only for the NTP sync. The first window waits for the clock
   // (from the RTC, or 10 s without one), so its event isn't dated 1970.
   if (gClockSet || now >= 10000) timesync::update(now);
@@ -1897,9 +1871,7 @@ void loop() {
   view.fanOut = fan::duty();
   view.fanTarget = gFan.target();
   view.hc = &gHc;
-#if defined(WINEADOR_BOARD_REVQ)
   view.blowers = &gBlowers;
-#endif
   const bool wasRunning = gScenario.running();
   gScenario.update(view, gCtl, gModel, gTc);
   // Every scenario line also goes to the card (quietly: it is printed here already), so a
@@ -1917,7 +1889,6 @@ void loop() {
 #endif
   // 7. The LCD (Rev Q): one small step; never waits (3A.11).
   updateScreen(now);
-#if defined(WINEADOR_BOARD_REVQ)
   // 8. OTA (5.2), every pass from boot whether or not the dashboard runs: "started properly", its
   //    4 min 30 s deadline, the rollback test image, the writer's watch and the restart. Then the web
   //    dashboard: the mailbox and the state copy (never waits, 5.2, 5.5). Then the pass is complete:
@@ -1925,7 +1896,6 @@ void loop() {
   otaPass(now);
   serveWeb(now);
   ota::loopPass();
-#endif
   if (printNow) printStatus();
   const uint32_t passUs = micros() - t0;
   gLoopMax.add(passUs);

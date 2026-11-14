@@ -299,7 +299,7 @@ void test_the_images_own_checksum_on_the_real_images() {
   std::vector<uint8_t> img;
   TEST_ASSERT_TRUE_MESSAGE(readAll(".pio.nosync/images/revq.bin", &img), "no .pio.nosync/images/revq.bin: build revq first");
   TEST_ASSERT_TRUE(imageChecksumOk(img.data(), img.size()));
-  for (const char* p : {".pio.nosync/images/esp32dev.bin", ".pio.nosync/images/revq_rollback_test.bin",
+  for (const char* p : {".pio.nosync/images/revq_bench.bin", ".pio.nosync/images/revq_rollback_test.bin",
                         ".pio.nosync/images/bp2_15_boot_state.bin"})
     if (readAll(p, &img)) TEST_ASSERT_TRUE_MESSAGE(imageChecksumOk(img.data(), img.size()), p);
   if (readAll(".pio.nosync/images/revq-corrupt.bin", &img)) {   // tools/make_bad_image.py

@@ -1,8 +1,8 @@
 #pragma once
-// Per-board settings, for both boards, picked by the same flag as pins.h.
-//   board_revn  Rev N, the bench board (ESP32-WROOM-32, no PSRAM). No longer available, build only.
-//   board_revq  Rev Q, the cabinet board (ESP32-S3-WROOM-1-N8R2, 2 MB PSRAM).
-// The drivers use it as plain `board::`. lib/core never includes this file.
+// The board's settings: Rev Q, the cabinet board (ESP32-S3-WROOM-1-N8R2, 2 MB PSRAM), as
+// board_revq, picked by -DWINEADOR_BOARD_REVQ (platformio.ini) as pins.h is. Rev N, the bench board,
+// is retired (git tag rev-n-last). The drivers use it as plain `board::`. lib/core never includes
+// this file.
 //
 // Outage buffers (spec 5.4): how much the SD logging keeps in RAM while the card is out.
 // Lines are stored by their real length, not in fixed slots: each kind has a line count
@@ -12,55 +12,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "wineador/lcd_seq.h"   // LcdOrientation (Rev Q's LCD)
-
-// ======================================================================== Rev N
-namespace board_revn {
-
-constexpr const char* kName = "Rev N";
-// The version (spec B3 "Version string"): 1.0.0 once B3 passed on Rev N; -BENCH and -TEST added.
-constexpr const char* kFirmwareVersion = "1.0.0";
-// The board in the OTA identity block (lib/core image_identity.h, spec 5.5).
-constexpr const char* kIdentityBoard = "rev-n";
-// The "# board" line in every log header (spec 5.4).
-constexpr const char* kLogBoard = "rev-n (channel n = mux n+2)";
-
-// Sensor channel n (0-5, spec 2.3) is wired to this mux channel. Used only by drivers/i2c_bus.
-constexpr uint8_t kSensorMuxChannel[6] = {2, 3, 4, 5, 6, 7};
-
-constexpr uint16_t kSdEventsKept   = 60;      // events. Cut from 100 for heap margin over the 30 KB floor
-                                              // (lowest 32,060 bytes with 100, B4 SD proof run 2026-11-11)
-constexpr size_t   kSdEventsBytes  = 12000;   // ~200 characters an event
-
-constexpr uint16_t kSdRowsKept     = 30;      // readings rows: 30 min at the steady 60 s rate. Cut from 60 for
-                                              // the 30 KB heap floor: with WiFi on (no card writes) the lowest
-                                              // free heap was 24,192 bytes (2026-11-11)
-constexpr size_t   kSdRowsBytes    = 14000;   // test-build rows are up to ~460 characters (cabinet ~260)
-
-constexpr uint16_t kSdHourlyKept   = 24;      // pending hourly rows: a day
-constexpr size_t   kSdHourlyBytes  = 9000;    // ~360 characters a row
-
-// WiFi (spec 5.4, per board). Rev N: on only for the NTP sync, then off (its current
-// bursts reset the SD card and took most of the heap; B4 SD investigation).
-constexpr bool     kWifiOnlyForNtp = true;
-// Rev N: no card writes while the radio is on (spec 5.4). Rows and events wait in the
-// outage buffers above and are written once WiFi is off, so WiFi bursts and card
-// writes never overlap (heap and SD supply).
-constexpr bool     kSdPauseWhileWifi = true;
-
-// What Rev N doesn't have: no 12V sense, no PSRAM (outage buffers in internal RAM), no SD
-// power switch, no hardware watchdog, no blowers or ion output, no LCD.
-constexpr bool     kOutageInPsram  = false;
-constexpr bool     kHasSupplySense = false;
-constexpr float    k12vScale       = 0.0f;
-
-// No LCD on Rev N (the names exist so shared code builds; nothing uses them).
-constexpr wineador::LcdOrientation kLcdOrientation = wineador::LcdOrientation::Portrait;
-constexpr uint8_t  kBacklightDimPct = 20;
-constexpr size_t   kLcdSendBytes = 0;
-constexpr bool     kHasDashboard = false;            // no dashboard on Rev N (spec 5.5)
-constexpr uint32_t kTransferMarginBytes = 0;
-
-}  // namespace board_revn
 
 // ======================================================================== Rev Q
 namespace board_revq {
@@ -76,7 +27,7 @@ constexpr const char* kLogBoard = "rev-q (channel n = mux n)";
 constexpr uint8_t kSensorMuxChannel[6] = {0, 1, 2, 3, 4, 5};
 
 // Outage buffers in PSRAM (spec 5.4): about 0.94 MB of the 2 MB. If PSRAM is not found at
-// boot: an event, and Rev N's sizes in internal RAM (board_revn above).
+// boot: an event, and the no-PSRAM fallback below in internal RAM.
 constexpr bool     kOutageInPsram  = true;
 constexpr uint16_t kSdEventsKept   = 1000;
 constexpr size_t   kSdEventsBytes  = 200000;  // ~200 characters an event
@@ -84,6 +35,15 @@ constexpr uint16_t kSdRowsKept     = 1440;    // readings rows: 24 h at the stea
 constexpr size_t   kSdRowsBytes    = 700000;  // test-build rows up to ~490 characters (cabinet ~280)
 constexpr uint16_t kSdHourlyKept   = 168;     // a week
 constexpr size_t   kSdHourlyBytes  = 64000;   // ~360 characters a row
+
+// The no-PSRAM fallback (spec 5.4): 60 events, 30 readings rows, 24 hourly rows in internal RAM -
+// the sizes Rev N ran, proven on it against the 30 KB heap floor (B4 SD proof run, 2026-11-11).
+constexpr uint16_t kNoPsramEventsKept = 60;
+constexpr size_t   kNoPsramEventsBytes = 12000;   // ~200 characters an event
+constexpr uint16_t kNoPsramRowsKept   = 30;      // readings rows: 30 min at the steady 60 s rate
+constexpr size_t   kNoPsramRowsBytes  = 14000;   // test-build rows are up to ~460 characters (cabinet ~260)
+constexpr uint16_t kNoPsramHourlyKept = 24;      // pending hourly rows: a day
+constexpr size_t   kNoPsramHourlyBytes = 9000;   // ~360 characters a row
 
 // 12V sense, GPIO8 (3A.3, 3A.11): volts = pin mV / 1000 x this. The divider's nominal
 // (100k + 15k) / 15k until BP2 test 27 measures it (then the build log's value goes here).
@@ -115,12 +75,8 @@ constexpr uint32_t kTransferMarginBytes = 0;
 }  // namespace board_revq
 
 // ======================================================================== which board
-#if defined(WINEADOR_BOARD_REVN) && defined(WINEADOR_BOARD_REVQ)
-#error "Both WINEADOR_BOARD_REVN and WINEADOR_BOARD_REVQ are set: pick one board in platformio.ini"
-#elif defined(WINEADOR_BOARD_REVQ)
+#if defined(WINEADOR_BOARD_REVQ)
 namespace board = board_revq;
-#elif defined(WINEADOR_BOARD_REVN)
-namespace board = board_revn;
 #elif !defined(WINEADOR_BOARD_ANY)
-#error "No board set: add -DWINEADOR_BOARD_REVN or -DWINEADOR_BOARD_REVQ to the environment in platformio.ini"
+#error "No board set: add -DWINEADOR_BOARD_REVQ to the environment in platformio.ini"
 #endif

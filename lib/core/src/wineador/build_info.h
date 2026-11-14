@@ -40,7 +40,7 @@ constexpr bool kBootDemand = false;
 // the default. A real-profile cabinet identity (so the OTA check accepts it), version
 // "2.0.0-ROLLBACK-TEST"; it holds every load off and resets itself before it can be marked good.
 #if defined(WINEADOR_ROLLBACK_TEST)
-#if defined(WINEADOR_TEST_BUILD) || defined(WINEADOR_BENCH_PROFILE) || defined(WINEADOR_BOARD_REVN)
+#if defined(WINEADOR_TEST_BUILD) || defined(WINEADOR_BENCH_PROFILE)
 #error "WINEADOR_ROLLBACK_TEST is a Rev Q real-profile build only (env revq_rollback_test)"
 #endif
 constexpr bool kRollbackTest = true;

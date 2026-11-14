@@ -4,8 +4,6 @@
 
 namespace backlight {
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 static uint8_t gPct = 0;
 
 void begin() {
@@ -21,14 +19,5 @@ void set(uint8_t pct) {
 
 uint8_t pct() { return gPct; }
 bool fitted() { return true; }
-
-#else
-
-void begin() {}
-void set(uint8_t) {}
-uint8_t pct() { return 0; }
-bool fitted() { return false; }
-
-#endif
 
 }  // namespace backlight

@@ -8,8 +8,6 @@
 
 namespace sdpower {
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 using wineador::SdPowerSeq;
 static SdPowerSeq gSeq;
 static uint32_t gCycles = 0;
@@ -83,19 +81,5 @@ bool update(uint32_t nowMs) {
 }
 bool powered() { return gSeq.powered(); }
 uint32_t onAllowedInMs(uint32_t nowMs) { return gSeq.onAllowedInMs(nowMs); }
-
-#else   // Rev N: no power switch
-
-void begin() {}
-bool fitted() { return false; }
-bool cycle() { return false; }
-uint32_t cycles() { return 0; }
-void requestOff(uint32_t) {}
-void requestOn() {}
-bool update(uint32_t) { return false; }
-bool powered() { return true; }
-uint32_t onAllowedInMs(uint32_t) { return 0; }
-
-#endif
 
 }  // namespace sdpower

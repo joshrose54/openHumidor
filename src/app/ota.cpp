@@ -1,6 +1,5 @@
 #include "ota.h"
 
-#if defined(WINEADOR_BOARD_REVQ)
 #include <Arduino.h>
 #include <Preferences.h>
 #include <atomic>
@@ -145,4 +144,3 @@ uint32_t slotBytes() {
 
 }  // namespace ota
 
-#endif  // WINEADOR_BOARD_REVQ

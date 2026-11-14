@@ -8,8 +8,6 @@ namespace supplysense {
 static wineador::SupplySense gLogic;
 static uint32_t gPinMv = 0;
 
-#if defined(WINEADOR_BOARD_REVQ)
-
 static uint32_t gLastMs = 0;
 
 void begin() {
@@ -28,14 +26,6 @@ void update(uint32_t nowMs) {
 }
 
 bool fitted() { return true; }
-
-#else   // Rev N: no 12V sense
-
-void begin() {}
-void update(uint32_t) {}
-bool fitted() { return false; }
-
-#endif
 
 wineador::SupplySense& logic() { return gLogic; }
 uint32_t lastPinMv() { return gPinMv; }
