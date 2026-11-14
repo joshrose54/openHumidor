@@ -51,8 +51,9 @@ B4 baseline commands whenever the log tools change.
 - **Every string a user reads** on the LCD or the dashboard follows spec 5.5 "Words on screen": say
   it once per screen, as short as it can be while still clear, plain words, the word list, the
   house style and number formats.
-- **`docs/ui-strings.csv` is the list of every user-facing string.** Add or update its row whenever
-  you add or change one, in the same commit. A new word not in the spec's word list: propose it as
+- **`docs/ui-strings.csv` is the list of every user-facing string**, made by
+  `tools/make_ui_strings.py` (LCD fit measured by `tools/measure_lcd_text.cpp`). Regenerate it
+  whenever you add or change a string, in the same commit, and check every LCD text still fits. A new word not in the spec's word list: propose it as
   a spec finding; don't invent it.
 - Not covered: the serial console and the logged text in the card's files (tools read it).
 

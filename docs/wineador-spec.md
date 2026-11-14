@@ -1950,7 +1950,7 @@ in the card's files, which tools read and which stays as it is (5.4).
 6. **One word per thing, the same on the LCD and the dashboard** (the word list below).
 7. **House style:** British English; sentence case; no full stop on a label or a single phrase,
    full stops only on whole sentences; "you" only in an instruction.
-8. **Numbers:** temperature one decimal, "20.0°C"; humidity whole, "62%"; volts "12.1V" — no space
+8. **Numbers:** temperature one decimal, "20.0°C"; humidity whole, "62%"; volts one decimal, "12.1V" — no space
    before °C, % or V; a space before word units ("7 min", "5 s", "1,060 rpm", "58 GB"). Humidity
    differences in "%", never "points". UK local time, 24-hour, "14:32"; countdowns "m:ss";
    durations "7 min", "3 h 5 min", "31 d 4 h" (a zero second part dropped: "31 d"). **Exceptions:**
