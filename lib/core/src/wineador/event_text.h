@@ -147,9 +147,10 @@ struct SdStressFigures {
 // otherwise the same as "SD STRESS progress: ...".
 int formatSdStressLine(char* out, size_t n, bool done, const SdStressFigures& f);
 // "SD STRESS DONE checks: size mismatches 0; heap lowest after a write 61234 (largest block then
-// 30000), lowest since boot 58000; paused for WiFi 12 s"
+// 30000), lowest since boot 58000". (Rev N's cards end "; paused for WiFi N s": card writes paused
+// while its NTP-only WiFi was on. check_logs.py reads both.)
 int formatSdStressChecks(char* out, size_t n, uint32_t sizeMismatches, uint32_t heapMin, uint32_t heapMinLargest,
-                         uint32_t heapMinEver, uint32_t pausedS);
+                         uint32_t heapMinEver);
 
 // The load events (spec 5.4), "compressor ON (temperature call, control 20.62 C)". load: 0
 // compressor, 1 heater, 2 humidifier.

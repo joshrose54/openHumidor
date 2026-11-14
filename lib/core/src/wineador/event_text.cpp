@@ -86,12 +86,12 @@ int formatSdStressLine(char* out, size_t n, bool done, const SdStressFigures& f)
 }
 
 int formatSdStressChecks(char* out, size_t n, uint32_t sizeMismatches, uint32_t heapMin, uint32_t heapMinLargest,
-                         uint32_t heapMinEver, uint32_t pausedS) {
+                         uint32_t heapMinEver) {
   return snprintf(out, n,
                   "%s size mismatches %lu; heap lowest after a write %lu (largest block then %lu), lowest since boot "
-                  "%lu; paused for WiFi %lu s",
+                  "%lu",
                   kEvSdStressChecks, (unsigned long)sizeMismatches, (unsigned long)heapMin,
-                  (unsigned long)heapMinLargest, (unsigned long)heapMinEver, (unsigned long)pausedS);
+                  (unsigned long)heapMinLargest, (unsigned long)heapMinEver);
 }
 
 const char* loadEventType(int load) {

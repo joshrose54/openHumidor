@@ -1546,8 +1546,7 @@ static void watchSd(uint32_t now) {
       line("DONE");
       shown = 0;
       char d[240];
-      // "paused for WiFi 0 s": the event keeps its B4 wording; card writes are never paused now (5.4)
-      formatSdStressChecks(d, sizeof(d), x.sizeMismatch, x.heapMin, x.heapMinLargest, x.heapMinEver, 0);
+      formatSdStressChecks(d, sizeof(d), x.sizeMismatch, x.heapMin, x.heapMinLargest, x.heapMinEver);
       eventlog::log(kEvTypeSd, "%s", d);
     }
     if (!wasActive && x.active) {

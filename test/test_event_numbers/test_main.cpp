@@ -78,24 +78,30 @@ static void examples(Example* ex) {
   f.atData = 31; f.worstMs = 412;
   formatSdStressLine(d, sizeof(d), true, f);
   ex[2] = Example{"SdStressDone", d, {19998, 20000, 2, 31}, 4};
-  formatSdStressChecks(d, sizeof(d), 1, 61234, 30000, 41720, 12);
+  formatSdStressChecks(d, sizeof(d), 1, 61234, 30000, 41720);
   ex[3] = Example{"SdStressChecks", d, {1, 41720}, 2};
+  // A Rev N card's wording (B4): the same event with "; paused for WiFi N s" at the end - old
+  // cards must still read.
+  ex[4] = Example{"SdStressChecks",
+                  "SD STRESS DONE checks: size mismatches 0; heap lowest after a write 61234 (largest block then 30000), "
+                  "lowest since boot 41720; paused for WiFi 12 s",
+                  {0, 41720}, 2};
 }
 
 void test_check_logs_reads_back_what_the_firmware_writes() {
-  Example ex[4];
+  Example ex[5];
   examples(ex);
   std::string out;
-  const int code = runSelftest(ex, 4, ".pio.nosync/event-numbers.json", &out);
+  const int code = runSelftest(ex, 5, ".pio.nosync/event-numbers.json", &out);
   printf("%s", out.c_str());
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, code, out.c_str());
-  TEST_ASSERT_EQUAL_INT(4, (int)std::count(out.begin(), out.end(), '\n'));
+  TEST_ASSERT_EQUAL_INT(5, (int)std::count(out.begin(), out.end(), '\n'));
   TEST_ASSERT_TRUE(out.find("FAIL") == std::string::npos);
 }
 
 void test_the_selftest_notices_a_wrong_number() {
   // proves the round trip really compares: one number changed must fail
-  Example ex[4];
+  Example ex[5];
   examples(ex);
   ex[2].numbers[2] = 0;   // the failures count, written as 2
   std::string out;
