@@ -46,6 +46,16 @@ B4 baseline commands whenever the log tools change.
   The monitor cable on J23 uses three wires only — GND, TX, RX — **never its VCC wire**.
 - Bench instructions to Josh always state the power-up order for the board in use.
 
+## Words on screen (spec 5.5)
+
+- **Every string a user reads** on the LCD or the dashboard follows spec 5.5 "Words on screen": say
+  it once per screen, as short as it can be while still clear, plain words, the word list, the
+  house style and number formats.
+- **`docs/ui-strings.csv` is the list of every user-facing string.** Add or update its row whenever
+  you add or change one, in the same commit. A new word not in the spec's word list: propose it as
+  a spec finding; don't invent it.
+- Not covered: the serial console and the logged text in the card's files (tools read it).
+
 ## Test sketches and test builds
 
 - Anything that switches loads **waits for Josh's go-ahead** ("type g to start") so he can meter

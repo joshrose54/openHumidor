@@ -1921,6 +1921,7 @@ normal and the LCD still works.
     files stored on the board).
   - **Name and logo:** the pages show **openHumidor** with the logo `docs/brand/openhumidor-logo.svg`;
     the board's network name stays `wineador.local`.
+  - **Words:** every user-facing string follows "Words on screen" below.
   - **Works on a phone** as well as a computer. **Same colours and icons as the LCD.**
 
 **Display:** current temperature and RH, all six sensors · cabinet mean, min, max, spread · state:
@@ -1928,6 +1929,46 @@ compressor, heater, humidifier, fan PWM and RPM, interlock · graphs over hour, 
 compressor and humidifier duty over range · time since last compressor stop and any guard blocking
 · current zone · crossover count, RH stripping events, humidifier runs and disturbance detections
 over the last week · active faults · sensor health per channel.
+
+### Words on screen — LCD and dashboard
+
+Everything a user reads on the LCD and the dashboard: labels, states, alerts, event sentences,
+messages and errors. **Not** the serial console (an engineering tool) and **not** the logged text
+in the card's files, which tools read and which stays as it is (5.4).
+
+**Rules:**
+1. **Say it once per screen.** Each fact appears once, in its most specific place; everywhere
+   else on that screen stays short. (Drying: the header and the humidity bar say it — no sentence
+   repeating it, and the compressor row says only how long it has run.)
+2. **As short as it can be while still clear.** Labels 1–3 words. A sentence only where a label
+   can't do it, and then one short sentence. No explaining how the firmware works on the main
+   screens.
+3. **Plain words, never internals:** no code names (`mid_front`), reset codes (`POWERON`), build
+   names (`rev-q`), file paths, pins, registers or "PWM".
+4. **State first, then a reason only if it helps the user act** — e.g. "Waiting · changeover 9:33".
+5. **Errors say what happened and what to do, in one line** — e.g. "Too soon. Try again in 7 s."
+6. **One word per thing, the same on the LCD and the dashboard** (the word list below).
+7. **House style:** British English; sentence case; no full stop on a label or a single phrase,
+   full stops only on whole sentences; "you" only in an instruction.
+8. **Numbers:** temperature one decimal, "20.0°C"; humidity whole, "62%" (no space before ° or %);
+   UK local time, 24-hour, "14:32"; countdowns "m:ss"; durations "7 min", "3 h 5 min", "31 d".
+9. Colour or an icon is never the only signal (as now).
+
+**Word list** (proposed at the words sweep; the sweep may suggest changes, agreed before use):
+
+| Say | Not | Meaning |
+|---|---|---|
+| Cooling · Heating · Drying · Humidifying · Standby · Starting · Updating · Fault | RH strip, strip, boot hold | The modes (as now) |
+| Humidity | RH | In labels |
+| Target | Setpoint, set | The two user settings |
+| Holding | Dead zone, nothing starts | The middle band of either bar |
+| Changeover | Crossover | The wait between cooling and heating |
+| Waiting | Held | A load that wants to run but a rule stops it, with the reason |
+| Top front, Middle rear … | top_front, mid_rear | Sensor positions; probe labels (09ED) only on the Sensors page |
+| Power on or reset | POWERON | Last restart (the S3 can't tell them apart, 3A.11) |
+| Cabinet build · Bench build · Test build | rev-q · real | What is running |
+| Speed | PWM | Fans and blowers |
+| Off | Detection not switched on | A feature that is switched off |
 
 ### Settings — three tiers
 
