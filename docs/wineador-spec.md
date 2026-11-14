@@ -1987,6 +1987,8 @@ in the card's files, which tools read and which stays as it is (5.4).
 | Software restart · Crash · Watchdog · Power dip · Reset · Other | SOFTWARE, PANIC … | Restart reasons, beside "Power on or reset" |
 | Settings error | Settings check | The stored settings failing their check (a Fault) |
 | Storage error | Cap record can't be saved | The ion generator's run record not saving |
+| Power to (· Cooling / Heating) | Interlock, cooling side | Which side the relay K1 feeds; the event "Power switched to cooling" |
+| Timed cooling runs | Dosed control | Each cooling run's length decided before it starts (4.5b) |
 | Temperature · Humidity | Target temperature … | Allowed bare on a screen only about the targets (LCD settings) |
 
 **Sensor position names** ("Top front", "Middle rear", "Room" …) have **one source**: the
