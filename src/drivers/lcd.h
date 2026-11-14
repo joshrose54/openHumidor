@@ -16,7 +16,6 @@
 //
 // The blocking calls (fill, colourBars, pushFrame, setSpiHz, setOrientation) are for the BP2
 // test 29 sketch; the firmware's loop never calls them.
-// Rev N: no LCD; every call does nothing.
 
 #include <stdint.h>
 #include <stddef.h>

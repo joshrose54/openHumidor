@@ -67,9 +67,9 @@ static bool gWritePending = false, gWriteClearOsf = false;
 static wineador::DateTime gWriteTime;
 static int gWriteResult = 0;
 
-// The RTC's bus. Rev N: the one bus, shared with the mux, as through B3 and B4. Rev Q: I2C1
+// The RTC's bus: I2C1
 // (GPIO21 SDA / GPIO14 SCL, 100 kHz) with the touch controller, so a sensor holding I2C0
-// can't stop the clock being read (3A.7). The RTC steps are the same on both.
+// can't stop the clock being read (3A.7).
 static TwoWire& rtcWire() { return Wire1; }
 static bool gRtcRestart = false;      // an RTC step failed: restart I2C1 before the next one
 static uint32_t gRtcRestarts = 0;

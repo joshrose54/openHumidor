@@ -2,7 +2,7 @@
 // The ion generator's cap record in NVS (spec 4.6c, Rev Q): the runs of the last 24 hours, so the
 // 10-minute cap is kept across reboots. Written at each run's start and end (a few ms each, at most
 // about 8 a day on the real schedule); read once at boot. One copy per kind of build, as the user
-// settings ("ion_cab", "ion_bench", "ion_test"). Rev N: nothing (no ion generator).
+// settings ("ion_cab", "ion_bench", "ion_test").
 
 #include <stdint.h>
 #include <stddef.h>

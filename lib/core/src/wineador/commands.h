@@ -9,7 +9,7 @@
 //   exclude chN on|off              (user settings and manual excludes, saved to NVS)
 // Test builds only:
 //   stall · run <n> (or "run soak") · stop · resets [clear] · fan <pct>|auto ·
-//   humidcool on|off · crc chN · timeout chN · sdstress <kHz> retry|noretry <writes> | stop · ntpsync
+//   humidcool on|off · crc chN · timeout chN · sdstress <kHz> retry|noretry <writes> | stop
 
 #include "wineador/types.h"
 
@@ -50,7 +50,6 @@ enum class Command : uint8_t {
   InjectTimeout,     // TEST BUILDS ONLY: "timeout <channel>" — its next read times out
   SdStress,          // TEST BUILDS ONLY: "sdstress <kHz> retry|noretry <writes>"; "sdstress stop" (arg -1).
                      //   arg = kHz (400-9999; -2 = bad), arg2 = 1 retry / 0 noretry, arg3 = writes
-  NtpSync,           // TEST BUILDS ONLY: "ntpsync" — open the NTP-only radio window now (Rev N)
   HwDog,             // TEST BUILDS ONLY: "hwdog off|on" — pause / resume Rev Q's hardware watchdog
                      //   (B3 test 11's second run). arg = 1 on, 0 off, -2 neither
   Rtc,               // TEST BUILDS ONLY: "rtc" — the DS3231's time, OSF and EOSC (arg -1);

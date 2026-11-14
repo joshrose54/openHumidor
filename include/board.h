@@ -50,11 +50,6 @@ constexpr size_t   kNoPsramHourlyBytes = 9000;   // ~360 characters a row
 constexpr bool     kHasSupplySense = true;
 constexpr float    k12vScale       = 115.0f / 15.0f;
 
-// Spec 5.4 / 3A.11: WiFi stays connected and reconnects by itself; card writes are not paused for it.
-// (The always-connected WiFi itself is stage Q2.)
-constexpr bool     kWifiOnlyForNtp = false;
-constexpr bool     kSdPauseWhileWifi = false;
-
 // The LCD screens (spec 5.5, 3A.11).
 // Which landscape way is up in the enclosure: ONE FIXED CONSTANT, chosen at BP2 test 29 and
 // recorded in the build log (5.5) - not a setting. Landscape A until test 29 says otherwise.

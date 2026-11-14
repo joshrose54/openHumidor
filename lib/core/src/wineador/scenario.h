@@ -77,7 +77,7 @@ struct ScenarioView {
   uint8_t fanOut = 0;                     // plenum fan duty driven right now (100 during a kickstart)
   uint8_t fanTarget = 0;                  // the duty asked of the fan
   const HumidControl* hc = nullptr;       // stage 5
-  const BlowerRule* blowers = nullptr;    // stage Q6 (Rev Q only; nullptr on Rev N)
+  const BlowerRule* blowers = nullptr;    // stage Q6 (nullptr: no blower checks)
 };
 
 class ScenarioRunner {

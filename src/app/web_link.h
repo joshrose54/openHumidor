@@ -11,7 +11,7 @@
 //     own settings, applies it, and answerMail()s. Both are a few instructions in a critical
 //     section, never a wait.
 //
-// The copies live in PSRAM. Rev N: nothing here is built.
+// The copies live in PSRAM.
 
 #include <stdint.h>
 #include "wineador/web_status.h"

@@ -115,8 +115,8 @@ void printLog() {
   const sdlog::Stats s = sdlog::stats();
   char a[24];
   Serial.println("\n  LOG (SD card)");
-  Serial.printf("    card          %s%s%s%s\n", s.mounted ? "mounted" : "NOT MOUNTED", s.failed ? ", FAILED: " : "",
-                s.failed ? s.lastError : "", s.paused ? "; writes PAUSED while WiFi is on (Rev N)" : "");
+  Serial.printf("    card          %s%s%s\n", s.mounted ? "mounted" : "NOT MOUNTED", s.failed ? ", FAILED: " : "",
+                s.failed ? s.lastError : "");
   Serial.printf("    writing       %s; readings to %s\n", sdlog::started() ? "started" : "waiting for the clock",
                 s.readingsPath[0] ? s.readingsPath : "(none yet)");
   Serial.printf("    card clock    SPI %lu kHz; outage buffers: %u events, %u readings rows, %u hourly rows (board.h)\n",
@@ -152,7 +152,9 @@ void printLog() {
                   (unsigned long)(heap::psramTotal() / 1024), (unsigned long)heap::psramFree(),
                   (unsigned long)heap::psramLowest(), s.buffersInPsram ? "in PSRAM" : "in internal RAM");
   else if (s.psramMissing)
-    Serial.println("    PSRAM         NOT FOUND: outage buffers at Rev N's sizes in internal RAM");
+    Serial.printf("    PSRAM         NOT FOUND: outage buffers are the no-PSRAM fallback (%u events, %u readings rows, %u hourly "
+                  "rows; the sizes Rev N ran) in internal RAM\n", (unsigned)board::kNoPsramEventsKept,
+                  (unsigned)board::kNoPsramRowsKept, (unsigned)board::kNoPsramHourlyKept);
   Serial.println();
 }
 

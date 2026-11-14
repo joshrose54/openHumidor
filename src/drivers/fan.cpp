@@ -17,7 +17,7 @@ static volatile uint32_t vLowStartUs = 0;
 static volatile bool vWasLow = false;
 
 // The tach level straight from the register — digitalRead is not guaranteed ISR-safe (5.3).
-// GPIO0-31 are in GPIO_IN_REG, GPIO32 and up in GPIO_IN1_REG. Rev N: GPIO34 -> GPIO_IN1_REG
+// GPIO0-31 are in GPIO_IN_REG, GPIO32 and up in GPIO_IN1_REG (Rev Q's tach is GPIO16)
 // bit 2. Rev Q: GPIO16 -> GPIO_IN_REG bit 16. Chosen at compile time (kFanTach is a constant).
 static_assert(pins::kFanTach >= 0 && pins::kFanTach < 64, "tach pin out of range");
 static inline bool IRAM_ATTR tachIsLow() {
@@ -46,7 +46,7 @@ static uint32_t gPulsesTotal = 0, gEdgesTotal = 0;
 static uint32_t gLastPulses = 0, gLastEdges = 0;
 
 void begin() {
-  pinMode(pins::kFanTach, INPUT);            // mandatory on Rev N: GPIO34's input buffer is off by default
+  pinMode(pins::kFanTach, INPUT);            // the input buffer on, whatever the pin's reset state
   vWasLow = tachIsLow();                     // starting state from the pin, before attaching
   attachInterrupt(digitalPinToInterrupt(pins::kFanTach), onTach, CHANGE);
   ledcAttach(pins::kFanPwm, kPwmHz, kPwmBits);

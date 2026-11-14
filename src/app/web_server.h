@@ -12,7 +12,6 @@
 //   - It reads only: the loop's state copy and the mailbox (app/web_link), the graphs and events
 //     fed by the SD task (lib/core web_feed), and the card through the SD task (sdlog::readPiece).
 //   - mDNS: the board answers as wineador.local.
-// Rev N: nothing (begin() returns false).
 
 #include <stdint.h>
 #include <stddef.h>

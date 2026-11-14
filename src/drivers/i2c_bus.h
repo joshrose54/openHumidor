@@ -1,6 +1,6 @@
 #pragma once
 // Rev Q (3A.7): the mux and sensors on I2C0 (GPIO35/36, 25 kHz); the DS3231 on I2C1 (GPIO21/14,
-// 100 kHz), its own bus, restarted before the next RTC step if one fails. Rev N: one bus for all.
+// 100 kHz), its own bus, restarted before the next RTC step if one fails.
 //
 // The I2C bus: mux reset, the six SHT40s through the TCA9548A, and the DS3231
 // clock — from soak_test.cpp and sensor_check.cpp, rebuilt as a state machine so

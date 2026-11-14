@@ -21,7 +21,7 @@ void apply(const wineador::LoadOutputs& want);
 // raises the pin when the heater is off, so it cannot break the interlock.
 void heaterGate(bool pinOn);
 void allOff();                         // load signals low first, then the relay (Rev Q: and the ion output)
-void ionOff();                         // Rev Q: the ion generator off (Rev N: nothing)
+void ionOff();                         // the ion generator off
 // Rev Q: the ion generator on or off. The firmware's loop sets it every pass from its rule (4.6c),
 // off in the boot hold, an update and a Fault; the BP2 sketches (tests 18, 20) switch it by hand.
 void setIon(bool on);

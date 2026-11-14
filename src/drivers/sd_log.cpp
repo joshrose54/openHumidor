@@ -77,7 +77,6 @@ FailRecord gFails[kFails];             // guarded by gMux
 int gFailHead = 0, gFailCount = 0;
 uint32_t gFailSeq = 0, gFailsLost = 0;
 volatile bool gWifiUp = false;
-volatile bool gPaused = false;         // Rev N: no card operation while the radio is on (5.4)
 
 // The web dashboard (Rev Q): one read job at a time for the server, done between the writes.
 TaskHandle_t gTask = nullptr;
@@ -583,17 +582,6 @@ void stressRun() {
   size_t expected = 0;                 // the size the file should have at the next write
   bool expectedKnown = false;
   while (mounted && ok + fail < gStressTarget && !gStressStop) {
-    if (gPaused) {                     // as in normal running: no card write while the radio is on
-      withStats([](Stats& s) { s.stress.pausedMs += 50; });
-      vTaskDelay(pdMS_TO_TICKS(50));
-      Msg m;
-      if (xQueueReceive(gQ, &m, 0) == pdTRUE) {
-        if (m.kind == Kind::Reading) gRows.push(m.text, strlen(m.text));
-        else if (m.kind == Kind::Event) gEvents.push(m.text, strlen(m.text));
-        else gHourly.push(m.text, strlen(m.text));
-      }
-      continue;
-    }
     Payload p;
     p.text = batch;
     p.len = len;
@@ -703,10 +691,6 @@ void task(void*) {
       if constexpr (board::kHasDashboard)
         if (gLineHook) gLineHook((int)m.kind, m.text, len);   // the graphs, the events kept in RAM, the week
     }
-    if (gPaused) {                     // the radio is on: everything waits in the buffers
-      publishBuffers();
-      continue;
-    }
     if (!cardOk() && millis() - gLastRemount >= kRemountMs) tryRemount();
     if (cardOk() && !gRetentionDone) retention();
     if (cardOk() && millis() - gLastSpace >= kSpaceRefreshMs) refreshSpace();
@@ -793,7 +777,7 @@ void serveJob() {
   if (!pending) return;
   int r = -1;
   uint64_t size = 0;
-  if (gStarted && !gPaused && cardOk())
+  if (gStarted && cardOk())
     r = j.kind == JobKind::Read ? doRead(j.path, j.offset, j.buf, j.n, &size) : doList(j.list, j.max);
   portENTER_CRITICAL(&gMux);
   gJob.result = r;
@@ -857,7 +841,7 @@ void begin(const char* readingsHeader, const char* eventsHeader, const char* hou
   gHeadH = dupe(hourlyHeader);
   // The outage buffers, once, from the heap (sizes per board).
   // If the heap ever could not supply one, that buffer holds nothing (lines are dropped and counted).
-  // Rev Q: in PSRAM (5.4); if no PSRAM was found, Rev N's sizes in internal RAM (and an event).
+  // In PSRAM (5.4); if no PSRAM was found, the no-PSRAM fallback in internal RAM (and an event).
   const bool psram = board::kOutageInPsram && heap::psramTotal() > 0;
   auto ring = [psram](size_t bytes, uint16_t lines) {
     char* b = psram ? (char*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : (char*)malloc(bytes);
@@ -956,11 +940,6 @@ uint32_t failsLost() {
 }
 
 void setWifiUp(bool up) { gWifiUp = up; }
-
-void setPaused(bool paused) {
-  gPaused = paused;
-  withStats([&](Stats& s) { s.paused = paused; });
-}
 
 // ---------------------------------------------------------------- the web dashboard (Rev Q)
 int readPiece(const char* path, uint64_t offset, char* buf, size_t n, uint64_t* fileBytes, uint32_t waitMs) {

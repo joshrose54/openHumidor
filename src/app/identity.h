@@ -1,5 +1,5 @@
 #pragma once
-// The image's own identity block (Rev Q; src/app/identity.cpp). Rev N: none.
+// The image's own identity block (src/app/identity.cpp).
 #include "wineador/image_identity.h"
 
 namespace firmware {

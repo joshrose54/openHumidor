@@ -101,8 +101,9 @@ void printBanner(const Settings& s, const BootInfo& b) {
                     (unsigned long)(heap::psramTotal() / 1024), (unsigned long)(heap::psramFree() / 1024),
                     (unsigned)board::kSdEventsKept, (unsigned)board::kSdRowsKept, (unsigned)board::kSdHourlyKept);
     else
-      Serial.printf("    PSRAM       !! NOT FOUND: SD outage buffers at Rev N's sizes in internal RAM%s\n",
-                    st.psramMissing ? " (logged)" : "");
+      Serial.printf("    PSRAM       !! NOT FOUND: SD outage buffers are the no-PSRAM fallback of %u events, %u readings rows, "
+                    "%u hourly rows (the sizes Rev N ran) in internal RAM%s\n", (unsigned)board::kNoPsramEventsKept,
+                    (unsigned)board::kNoPsramRowsKept, (unsigned)board::kNoPsramHourlyKept, st.psramMissing ? " (logged)" : "");
   }
   if (b.sdOk) Serial.printf("    SD card     mounted, %llu MB, SPI %lu kHz, mount took %lu ms at boot. Logging to /logs once the clock is set\n",
                             (unsigned long long)b.sdMB, (unsigned long)(sdcard::kSpiHz / 1000), (unsigned long)b.sdMountMs);
@@ -201,7 +202,6 @@ void printHelp(bool testBuild) {
     Serial.println("    humidcool on|off  TEST BUILD ONLY: humidify during cooling runs (the setting is off)");
     Serial.println("    crc <sensor> | timeout <sensor>  TEST BUILD ONLY: its next read fails its CRC / times out");
     Serial.println("    sdstress <kHz> retry|noretry <writes>  TEST BUILD ONLY: SD stress test ('sdstress stop' ends it)");
-    Serial.println("    ntpsync   TEST BUILD ONLY: open the NTP-only radio window now (Rev N)");
     Serial.println("    lcd stress on|off  TEST BUILD ONLY: redraw the whole LCD every second (3A.11 50 ms check)");
     Serial.println("    hwdog off|on  TEST BUILD ONLY: pause / resume Rev Q's hardware watchdog (B3 test 11, second run)");
     Serial.println("    rtc       TEST BUILD ONLY: the DS3231's time, OSF and EOSC; 'rtc eosc on|off' sets / clears EOSC");

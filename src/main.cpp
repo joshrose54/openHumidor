@@ -234,7 +234,7 @@ static void printStatus() {
   s.rtcLostTime = gClock.osfAtBoot && !gClock.corrected;
   char net[48];
   snprintf(net, sizeof(net), "wifi %s ntp %s",
-           !timesync::radioOn() ? "off (NTP only)" : timesync::wifiUp() ? "up" : "down",
+           timesync::wifiUp() ? "up" : "down",
            gClock.ntpSynced ? "ok" : "waiting");
   s.netText = net;
   char sd[48];
@@ -243,8 +243,6 @@ static void printStatus() {
     if (sdlog::stalledMs(millis()) > 5000) snprintf(sd, sizeof(sd), "SD STALLED %lus", (unsigned long)(sdlog::stalledMs(millis()) / 1000));
     else if (st.failed) snprintf(sd, sizeof(sd), "SD FAIL (logging paused)");
     else if (!sdlog::started()) snprintf(sd, sizeof(sd), "sd waiting for clock");
-    else if (st.paused) snprintf(sd, sizeof(sd), "sd paused (WiFi on) %lu/%u", (unsigned long)st.rowsBuffered,
-                                 (unsigned)board::kSdRowsKept);
     else snprintf(sd, sizeof(sd), "sd ok %lu/16", (unsigned long)st.rowsBuffered);
   }
   s.sdText = sd;
@@ -548,12 +546,6 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
                                    "  Every build clears EOSC at boot (3A.11); 'rtc eosc off' clears it now.");
       break;
     }
-    case Command::NtpSync:
-      if (!board::kWifiOnlyForNtp) { Serial.println("  This board keeps WiFi on; NTP syncs by itself."); break; }
-      if (timesync::radioOn()) { Serial.println("  The NTP radio window is already open."); break; }
-      timesync::syncNow();
-      Serial.println("  NTP radio window opening now (off again after the sync or 2 min).");
-      break;
     case Command::InjectCrc:
     case Command::InjectTimeout:
       if (arg < 0 || arg > 5) {
@@ -631,7 +623,6 @@ static void handleCommand(Command c, const CommandArgs& a, uint32_t nowMs) {
     case Command::InjectCrc:
     case Command::InjectTimeout:
     case Command::SdStress:
-    case Command::NtpSync:
     case Command::HwDog:
     case Command::Rtc:
     case Command::Stall:     // never returned outside a test build; treated as not allowed
@@ -769,7 +760,7 @@ void setup() {
 // ---------------------------------------------------------------- the LCD (5.5, Rev Q)
 // What the screen shows, from the state the firmware already has; then one small screen step
 // (src/app/screen). Then what a touch asked for: Save (applied as any settings change, "LCD"),
-// the Allow update window opened. Rev N: screen::update does nothing.
+// the Allow update window opened.
 static BuildTag buildTag() {
   if (kBuildProfile == Profile::Bench) return kTestBuild ? BuildTag::BenchTest : BuildTag::Bench;
   return kTestBuild ? BuildTag::Test : BuildTag::None;
@@ -1273,7 +1264,7 @@ static void afterSweep(uint32_t now) {
 // Rev Q events (5.4): 12V dips and their recovery, WiFi lost and back, a long gap in the
 // hardware watchdog's toggling. Dips and WiFi outages: up to 10 an hour each, then one
 // "N more this hour" line; a dip's recovery (and an outage's "back") is logged when its
-// start was. Rev N has none of these, so nothing is ever logged there.
+// start was.
 static void logBoardEvents(uint32_t now) {
   SupplySense::Event e;
   while (supplysense::logic().takeEvent(e)) {
@@ -1408,8 +1399,8 @@ static void startLogging() {
   if (!screen::running() && lcd::fitted())
     eventlog::log("lcd", "LCD SCREENS OFF: %s. Control is unaffected.", screen::problem());
   if (sdlog::stats().psramMissing)
-    eventlog::log("psram", "NO PSRAM FOUND at boot: the SD outage buffers are Rev N's sizes in internal RAM "
-                  "(%u events, %u readings rows, %u hourly rows) instead of Rev Q's",
+    eventlog::log("psram", "NO PSRAM FOUND at boot: the SD outage buffers are a no-PSRAM fallback of %u events, %u readings "
+                  "rows, %u hourly rows (the sizes Rev N ran) in internal RAM",
                   (unsigned)board::kNoPsramEventsKept, (unsigned)board::kNoPsramRowsKept, (unsigned)board::kNoPsramHourlyKept);
 }
 
@@ -1451,7 +1442,7 @@ static void logReadingsRow(uint32_t now) {
   row.heapMin = heap::lowest();                        // internal RAM only (5.2)
   row.sdWorstMs = sdlog::takeWorstMs();
   // Rev Q (5.4): the 12V mean and lowest 1 s average in this interval; the lowest-ever free
-  // PSRAM. Empty where the board has neither (Rev N).
+  // PSRAM (empty when no PSRAM was found).
   row.hasV12 = supplysense::fitted() && supplysense::logic().takeInterval(&row.v12MeanV, &row.v12Min1sV);
   row.hasPsram = heap::psramTotal() > 0;
   row.psramMin = row.hasPsram ? heap::psramLowest() : 0;
@@ -1555,7 +1546,8 @@ static void watchSd(uint32_t now) {
       line("DONE");
       shown = 0;
       char d[240];
-      formatSdStressChecks(d, sizeof(d), x.sizeMismatch, x.heapMin, x.heapMinLargest, x.heapMinEver, x.pausedMs / 1000);
+      // "paused for WiFi 0 s": the event keeps its B4 wording; card writes are never paused now (5.4)
+      formatSdStressChecks(d, sizeof(d), x.sizeMismatch, x.heapMin, x.heapMinLargest, x.heapMinEver, 0);
       eventlog::log(kEvTypeSd, "%s", d);
     }
     if (!wasActive && x.active) {
@@ -1649,7 +1641,7 @@ void loop() {
   const uint32_t now = millis();
   watchdog::feed();
   // Rev Q's hardware watchdog (3A.11): an input until now; from the first pass its level
-  // changes every pass, here in the loop. Rev N: nothing.
+  // changes every pass, here in the loop.
   static bool firstPass = true;
   if (firstPass) { hwdog::start(now); firstPass = false; }
   else if (!gRollbackStop) hwdog::kick(now);   // (the rollback test image stops it on purpose)
@@ -1788,10 +1780,9 @@ void loop() {
   }
   // 3b. The blowers and the ion generator (4.6b, 4.6c): after the sweep, so a new spread is judged at once.
   passBlowersIon(now, sweptThisPass);
-  // Rev N: the radio on only for the NTP sync. The first window waits for the clock
-  // (from the RTC, or 10 s without one), so its event isn't dated 1970.
+  // The NTP window (SNTP; WiFi stays on). The first window waits for the clock (from the RTC,
+  // or 10 s without one), so its event isn't dated 1970.
   if (gClockSet || now >= 10000) timesync::update(now);
-  sdlog::setPaused(board::kSdPauseWhileWifi && timesync::radioOn());   // Rev N: no card writes meanwhile
   {
     char note[120];
     if (timesync::takeNote(note, sizeof(note))) eventlog::log("ntp", "%s", note);

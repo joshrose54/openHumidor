@@ -56,8 +56,6 @@ void test_revq_pins_per_spec_3A4() {
 void test_revq_channel_n_is_mux_n() {
   for (int i = 0; i < kNumSensors; i++) TEST_ASSERT_EQUAL_UINT(i, board_revq::kSensorMuxChannel[i]);
   TEST_ASSERT_EQUAL_STRING("rev-q (channel n = mux n)", board_revq::kLogBoard);
-  TEST_ASSERT_FALSE(board_revq::kWifiOnlyForNtp);      // 5.4: WiFi stays connected
-  TEST_ASSERT_FALSE(board_revq::kSdPauseWhileWifi);    // 3A.11: card writes not paused for it
 }
 
 // ---------------------------------------------------------------- no pin twice

@@ -1,7 +1,6 @@
 #pragma once
-// WiFi only for the NTP sync (spec 5.4, per board; Rev N). The radio's current
-// bursts made the SD card reset and took most of the heap (B4 SD investigation),
-// and Rev N has no dashboard, so on Rev N the radio is on only while a sync runs:
+// When SNTP runs (spec 5.4). WiFi stays connected; this window starts and stops SNTP:
+// (On Rev N, retired, it switched the radio itself: WiFi only for the NTP sync.)
 //   - a window opens at boot, then 24 h after each sync that worked;
 //   - it closes as soon as the sync has worked, or after 2 minutes;
 //   - after a window with no sync, the next one opens 1 hour later.

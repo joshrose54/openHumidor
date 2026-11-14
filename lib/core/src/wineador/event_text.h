@@ -59,8 +59,8 @@ enum class EvMatch : uint8_t { Starts, Contains };
   X(SettingsChanged, Settings,  "settings changed",         Starts)                                 \
   X(RtcLostTime,    Rtc,        "RTC LOST TIME",            Starts)                                 \
   X(NtpCorrection,  Ntp,        "NTP correction",           Starts)                                 \
-  X(NtpWifiOn,      Ntp,        "WiFi on for the NTP sync", Starts)   /* Rev N */                   \
-  X(NtpWifiOff,     Ntp,        "WiFi off:",                Starts)   /* Rev N */                   \
+  X(NtpWifiOn,      Ntp,        "WiFi on for the NTP sync", Starts)   /* Rev N's logs (read only) */ \
+  X(NtpWifiOff,     Ntp,        "WiFi off:",                Starts)   /* Rev N's logs (read only) */ \
   X(SdFlushFailure, Sd,         "SD FLUSH FAILURE",         Starts)                                 \
   X(SdFailNo,       Sd,         "SD FAIL #",                Starts)                                 \
   X(SdRetention,    Sd,         "retention: free space under 10%, deleted", Starts)                 \

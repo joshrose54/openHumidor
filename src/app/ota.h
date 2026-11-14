@@ -12,7 +12,6 @@
 //   - the record (NVS namespace "ota"): what the last update did, read at every boot.
 //   - "started properly": Arduino would mark a new image good at startup by itself; this firmware
 //     takes that over (verifyRollbackLater) and marks it good only by the 5.2 rule.
-// Rev N: nothing (no dashboard).
 
 #include <stdint.h>
 #include <stddef.h>

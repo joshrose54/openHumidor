@@ -12,8 +12,8 @@
 //     and logged ("SD write error, retried ... OK"), and every failed attempt is
 //     recorded (takeFail) for the loop to log;
 //   - a second failure (card missing, write error) marks the card FAILED; while it
-//     is out, events (up to 60 on Rev N), readings rows (up to 30 on Rev N) and hourly rows (up to
-//     24) are kept in RAM (sizes per board, include/board.h), the oldest dropped and
+//     is out, events, readings rows and hourly rows are kept in RAM (PSRAM: 1,000 / 1,440 /
+//     168; include/board.h, with the no-PSRAM fallback), the oldest dropped and
 //     counted beyond that; the task tries to remount every 30 s and, when the card
 //     is back, writes everything kept, in order.
 // Card writes can stall for hundreds of ms as a card fills (build log); here that
@@ -51,19 +51,17 @@ struct StressStats {
   uint32_t sizeMismatch = 0;  // file not the size the last verified write left (should stay 0)
   uint32_t heapMin = 0, heapMinLargest = 0;      // lowest free heap after any write, and the largest block then
   uint32_t heapMinEver = 0;   // the lowest free heap since boot (ESP-IDF's own low-water mark)
-  uint32_t pausedMs = 0;      // time the run waited while the radio was on
 };
 
 struct Stats {
   bool mounted = false;         // the card is mounted and the last operation worked
   bool failed = false;          // the last operation failed; remounting every 30 s
-  bool paused = false;          // Rev N: writes held while the radio is on
   uint32_t failures = 0;        // times it has failed since boot (a write failed twice)
   uint32_t retries = 0;         // writes that failed once and worked on the retry after a remount
   uint32_t powerCycles = 0;     // Rev Q: the retry's remount failed, so the card was power-cycled (3A.11)
   uint32_t powerCycleSaves = 0; //   ... and the retry then worked
   bool buffersInPsram = false;  // the outage buffers are in PSRAM (Rev Q)
-  bool psramMissing = false;    // Rev Q, but no PSRAM found at boot: Rev N's sizes in internal RAM
+  bool psramMissing = false;    // no PSRAM found at boot: the no-PSRAM fallback in internal RAM
   char lastRetry[64] = {};      // which file, and at which step the first attempt failed
   uint32_t spiKhz = 0;          // the card's SPI clock in normal running
   uint32_t rowsBuffered = 0;    // readings rows in RAM, not yet written (the batch, or kept while out)
@@ -112,9 +110,6 @@ void stressStop();
 bool takeFail(FailRecord* out);
 uint32_t failsLost();           // records that did not fit (more than 16 waiting)
 void setWifiUp(bool up);        // from the loop, for the records
-// Rev N (board.h kSdPauseWhileWifi): no card operation while the radio is on; rows
-// and events wait in the outage buffers. Set by the loop every pass.
-void setPaused(bool paused);
 
 // ---------------------------------------------------------------- the web dashboard (Rev Q, spec 5.5)
 // The web server never reads the card itself (5.2): it asks this task, which does one read at a

@@ -18,7 +18,7 @@ enum class Profile : uint8_t { Real, Bench };
 // Six SHT40s, channels 0..5 (spec 2.3). The channel number IS the index, everywhere:
 // control rules, settings, logs, commands, tools. Which mux channel each one is wired to
 // is a board matter (include/board.h, used only by the I2C driver): Rev Q wires channel n
-// to mux channel n, Rev N to mux channel n+2. lib/core never sees mux numbers.
+// to mux channel n (Rev N, retired, wired it to mux n+2: the schema 1 logs). lib/core never sees mux numbers.
 constexpr int kNumSensors      = 6;
 constexpr int kCabinetSensors  = 4;   // ch0..ch3, the control sensors
 constexpr int kChamberIndex    = 4;   // ch4, in the plenum — safety only, never control

@@ -1,6 +1,6 @@
 #pragma once
 // Rev Q's SD card power switch, GPIO39 (spec 3A.10, 3A.11). The order and timing are in
-// lib/core/sd_power_seq.h; this does each step. On Rev N (no switch) every call does nothing.
+// lib/core/sd_power_seq.h; this does each step.
 //
 //   begin()        BOOT, before the card is mounted: GPIO39 an input with its pull-up off —
 //                  the soft-start "on" state (the card is already on: R91 holds Q10 on).

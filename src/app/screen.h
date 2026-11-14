@@ -15,7 +15,6 @@
 // then full. The walk-past screen is drawn into the picture behind it, unsent, and sent whole once
 // ready - after at least 2 s, at most 5 s. Touches are ignored meanwhile. Then dimmed after 60 s
 // without a touch (5.5). Control never waits for any of it.
-// Rev N: no LCD; everything does nothing.
 
 #include <stdint.h>
 #include <stddef.h>
@@ -29,7 +28,7 @@ namespace screen {
 bool begin(uint32_t nowMs, const char* version);   // version for the splash: "2.0.0-BENCH"
 bool running();
 // Rev Q: the screen's logic (what it shows: modes, alerts, the Allow update window) runs even if the
-// LCD itself failed, because the dashboard shows the same (5.5). Rev N: false.
+// LCD itself failed, because the dashboard shows the same (5.5).
 bool logicRunning();
 const wineador::LcdUi& ui();
 const char* problem();                 // why it isn't running, or nullptr

@@ -1,7 +1,6 @@
 #pragma once
 // Rev Q's 12V sense on GPIO8, ADC1 at 12 dB (spec 3A.3, 3A.11). A reading every 100 ms; the
 // averaging, the readings-row figures and the dip events are in lib/core/supply.h.
-// On Rev N (no 12V sense) fitted() is false and nothing is read.
 
 #include <stdint.h>
 #include "wineador/supply.h"

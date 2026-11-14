@@ -3,7 +3,7 @@
 // 100 kHz; undriven = full speed (10k pull-up). begin() drives GPIO15 high (full speed, the same as
 // the hardware default); the loop then sets the duty from the rule (4.6b, lib/core blower_rule.h),
 // calling setPct() only when it changes. The BP2 test 22 sketch steps it by hand (duty-to-voltage
-// table). Rev N: no blowers, nothing.
+// table).
 
 #include <stdint.h>
 
