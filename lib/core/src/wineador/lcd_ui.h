@@ -67,13 +67,13 @@ struct UiView {
   bool readingsOk = false;
   char tempText[8] = "--";            // "20.3"
   char rhText[8] = "--";              // "62"
-  char setTempText[16] = "";          // "Set 20.0 °C"
-  char setRhText[16] = "";            // "Set 62 %"
+  char setTempText[16] = "";          // "Target 20.0°C" (14 bytes)
+  char setRhText[16] = "";            // "Target 62%"
   uint8_t nModes = 0;
   ModeIcon modes[kMaxModes] = {};
   char modeText[kMaxModes][20] = {};  // "Heating", "Starting 4:37", "Updating 63%"
   bool updateWindow = false;
-  char updateText[40] = "";           // "Update allowed - 4:12 left"
+  char updateText[40] = "";           // "Update allowed · 4:12"
   bool alertLine = false;
   char alertText[44] = "";
   char moreText[16] = "";             // "+2 more"

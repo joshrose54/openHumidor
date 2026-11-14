@@ -410,10 +410,6 @@
         "displayName": "Page title",
         "purpose": "Page titles; Overview has none visible."
       },
-      "reason": {
-        "displayName": "Reason line",
-        "purpose": "Why a load runs or not, mode word bold in its colour; max 62ch; 1.05rem on phones."
-      },
       "body": {
         "displayName": "Body",
         "purpose": "Rows, values, messages; tabular numerals."
@@ -560,7 +556,7 @@
       "name": "Zone Band",
       "kind": "custom",
       "refersTo": "zone-band",
-      "description": "The signature: a reading on its control zones, set point dashed, marker at the reading.",
+      "description": "The signature: a reading on its control zones, target dashed, marker at the reading.",
       "html": "<div class=\"ds-band\"><div class=\"track\"><div class=\"z\" style=\"left:0;width:30%;background:#3A2519\">Heat below 18.5</div><div class=\"z here\" style=\"left:30%;width:40%;background:#332B25\">Dead zone · nothing starts</div><div class=\"z\" style=\"left:70%;width:30%;background:#1A2E3B\">Cool above 20.5</div></div><div class=\"setline\" style=\"left:60%\"></div><span class=\"tick\" style=\"left:30%\">18.5</span><span class=\"tick set\" style=\"left:60%\">20.0 set</span><span class=\"tick\" style=\"left:70%\">20.5</span><div class=\"mark\" style=\"left:58%\"><span>20.0</span></div></div>",
       "css": ".ds-band{position:relative;width:560px;margin-top:34px;padding-bottom:30px;font-size:16px;color:#F3EDE7}.ds-band .track{position:relative;height:52px;border-radius:12px;overflow:hidden}.ds-band .z{position:absolute;top:0;bottom:0;box-shadow:inset 1px 0 0 #14110F;display:flex;align-items:center;justify-content:center;font-size:0.9rem;color:#A69C93;white-space:nowrap;overflow:hidden;transition:color 200ms ease-out,background-color 200ms ease-out}.ds-band .z.here{color:#F3EDE7}.ds-band .tick{position:absolute;bottom:0;transform:translateX(-50%);font-size:0.82rem;color:#A69C93}.ds-band .tick.set{color:#F3EDE7}.ds-band .tick::before{content:\"\";position:absolute;left:50%;bottom:22px;width:1px;height:8px;background:#A69C93}.ds-band .setline{position:absolute;top:0;height:52px;border-left:2px dashed rgba(243,237,231,0.45)}.ds-band .mark{position:absolute;top:-12px;width:4px;height:76px;margin-left:-2px;background:#F3EDE7;border-radius:2px;box-shadow:0 2px 8px rgba(0,0,0,0.45);transition:left 600ms cubic-bezier(0.16,1,0.3,1)}.ds-band .mark span{position:absolute;top:-26px;left:50%;transform:translateX(-50%);font-size:0.92rem;font-weight:600}"
     },
@@ -575,11 +571,11 @@
   ],
   "narrative": {
     "northStar": "The Cabinet's Own Screen, Opened Up",
-    "overview": "The dashboard is the cabinet LCD's world carried to a phone and a Mac: a warm near-black room, warm off-white type, and one colour for each thing the cabinet can be doing (cooling, heating, humidifying, drying). Nothing is decoration. A colour appears because a load is running, a reading sits in that load's zone, or something needs attention. The palette's single source of truth is `lib/lcdgfx/src/lcdgfx/palette.h`; the web values in this file must match it, and if it changes, this file and `web/app.css` change with it.\n\nThe signature is the **zone band**: each reading is a big tabular number, a reason line in words (\"Cooling, started above 20.5 °C\"), and a horizontal band of its control zones with the set point dashed and a marker at the reading. Lists are ruled rows with no cards. Panels are tonal steps on the ground, not floating boxes. Density is calm: one reading per band, a quiet side column of alerts, loads and the week's counts.\n\nThe system works offline by construction. System fonts only, icons vendored as inline SVG, uPlot vendored, everything served compressed from flash.",
+    "overview": "The dashboard is the cabinet LCD's world carried to a phone and a Mac: a warm near-black room, warm off-white type, and one colour for each thing the cabinet can be doing (cooling, heating, humidifying, drying). Nothing is decoration. A colour appears because a load is running, a reading sits in that load's zone, or something needs attention. The palette's single source of truth is `lib/lcdgfx/src/lcdgfx/palette.h`; the web values in this file must match it, and if it changes, this file and `web/app.css` change with it.\n\nThe signature is the **zone band**: each reading is a big tabular number and a horizontal band of its control zones, each zone named by its mode word (\"Heating\", \"Holding\", \"Cooling\"), with the target dashed and a marker at the reading; a muted line beneath gives the sensors' spread. Lists are ruled rows with no cards. Panels are tonal steps on the ground, not floating boxes. Density is calm: one reading per band, a quiet side column of alerts, loads and the week's counts.\n\nThe system works offline by construction. System fonts only, icons vendored as inline SVG, uPlot vendored, everything served compressed from flash.",
     "keyCharacteristics": [
       "Dark only (`color-scheme: dark`), warm neutrals from the LCD palette.",
       "One colour per mode, used for the mode word, its icon, its zone and its graph series.",
-      "Big tabular numerals in one system sans; the reason always in words beside the number.",
+      "Big tabular numerals in one system sans; each fact said once, in the word list's words.",
       "Flat tonal layering: ground, raised ground, surface. A single shadow in the whole system (the band marker).",
       "Material Symbols Rounded, filled, weight 500 (the LCD's icon set), inlined as SVG.",
       "Phone: the same content in one column, the seven tabs as a fixed bottom bar under 760px."
@@ -601,8 +597,8 @@
         "section": "colors"
       },
       {
-        "name": "The Number and the Reason Rule",
-        "body": "A reading is never shown alone on Overview: the reason it is or isn't driving a load sits beside it in words.",
+        "name": "The Say It Once Rule",
+        "body": "Spec 5.5 \"Words on screen\", rule 1: each fact has one place on a screen. The header says the mode, the band where the reading sits, a load's own row what holds it (\"Waiting · changeover 9:33\", \"Off in Settings\"). No reason sentences beside the readings.",
         "section": "typography"
       },
       {
@@ -618,7 +614,7 @@
     ],
     "dos": [
       "**Do** take every colour from `lib/lcdgfx/src/lcdgfx/palette.h`, or from a derivation of it recorded here.",
-      "**Do** show each reading with its reason in words and its zone band, with the mode word in the mode colour.",
+      "**Do** show each reading with its zone band, the mode word in the mode colour, and say each fact once (spec 5.5 \"Words on screen\"; `docs/ui-strings.csv` lists every string).",
       "**Do** use Material Symbols Rounded, filled, weight 500, inlined as SVG from `web/vendor/material-symbols-0.49.0`.",
       "**Do** use the system sans with tabular numerals; mono only for paths and code.",
       "**Do** separate regions by tonal steps (ground, ground-raised, surface) and 1px Rule Brown rules.",

@@ -28,7 +28,7 @@ SIZES = {"desktop": (1440, 1500, 1), "phone": (390, 3300, 2)}
 # boot its 5-minute hold) last, so no state leaks into the next.
 STATES = [
     ("normal", "Normal", PAGES),
-    ("window", "Allow update pressed on the LCD", ["update"]),
+    ("window", "Allow update pressed on the LCD", ["update", "overview"]),
     # the Update page through every OTA state (stage Q5d): /sim/ota?name=... on the review build
     ("ota-closed", "Update: window closed", ["update"]),
     ("ota-open", "Update: window open", ["update"]),
@@ -100,9 +100,11 @@ def main():
                 # stage Q6: the Events page filtered to the new types; Settings asked for too much
                 driven = [d for d in [
                     ("q6-events-ion", "Events: the ion generator's runs", "events",
-                     "(()=>{const s=document.querySelector('#e-type');s.value='ion';s.dispatchEvent(new Event('change'));})()"),
+                     "(()=>{const s=document.querySelector('#e-type');s.value='Ion generator';s.dispatchEvent(new Event('change'));})()"),
                     ("q6-events-blowers", "Events: the blowers", "events",
-                     "(()=>{const s=document.querySelector('#e-type');s.value='blowers';s.dispatchEvent(new Event('change'));})()"),
+                     "(()=>{const s=document.querySelector('#e-type');s.value='Blowers';s.dispatchEvent(new Event('change'));})()"),
+                    ("events-tapped", "Events: a row tapped, its logged text shown", "events",
+                     "(()=>{const r=document.querySelectorAll('#e-list li[data-type]');if(r[1])r[1].click();})()"),
                     ("q6-settings-too-much", "Settings: 4 runs of 3 min asked for (refused before sending)", "settings",
                      "(()=>{const c=(f,d,n)=>{for(let i=0;i<n;i++)document.querySelector(`[data-field=${f}] [data-d='${d}']`).click();};"
                      "c('ion_runs_per_day','1',2);c('ion_minutes_per_run','1',1);})()"),

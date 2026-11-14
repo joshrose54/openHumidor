@@ -661,13 +661,13 @@ bool Board::otaScene(const char* key) {
     version_ = "2.0.1";
     pending_ = true;
     pendingSinceMs_ = ms_ - 18000;
-    rec(UpdateResult::Installed, "2.0.1, replacing 2.0.0: restarting");
+    rec(UpdateResult::Installed, "2.0.1 (was 2.0.0)");
   }
-  if (k == "good") { version_ = "2.0.1"; rec(UpdateResult::Installed, "2.0.1, replacing 2.0.0: started properly"); }
-  if (k == "rolled-back") rec(UpdateResult::RolledBack, "from 2.0.1 to 2.0.0: it didn't start properly");
-  if (k == "abandoned") rec(UpdateResult::Abandoned, "2.0.1: no data for 60 s; nothing changed");
-  if (k == "corrupt") rec(UpdateResult::Failed, "2.0.1: the image's own check failed (corrupt); nothing changed");
-  if (k == "interrupted") rec(UpdateResult::Failed, "2.0.1: interrupted during the write (a reset or power cut); still 2.0.0");
+  if (k == "good") { version_ = "2.0.1"; rec(UpdateResult::Installed, "2.0.1 (was 2.0.0)"); }
+  if (k == "rolled-back") rec(UpdateResult::RolledBack, "2.0.1 didn't start; back on 2.0.0");
+  if (k == "abandoned") rec(UpdateResult::Abandoned, "2.0.1: upload stalled");
+  if (k == "corrupt") rec(UpdateResult::Failed, "2.0.1: file damaged");
+  if (k == "interrupted") rec(UpdateResult::Failed, "2.0.1: cut off by a restart; still 2.0.0");
   return true;
 }
 
@@ -685,7 +685,7 @@ UpdateState Board::updateState() {
   u.verifyLeftS = checkingLeftS();
   if (otaRec_.result != (uint8_t)UpdateResult::None || otaRec_.step != OtaRecord::None) {
     u.last = (UpdateResult)otaRec_.result;
-    if (pending_) snprintf(u.lastDetail, sizeof(u.lastDetail), "%s: waiting to start properly", version_.c_str());
+    if (pending_) snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", version_.c_str());
     else snprintf(u.lastDetail, sizeof(u.lastDetail), "%s", otaRec_.detail);
     u.lastUtcS = otaRec_.utcS;
   } else {

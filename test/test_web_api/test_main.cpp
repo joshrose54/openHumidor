@@ -330,16 +330,16 @@ void test_every_refusal_has_a_status_code_and_words() {
   for (int i = 1; i < (int)Refusal::Count; i++) {
     const Refusal r = (Refusal)i;
     TEST_ASSERT_TRUE(httpStatus(r) >= 400 && httpStatus(r) < 600);
-    TEST_ASSERT_TRUE(strlen(refusalText(r)) > 10);
+    TEST_ASSERT_TRUE(strlen(refusalText(r)) > 5);   // a few words ("Not found.")
     for (int j = 1; j < i; j++) TEST_ASSERT_TRUE(strcmp(refusalCode(r), refusalCode((Refusal)j)) != 0);
   }
   char out[400];
-  ApiResult r = refuse(Refusal::OffStep, "target_temp_c", "Target temperature goes in steps of 0.5 \xC2\xB0" "C.");
+  ApiResult r = refuse(Refusal::OffStep, "target_temp_c", "Target temperature goes in steps of 0.5\xC2\xB0" "C.");
   r.hasLimits = true; r.min = 15; r.max = 22; r.step = 0.5f;
   TEST_ASSERT_TRUE(formatError(out, sizeof(out), r) > 0);
   TEST_ASSERT_TRUE(jsoncheck::valid(out, strlen(out)));
-  TEST_ASSERT_EQUAL_STRING("{\"api\":4,\"error\":\"off_step\",\"field\":\"target_temp_c\",\"message\":\"Target "
-                           "temperature goes in steps of 0.5 \xC2\xB0" "C.\",\"min\":15,\"max\":22,\"step\":0.5}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":5,\"error\":\"off_step\",\"field\":\"target_temp_c\",\"message\":\"Target "
+                           "temperature goes in steps of 0.5\xC2\xB0" "C.\",\"min\":15,\"max\":22,\"step\":0.5}", out);
   TEST_ASSERT_EQUAL_INT(-1, formatError(out, 10, r));
 }
 
@@ -348,20 +348,20 @@ void test_info_reply() {
   b.version = "2.0.0";
   char out[300];
   TEST_ASSERT_TRUE(formatInfo(out, sizeof(out), b, 3725, "POWERON") > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":4,\"name\":\"openHumidor\",\"build\":{\"board\":\"rev-q\",\"profile\":\"real\","
+  TEST_ASSERT_EQUAL_STRING("{\"api\":5,\"name\":\"openHumidor\",\"build\":{\"board\":\"rev-q\",\"profile\":\"real\","
                            "\"test\":false,\"version\":\"2.0.0\"},\"uptime_s\":3725,\"boot_reason\":\"POWERON\"}", out);
 }
 
 void test_the_write_replies() {
   char out[200], want[200];
   TEST_ASSERT_TRUE(formatExcludeReply(out, sizeof(out), 3, true) > 0);
-  snprintf(want, sizeof(want), "{\"api\":4,\"ch\":3,\"name\":\"%s\",\"probe\":\"%s\",\"excluded\":true}",
+  snprintf(want, sizeof(want), "{\"api\":5,\"ch\":3,\"name\":\"%s\",\"probe\":\"%s\",\"excluded\":true}",
            kSensors[3].position, kSensors[3].label);
   TEST_ASSERT_EQUAL_STRING(want, out);
   TEST_ASSERT_TRUE(formatDoorTestReply(out, sizeof(out)) > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":4,\"logged\":true}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":5,\"logged\":true}", out);
   TEST_ASSERT_TRUE(formatInstalledReply(out, sizeof(out), "2.0.0") > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":4,\"installed\":true,\"version\":\"2.0.0\",\"restarting\":true}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":5,\"installed\":true,\"version\":\"2.0.0\",\"restarting\":true}", out);
 }
 
 void test_settings_reply_shows_user_and_tuning_never_safety() {
@@ -380,10 +380,10 @@ void test_settings_reply_shows_user_and_tuning_never_safety() {
   TEST_ASSERT_TRUE(whole.find("\"ion_runs_per_day\":{\"value\":2,\"min\":0,\"max\":4,\"step\":1}") != std::string::npos);
   TEST_ASSERT_TRUE(whole.find("\"ion_minutes_per_run\":{\"value\":2,\"min\":0,\"max\":5,\"step\":1,\"unit\":\"min\"}") != std::string::npos);
   TEST_ASSERT_TRUE(whole.find("\"ion_minutes_per_day_max\":10") != std::string::npos);
-  TEST_ASSERT_TRUE(whole.find("\"name\":\"blower_idle_pct\",\"label\":\"Blower PWM, idle (full speed until BP2 test 22)\",\"value\":100") != std::string::npos);
+  TEST_ASSERT_TRUE(whole.find("\"name\":\"blower_idle_pct\",\"label\":\"Blower speed, idle\",\"value\":100") != std::string::npos);
   TEST_ASSERT_TRUE(whole.find("ion_cap") == std::string::npos);   // the cap is a safety value: never sent
   TEST_ASSERT_EQUAL_INT(tuningItemCount(), jsoncheck::count(whole, "\"label\":"));
-  TEST_ASSERT_TRUE(whole.find("\"name\":\"crossover_delay_min\",\"label\":\"Crossover delay\",\"value\":10") != std::string::npos);
+  TEST_ASSERT_TRUE(whole.find("\"name\":\"crossover_delay_min\",\"label\":\"Changeover wait\",\"value\":10") != std::string::npos);
   // no safety value appears (5.5): none of the safety names, nor the word
   const char* safety[] = {"min_off", "min_on", "max_run", "ceiling", "boot_hold", "safety", "watchdog", "kickstart"};
   for (const char* s : safety) TEST_ASSERT_TRUE_MESSAGE(whole.find(s) == std::string::npos, s);

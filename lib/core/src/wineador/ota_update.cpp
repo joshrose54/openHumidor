@@ -17,6 +17,18 @@ const char* otaOutcomeText(OtaOutcome o) {
   return "?";
 }
 
+const char* otaOutcomeWords(OtaOutcome o) {
+  switch (o) {
+    case OtaOutcome::Installed:   return "installed";
+    case OtaOutcome::Stalled:     return "upload stalled";
+    case OtaOutcome::CutOff:      return "upload cut off";
+    case OtaOutcome::Corrupt:     return "file damaged";
+    case OtaOutcome::FlashFailed: return "couldn't write it";
+    case OtaOutcome::Cancelled:   return "writing stalled";
+  }
+  return "?";
+}
+
 // ---------------------------------------------------------------- the writer
 OtaOutcome runOtaWrite(const uint8_t* head, size_t headN, BodyReader& body, uint32_t total, OtaFlash& flash,
                        OtaPacer& pacer, uint8_t* piece, uint32_t stallMs) {
@@ -67,8 +79,7 @@ ApiResult otaOutcomeRefusal(OtaOutcome o) {
     case OtaOutcome::FlashFailed: return refuse(Refusal::FlashFailed);
     default: {
       char m[120];
-      snprintf(m, sizeof(m), "The update was abandoned: %s. The half-written image is discarded; nothing changed.",
-               otaOutcomeText(o));
+      snprintf(m, sizeof(m), "Update stopped: %s. Nothing changed; try again.", otaOutcomeWords(o));
       return refuse(Refusal::Stalled, nullptr, m);
     }
   }
@@ -137,7 +148,7 @@ ApiResult OtaLoop::begin(uint32_t nowMs, uint32_t totalBytes, const char* versio
   if (phase_ != Phase::Idle) return refuse(Refusal::AlreadyUpdating);
   if (checkingLeftS > 0) {
     char m[120];
-    snprintf(m, sizeof(m), "The last update is still being checked: try again in %lu s.", (unsigned long)checkingLeftS);
+    snprintf(m, sizeof(m), "Last update still being checked. Try again in %lu s.", (unsigned long)checkingLeftS);
     ApiResult r = refuse(Refusal::BeingChecked, nullptr, m);
     r.retryS = checkingLeftS;
     return r;
@@ -191,7 +202,7 @@ OtaRecord otaRecordStarted(const char* version, const char* from, int64_t utcS, 
   r.utcS = utcS;
   copyText(r.version, sizeof(r.version), version);
   copyText(r.from, sizeof(r.from), from);
-  snprintf(r.detail, sizeof(r.detail), "%s: writing", r.version);
+  snprintf(r.detail, sizeof(r.detail), "%s", r.version);
   return r;
 }
 
@@ -201,12 +212,12 @@ OtaRecord otaRecordEnded(const OtaRecord& started, OtaOutcome o, int64_t utcS) {
   if (o == OtaOutcome::Installed) {
     r.step = OtaRecord::Installed;
     r.result = (uint8_t)UpdateResult::Installed;
-    snprintf(r.detail, sizeof(r.detail), "%s, replacing %s: restarting", r.version, r.from);
+    snprintf(r.detail, sizeof(r.detail), "%s (was %s)", r.version, r.from);
   } else {
     r.step = OtaRecord::Done;
     r.result = (uint8_t)(o == OtaOutcome::Stalled || o == OtaOutcome::CutOff || o == OtaOutcome::Cancelled
                              ? UpdateResult::Abandoned : UpdateResult::Failed);
-    snprintf(r.detail, sizeof(r.detail), "%s: %s; nothing changed", r.version, otaOutcomeText(o));
+    snprintf(r.detail, sizeof(r.detail), "%s: %s", r.version, otaOutcomeWords(o));
   }
   return r;
 }
@@ -216,7 +227,7 @@ OtaRecord otaRecordGood(const OtaRecord& rec, int64_t utcS) {
   r.step = OtaRecord::Done;
   r.result = (uint8_t)UpdateResult::Installed;
   r.utcS = utcS;
-  snprintf(r.detail, sizeof(r.detail), "%s, replacing %s: started properly", r.version, r.from);
+  snprintf(r.detail, sizeof(r.detail), "%s (was %s)", r.version, r.from);
   return r;
 }
 
@@ -249,13 +260,13 @@ OtaBoot readOtaBoot(const OtaRecord& rec, const OtaBootFacts& f) {
     snprintf(b.event, sizeof(b.event), "%s: %s, waiting to start properly (5.2: 60 s of the loop; a reset before "
              "then rolls back)", kEvOtaWaiting, f.runningVersion);
     b.last = UpdateResult::Installed;
-    snprintf(b.lastDetail, sizeof(b.lastDetail), "%s: waiting to start properly", f.runningVersion);
+    snprintf(b.lastDetail, sizeof(b.lastDetail), "%s", f.runningVersion);   // the Checking box says the rest
     return b;
   }
   if (rec.step == OtaRecord::Writing) {
     // a reset or power cut while the image was being written: the old image was never touched
     char d[96];
-    snprintf(d, sizeof(d), "%s: interrupted during the write (a reset or power cut); still %s", rec.version, f.runningVersion);
+    snprintf(d, sizeof(d), "%s: cut off by a restart; still %s", rec.version, f.runningVersion);
     done(UpdateResult::Failed, d);
     b.logEvent = true;
     snprintf(b.event, sizeof(b.event), "%s: %s (a reset or power cut during the write); still %s, nothing changed",
@@ -272,12 +283,13 @@ OtaBoot readOtaBoot(const OtaRecord& rec, const OtaBootFacts& f) {
     }
     // back on the old image: the new one was rolled back by the bootloader (a reset before it was
     // marked good), or by itself after 4 min 30 s
+    // the page's words in the record; the event keeps its logged wording (tools read it)
     char d[96];
-    snprintf(d, sizeof(d), "from %s to %s: %s", rec.version, f.runningVersion,
-             rec.selfRollback ? "not started properly within 4 min 30 s" : "it didn't start properly");
+    snprintf(d, sizeof(d), "%s didn't start; back on %s", rec.version, f.runningVersion);
     done(UpdateResult::RolledBack, d);
     b.logEvent = true;
-    snprintf(b.event, sizeof(b.event), "%s %s", kEvOtaRolledBack, d);
+    snprintf(b.event, sizeof(b.event), "%s from %s to %s: %s", kEvOtaRolledBack, rec.version, f.runningVersion,
+             rec.selfRollback ? "not started properly within 4 min 30 s" : "it didn't start properly");
     return b;
   }
   return b;
@@ -303,8 +315,9 @@ int formatOtaEnded(char* out, size_t n, OtaOutcome o, const char* version) {
 }
 
 int formatOtaRefused(char* out, size_t n, const ApiResult& r) {
-  return snprintf(out, n, "%s: %s%s%s (%s)", kEvOtaRefused, refusalCode(r.refusal), r.image ? " " : "",
-                  r.image ? r.image : "", r.message[0] ? r.message : refusalText(r.refusal));
+  // the code only (and the image's): the logged text stays stable when a message is reworded; the
+  // event sentence turns the code into words
+  return snprintf(out, n, "%s: %s%s%s", kEvOtaRefused, refusalCode(r.refusal), r.image ? " " : "", r.image ? r.image : "");
 }
 
 int formatOtaGood(char* out, size_t n, const char* version) {

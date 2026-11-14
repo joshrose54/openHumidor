@@ -45,36 +45,36 @@ const Endpoint* findEndpoint(Method m, const char* path, bool* pathKnown) {
 struct RefusalInfo { int status; const char* code; const char* text; };
 static const RefusalInfo kRefusals[(int)Refusal::Count] = {
   {200, "ok",                 "Done."},
-  {404, "not_found",          "There is no such page or file."},
+  {404, "not_found",          "Not found."},
   {405, "method_not_allowed", "That request isn't allowed here."},
   {415, "not_json",           "Changes must be sent as JSON."},
   {400, "bad_json",           "The request isn't one flat JSON object."},
-  {400, "empty",              "Nothing to change was given."},
-  {400, "unknown_field",      "That isn't something this request can change."},
-  {400, "read_only",          "Tuning settings are shown here but can only be changed on the B6 tuning dashboard."},
+  {400, "empty",              "Nothing to change."},
+  {400, "unknown_field",      "That can't be changed here."},
+  {400, "read_only",          "Tuning settings are read only."},
   {400, "wrong_type",         "That value is the wrong kind (a number, on/off or text)."},
-  {400, "out_of_bounds",      "That value is outside the setting's limits."},
+  {400, "out_of_bounds",      "Out of range."},
   {400, "off_step",           "That value isn't one of the setting's steps."},
-  {400, "unknown_channel",    "There is no such sensor."},
+  {400, "unknown_channel",    "No such sensor."},
   {400, "too_long",           "That text is too long."},
   {400, "bad_query",          "A value in the address is missing or wrong."},
-  {400, "bad_path",           "That isn't a log file on the card."},
-  {409, "updating",           "An update is running: changes wait until it has finished."},
-  {409, "compressor_running", "The compressor is running: an update never cuts a cooling run short. Try again when it has stopped."},
-  {409, "already_updating",   "An update is already running."},
-  {403, "window_closed",      "Updates are only accepted after Allow update is pressed on the cabinet screen."},
-  {503, "busy",               "Another download or update is running. Try again when it has finished."},
-  {503, "low_memory",         "The board is short of memory just now. Try again in a minute."},
-  {413, "too_big",            "That file is too big to be a firmware image for this board."},
-  {422, "wrong_image",        "That image isn't a Rev Q cabinet build."},
-  {408, "stalled",            "The upload stopped: nothing arrived for 60 seconds. Nothing was installed."},
-  {503, "card_unavailable",   "The SD card isn't available just now."},
-  {503, "no_answer",          "The controller didn't answer in time. Try again."},
-  {409, "being_checked",      "The last update is still being checked. Try again shortly."},
-  {422, "corrupt_image",      "The image arrived but failed its own check (checksum or SHA-256): it is corrupt. Nothing changed."},
-  {500, "flash_failed",       "Writing the image to flash failed. Nothing changed; the board carries on as it was."},
-  {429, "too_soon",           "Changes from the dashboard are saved at most once every 10 s. Try again shortly."},
-  {400, "ion_too_much",       "The ion generator may run at most 10 minutes a day in total (runs per day times minutes per run)."},
+  {400, "bad_path",           "Not a log file."},
+  {409, "updating",           "Updating. Try again when it has finished."},
+  {409, "compressor_running", "Compressor on. Try again when it stops."},
+  {409, "already_updating",   "Already updating."},
+  {403, "window_closed",      "Updates closed. Press Allow update on the cabinet screen."},
+  {503, "busy",               "Board busy. Try again when the download or update has finished."},
+  {503, "low_memory",         "Board short of memory. Try again in a minute."},
+  {413, "too_big",            "File too big for this board."},
+  {422, "wrong_image",        "Not a cabinet build."},
+  {408, "stalled",            "Upload stalled. Nothing changed; try again."},
+  {503, "card_unavailable",   "SD card not available."},
+  {503, "no_answer",          "No answer from the board. Try again."},
+  {409, "being_checked",      "Last update still being checked. Try again shortly."},
+  {422, "corrupt_image",      "File damaged. Nothing changed; send it again."},
+  {500, "flash_failed",       "Couldn't write the update. Nothing changed."},
+  {429, "too_soon",           "Too soon. Try again shortly."},
+  {400, "ion_too_much",       "The ion generator can run at most 10 min a day."},
 };
 
 int httpStatus(Refusal r) { return r < Refusal::Count ? kRefusals[(int)r].status : 500; }
@@ -208,13 +208,13 @@ ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool u
       const float st = temp ? kTargetTempStepC : kRhSetpointStepPct;
       const float v = (float)f.number;
       if (!(v >= lo && v <= hi)) {
-        if (temp) snprintf(m, sizeof(m), "Target temperature must be %.0f to %.0f %sC.", (double)lo, (double)hi, kDeg);
-        else      snprintf(m, sizeof(m), "RH setpoint must be %.0f to %.0f%%.", (double)lo, (double)hi);
+        if (temp) snprintf(m, sizeof(m), "Target temperature: %.0f\xE2\x80\x93%.0f%sC.", (double)lo, (double)hi, kDeg);
+        else      snprintf(m, sizeof(m), "Target humidity: %.0f\xE2\x80\x93%.0f%%.", (double)lo, (double)hi);
         return limits(Refusal::OutOfBounds, f.key, m, lo, hi, st);
       }
       if (!onStep(v, st)) {
-        if (temp) snprintf(m, sizeof(m), "Target temperature goes in steps of %.1f %sC.", (double)st, kDeg);
-        else      snprintf(m, sizeof(m), "RH setpoint goes in steps of %.0f point.", (double)st);
+        if (temp) snprintf(m, sizeof(m), "Target temperature goes in steps of %.1f%sC.", (double)st, kDeg);
+        else      snprintf(m, sizeof(m), "Target humidity is a whole number.");
         return limits(Refusal::OffStep, f.key, m, lo, hi, st);
       }
       const bool ok = temp ? setTargetTemp(u, v) : setRhSetpoint(u, v);
@@ -230,13 +230,12 @@ ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool u
       const float hi = runs ? kIonRunsMax : kIonMinutesMax;
       if (f.kind != JsonField::Kind::Number) return refuse(Refusal::WrongType, f.key, "That setting takes a number.");
       if (!(f.number >= 0 && f.number <= hi)) {
-        snprintf(m, sizeof(m), runs ? "Ion generator runs per day must be 0 to %.0f." : "Ion generator minutes per run must be 0 to %.0f.",
-                 (double)hi);
+        snprintf(m, sizeof(m), runs ? "Runs per day: 0\xE2\x80\x93%.0f." : "Minutes per run: 0\xE2\x80\x93%.0f.", (double)hi);
         return limits(Refusal::OutOfBounds, f.key, m, 0, hi, 1);
       }
       if (f.number != floor(f.number)) {
-        return limits(Refusal::OffStep, f.key, runs ? "Ion generator runs per day is a whole number." :
-                                                      "Ion generator minutes per run is a whole number.", 0, hi, 1);
+        return limits(Refusal::OffStep, f.key, runs ? "Runs per day is a whole number." :
+                                                      "Minutes per run is a whole number.", 0, hi, 1);
       }
       if (runs) u.ionRunsPerDay = (uint8_t)f.number;
       else      u.ionMinutesPerRun = (uint8_t)f.number;
@@ -248,8 +247,8 @@ ApiResult checkSettingsFields(const FlatJson& j, const UserSettings& now, bool u
   }
   // 5.5 / 4.6c: runs x minutes at most 10, judged on the settings as they would be.
   if (!ionRunsOk(u.ionRunsPerDay, u.ionMinutesPerRun)) {
-    snprintf(m, sizeof(m), "Ion generator: %u runs of %u min is %u min a day; %s.", (unsigned)u.ionRunsPerDay,
-             (unsigned)u.ionMinutesPerRun, (unsigned)(u.ionRunsPerDay * u.ionMinutesPerRun), kIonTooMuchText);
+    snprintf(m, sizeof(m), "%u min a day. The limit is %.0f min.", (unsigned)(u.ionRunsPerDay * u.ionMinutesPerRun),
+             (double)kIonMinutesPerDayMax);
     const JsonField* a = j.find("ion_minutes_per_run");
     return refuse(Refusal::IonTooMuch, a ? "ion_minutes_per_run" : "ion_runs_per_day", m);
   }
@@ -442,47 +441,47 @@ TuningItem tuningItem(const TuningSettings& t, int i) {
   auto mins = [](uint32_t ms) { return ms / 60000.0; };
   auto secs = [](uint32_t ms) { return ms / 1000.0; };
   switch (i) {
-    case 0:  return {"cooling_hysteresis_c", "Cooling hysteresis", "\xC2\xB0" "C", t.coolingHysteresisC, 1, false};
-    case 1:  return {"heating_deadband_c", "Heating deadband", "\xC2\xB0" "C", t.heatingDeadbandC, 1, false};
-    case 2:  return {"heating_stop_below_c", "Heating stops below setpoint", "\xC2\xB0" "C", t.heatingStopBelowSetpointC, 1, false};
-    case 3:  return {"crossover_delay_min", "Crossover delay", "min", mins(t.crossoverDelayMs), 0, false};
-    case 4:  return {"fan_idle_pct", "Fan PWM, idle", "%", (double)t.fanIdlePct, 0, false};
-    case 5:  return {"fan_compressor_pct", "Fan PWM, compressor run", "%", (double)t.fanCompressorPct, 0, false};
-    case 6:  return {"fan_cool_harvest_start_pct", "Fan PWM, cooling harvest start", "%", (double)t.fanCoolHarvestStartPct, 0, false};
-    case 7:  return {"fan_cool_harvest_end_pct", "Fan PWM, cooling harvest end", "%", (double)t.fanCoolHarvestEndPct, 0, false};
-    case 8:  return {"fan_heating_pct", "Fan PWM, heating and its harvest", "%", (double)t.fanHeatingPct, 0, false};
-    case 9:  return {"harvest_convergence_c", "Harvest convergence margin", "\xC2\xB0" "C", t.harvestConvergenceC, 1, false};
-    case 10: return {"harvest_backstop_min", "Harvest backstop", "min", mins(t.harvestBackstopMs), 0, false};
-    case 11: return {"dosed_control", "Dosed control", "", t.dosedControl ? 1.0 : 0.0, 0, true};
-    case 12: return {"rh_strip_enable", "RH stripping", "", t.rhStripEnable ? 1.0 : 0.0, 0, true};
-    case 13: return {"rh_strip_offset_pct", "RH strip offset", "%", t.rhStripOffsetPct, 0, false};
-    case 14: return {"rh_strip_persist_min", "RH strip trigger persistence", "min", mins(t.rhStripPersistMs), 0, false};
-    case 15: return {"rh_strip_floor_c", "RH strip floor below setpoint", "\xC2\xB0" "C", t.rhStripFloorBelowSetpointC, 1, false};
-    case 16: return {"humidify_band_pts", "Humidify band", "points", t.humidifyBandPct, 0, false};
-    case 17: return {"humidify_persist_min", "Humidify trigger persistence", "min", mins(t.humidifyPersistMs), 0, false};
-    case 18: return {"humidify_during_cooling", "Humidify during cooling runs", "", t.humidifyDuringCooling ? 1.0 : 0.0, 0, true};
-    case 19: return {"heater_pwm_cap_pct", "Heater PWM cap", "%", (double)t.heaterPwmCapPct, 0, false};
-    case 20: return {"heater_ineffective_rise_c", "Heater ineffective: rise needed", "\xC2\xB0" "C", t.heaterIneffectiveRiseC, 1, false};
-    case 21: return {"heater_ineffective_window_min", "Heater ineffective: window", "min", mins(t.heaterIneffectiveWindowMs), 0, false};
-    case 22: return {"heater_ineffective_retry_min", "Heater ineffective: retry after", "min", mins(t.heaterIneffectiveRetryMs), 0, false};
-    case 23: return {"cooling_ineffective_fall_c", "Cooling ineffective: fall needed", "\xC2\xB0" "C", t.coolingIneffectiveFallC, 1, false};
-    case 24: return {"cooling_ineffective_window_min", "Cooling ineffective: window", "min", mins(t.coolingIneffectiveWindowMs), 0, false};
-    case 25: return {"humid_ineffective_rise_pts", "Humidifier ineffective: rise needed (at setpoint)", "points", t.humidIneffectiveRisePct, 1, false};
-    case 26: return {"humid_ineffective_window_min", "Humidifier ineffective: window", "min", mins(t.humidIneffectiveWindowMs), 0, false};
-    case 27: return {"humid_ineffective_retry_min", "Humidifier ineffective: retry after", "min", mins(t.humidIneffectiveRetryMs), 0, false};
+    case 0:  return {"cooling_hysteresis_c", "Cooling starts at target +", "\xC2\xB0" "C", t.coolingHysteresisC, 1, false};
+    case 1:  return {"heating_deadband_c", "Heating starts at target \xE2\x88\x92", "\xC2\xB0" "C", t.heatingDeadbandC, 1, false};
+    case 2:  return {"heating_stop_below_c", "Heating stops at target \xE2\x88\x92", "\xC2\xB0" "C", t.heatingStopBelowSetpointC, 1, false};
+    case 3:  return {"crossover_delay_min", "Changeover wait", "min", mins(t.crossoverDelayMs), 0, false};
+    case 4:  return {"fan_idle_pct", "Fan speed, idle", "%", (double)t.fanIdlePct, 0, false};
+    case 5:  return {"fan_compressor_pct", "Fan speed, compressor on", "%", (double)t.fanCompressorPct, 0, false};
+    case 6:  return {"fan_cool_harvest_start_pct", "Fan speed, run-on after cooling, start", "%", (double)t.fanCoolHarvestStartPct, 0, false};
+    case 7:  return {"fan_cool_harvest_end_pct", "Fan speed, run-on after cooling, end", "%", (double)t.fanCoolHarvestEndPct, 0, false};
+    case 8:  return {"fan_heating_pct", "Fan speed, heating and run-on", "%", (double)t.fanHeatingPct, 0, false};
+    case 9:  return {"harvest_convergence_c", "Run-on ends within", "\xC2\xB0" "C", t.harvestConvergenceC, 1, false};
+    case 10: return {"harvest_backstop_min", "Run-on at most", "min", mins(t.harvestBackstopMs), 0, false};
+    case 11: return {"dosed_control", "Timed cooling runs", "", t.dosedControl ? 1.0 : 0.0, 0, true};
+    case 12: return {"rh_strip_enable", "Drying", "", t.rhStripEnable ? 1.0 : 0.0, 0, true};
+    case 13: return {"rh_strip_offset_pct", "Drying starts at target +", "%", t.rhStripOffsetPct, 0, false};
+    case 14: return {"rh_strip_persist_min", "Drying starts after", "min", mins(t.rhStripPersistMs), 0, false};
+    case 15: return {"rh_strip_floor_c", "Drying stops below target \xE2\x88\x92", "\xC2\xB0" "C", t.rhStripFloorBelowSetpointC, 1, false};
+    case 16: return {"humidify_band_pts", "Humidifying starts at target \xE2\x88\x92", "%", t.humidifyBandPct, 0, false};
+    case 17: return {"humidify_persist_min", "Humidifying starts after", "min", mins(t.humidifyPersistMs), 0, false};
+    case 18: return {"humidify_during_cooling", "Humidify while cooling", "", t.humidifyDuringCooling ? 1.0 : 0.0, 0, true};
+    case 19: return {"heater_pwm_cap_pct", "Heater power limit", "%", (double)t.heaterPwmCapPct, 0, false};
+    case 20: return {"heater_ineffective_rise_c", "Heater check: rise needed", "\xC2\xB0" "C", t.heaterIneffectiveRiseC, 1, false};
+    case 21: return {"heater_ineffective_window_min", "Heater check: within", "min", mins(t.heaterIneffectiveWindowMs), 0, false};
+    case 22: return {"heater_ineffective_retry_min", "Heater check: retry after", "min", mins(t.heaterIneffectiveRetryMs), 0, false};
+    case 23: return {"cooling_ineffective_fall_c", "Cooling check: fall needed", "\xC2\xB0" "C", t.coolingIneffectiveFallC, 1, false};
+    case 24: return {"cooling_ineffective_window_min", "Cooling check: within", "min", mins(t.coolingIneffectiveWindowMs), 0, false};
+    case 25: return {"humid_ineffective_rise_pts", "Humidifier check: rise needed", "%", t.humidIneffectiveRisePct, 1, false};
+    case 26: return {"humid_ineffective_window_min", "Humidifier check: within", "min", mins(t.humidIneffectiveWindowMs), 0, false};
+    case 27: return {"humid_ineffective_retry_min", "Humidifier check: retry after", "min", mins(t.humidIneffectiveRetryMs), 0, false};
     case 28: return {"disturbance_detection", "Disturbance detection", "", t.disturbanceDetection ? 1.0 : 0.0, 0, true};
-    case 29: return {"log_steady_s", "Log rate, steady", "s", secs(t.logSteadyMs), 0, false};
-    case 30: return {"log_active_s", "Log rate, compressor or heater active", "s", secs(t.logActiveMs), 0, false};
-    case 31: return {"heater_pwm_period_s", "Heater PWM period", "s", secs(t.heaterPwmPeriodMs), 0, false};
-    case 32: return {"sensor_read_s", "Sensor read rate", "s", secs(t.sensorReadMs), 0, false};
+    case 29: return {"log_steady_s", "Log every, idle", "s", secs(t.logSteadyMs), 0, false};
+    case 30: return {"log_active_s", "Log every, running", "s", secs(t.logActiveMs), 0, false};
+    case 31: return {"heater_pwm_period_s", "Heater cycle", "s", secs(t.heaterPwmPeriodMs), 0, false};
+    case 32: return {"sensor_read_s", "Sensors read every", "s", secs(t.sensorReadMs), 0, false};
     // Rev Q, 4.6b: the blowers (the idle duty is full speed until BP2 test 22 chooses it)
-    case 33: return {"blower_idle_pct", t.blowerIdlePct >= 100 ? "Blower PWM, idle (full speed until BP2 test 22)" : "Blower PWM, idle",
+    case 33: return {"blower_idle_pct", "Blower speed, idle",
                      "%", (double)t.blowerIdlePct, 0, false};
-    case 34: return {"blower_boost_above_c", "Blower boost: spread above", "\xC2\xB0" "C", t.blowerBoostAboveC, 1, false};
-    case 35: return {"blower_boost_above_rh_pts", "Blower boost: or RH spread above", "points", t.blowerBoostAboveRhPct, 0, false};
-    case 36: return {"blower_idle_below_c", "Blower back to idle: spread below", "\xC2\xB0" "C", t.blowerIdleBelowC, 1, false};
-    case 37: return {"blower_idle_below_rh_pts", "Blower back to idle: and RH spread below", "points", t.blowerIdleBelowRhPct, 0, false};
-    default: return {"blower_idle_hold_min", "Blower back to idle: held for", "min", mins(t.blowerIdleHoldMs), 0, false};
+    case 34: return {"blower_boost_above_c", "Blowers boost above", "\xC2\xB0" "C", t.blowerBoostAboveC, 1, false};
+    case 35: return {"blower_boost_above_rh_pts", "or humidity spread above", "%", t.blowerBoostAboveRhPct, 0, false};
+    case 36: return {"blower_idle_below_c", "Blowers idle below", "\xC2\xB0" "C", t.blowerIdleBelowC, 1, false};
+    case 37: return {"blower_idle_below_rh_pts", "and humidity spread below", "%", t.blowerIdleBelowRhPct, 0, false};
+    default: return {"blower_idle_hold_min", "for", "min", mins(t.blowerIdleHoldMs), 0, false};
   }
 }
 

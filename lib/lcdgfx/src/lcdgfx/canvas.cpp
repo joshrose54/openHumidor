@@ -119,22 +119,61 @@ const Glyph* findGlyph(const Font& f, uint32_t cp) {
   return nullptr;
 }
 
+// A glyph's first and last inked columns (its bitmap keeps the font's side bearings).
+static void inkColumns(const Font& f, const Glyph* g, int* first, int* last) {
+  const int stride = (g->w + 1) / 2;
+  *first = g->w;
+  *last = -1;
+  for (int col = 0; col < g->w; col++)
+    for (int row = 0; row < g->h; row++) {
+      const uint8_t b = f.bits[g->offset + row * stride + (col >> 1)];
+      if ((col & 1) ? (b & 0x0F) : (b >> 4)) {
+        if (col < *first) *first = col;
+        *last = col;
+        break;
+      }
+    }
+}
+
+// Spec 5.5 rule 8: no space before % or °. The digits are tabular (each in a cell as wide as the
+// widest), so a narrow digit and the sign's own bearing leave a visible gap: close it to a hairline.
+static int16_t closeUp(const Font& f, const Glyph* prev, uint32_t prevCp, const Glyph* g, uint32_t cp) {
+  if (!prev || !g || prevCp < '0' || prevCp > '9' || (cp != '%' && cp != 0xB0) || !prev->w || !g->w) return 0;
+  int pf, pl, gf, gl;
+  inkColumns(f, prev, &pf, &pl);
+  inkColumns(f, g, &gf, &gl);
+  if (pl < 0 || gl < 0) return 0;
+  const int gap = (prev->advance - (prev->xoff + pl + 1)) + g->xoff + gf;
+  const int want = 1 + f.lineHeight / 25;
+  return (int16_t)(gap > want ? gap - want : 0);
+}
+
 int16_t Canvas::text(const Font& f, int16_t x, int16_t baseline, const char* s, uint16_t c) {
   const int16_t x0 = x;
+  const Glyph* prev = nullptr;
+  uint32_t prevCp = 0;
   for (uint32_t cp; (cp = nextCodepoint(&s)) != 0;) {
     const Glyph* g = findGlyph(f, cp);
     if (!g) continue;
+    x = (int16_t)(x - closeUp(f, prev, prevCp, g, cp));
     if (g->w) mask4((int16_t)(x + g->xoff), (int16_t)(baseline + g->yoff), g->w, g->h, f.bits + g->offset, c);
     x = (int16_t)(x + g->advance);
+    prev = g;
+    prevCp = cp;
   }
   return (int16_t)(x - x0);
 }
 
 int16_t Canvas::measure(const Font& f, const char* s) {
   int16_t w = 0;
+  const Glyph* prev = nullptr;
+  uint32_t prevCp = 0;
   for (uint32_t cp; (cp = nextCodepoint(&s)) != 0;) {
     const Glyph* g = findGlyph(f, cp);
-    if (g) w = (int16_t)(w + g->advance);
+    if (!g) continue;
+    w = (int16_t)(w - closeUp(f, prev, prevCp, g, cp) + g->advance);
+    prev = g;
+    prevCp = cp;
   }
   return w;
 }

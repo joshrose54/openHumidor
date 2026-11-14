@@ -130,7 +130,7 @@ void test_the_api_refuses_more_than_10_minutes_a_day() {
   TEST_ASSERT_TRUE(r.refusal == Refusal::IonTooMuch);
   TEST_ASSERT_EQUAL_INT(400, httpStatus(r.refusal));
   TEST_ASSERT_EQUAL_STRING("ion_too_much", refusalCode(r.refusal));
-  TEST_ASSERT_NOT_NULL(strstr(r.message, "at most 10 minutes a day in total"));
+  TEST_ASSERT_NOT_NULL(strstr(r.message, "The limit is 10 min."));
   // one field alone, judged with the other as it is now: 2 runs, so 6 min each is out of bounds,
   // 5 is fine; then 4 runs with 5 min each is too much
   b = "{\"ion_minutes_per_run\":5}";
@@ -582,7 +582,7 @@ void test_no_new_run_while_the_cap_record_cant_be_saved() {
   formatIonEvent(e, sizeof(e), c);
   TEST_ASSERT_EQUAL_STRING("ION CAP RECORD NOT SAVED: no new run starts until it can be saved (tried again every minute)", e);
   eventSentence(o, sizeof(o), kEvTypeIon, e);
-  TEST_ASSERT_EQUAL_STRING("Ion generator's cap record not saved: no new run starts until it can be saved (tried again every minute)", o);
+  TEST_ASSERT_EQUAL_STRING("Ion generator paused: storage error", o);
   c.e = IonSchedule::Event::RecordSaved;
   formatIonEvent(e, sizeof(e), c);
   TEST_ASSERT_EQUAL_STRING("ION CAP RECORD SAVED again: runs resume", e);
@@ -666,7 +666,7 @@ void test_the_event_texts_and_sentences() {
   formatIonEvent(e, sizeof(e), c);
   TEST_ASSERT_EQUAL_STRING("ION RUN START: 2 min (slot 12:00 UTC)", e);
   eventSentence(o, sizeof(o), kEvTypeIon, e);
-  TEST_ASSERT_EQUAL_STRING("Ion generator run started: 2 min (slot 12:00 UTC)", o);
+  TEST_ASSERT_EQUAL_STRING("Ion generator on: 2\xC2\xA0min", o);
   c.ms = 90000;
   c.shortened = true;
   c.fromClock = false;
@@ -683,7 +683,7 @@ void test_the_event_texts_and_sentences() {
   formatIonEvent(e, sizeof(e), c);
   TEST_ASSERT_EQUAL_STRING("ION RUN CUT SHORT: fault; on 0 min 45 s", e);
   eventSentence(o, sizeof(o), kEvTypeIon, e);
-  TEST_ASSERT_EQUAL_STRING("Ion generator run cut short: fault; on 0 min 45 s", o);
+  TEST_ASSERT_EQUAL_STRING("Ion generator stopped early: fault, after 45\xC2\xA0s", o);
   c.e = IonSchedule::Event::SwitchedOff;
   c.ms = 70000;
   formatIonEvent(e, sizeof(e), c);
@@ -695,7 +695,7 @@ void test_the_event_texts_and_sentences() {
   formatIonEvent(e, sizeof(e), c);
   TEST_ASSERT_EQUAL_STRING("ION RUN SKIPPED: boot hold (slot 00:00 UTC)", e);
   eventSentence(o, sizeof(o), kEvTypeIon, e);
-  TEST_ASSERT_EQUAL_STRING("Ion generator run skipped: boot hold (slot 00:00 UTC)", o);
+  TEST_ASSERT_EQUAL_STRING("Ion run skipped: starting", o);
 }
 
 int main() {

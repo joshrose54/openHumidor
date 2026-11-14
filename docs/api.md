@@ -1,6 +1,12 @@
 # openHumidor dashboard API
 
-API version 4
+API version 5
+
+**Changes in version 5** (the words sweep, spec 5.5 "Words on screen"): a humidity difference's
+tuning `unit` is `"%"`, no longer `"points"` (`humidify_band_pts`, `humid_ineffective_rise_pts`,
+`blower_boost_above_rh_pts`, `blower_idle_below_rh_pts`; the names keep `_pts`). The tuning
+`label`s, the alert titles, the `message`s and the event `sentence`s are reworded too; those are
+words for the page, not fields, so they alone would not change the version.
 
 **Changes in version 4** (stage Q6, the blower and ion generator rules): `loads.blowers` and
 `loads.ion` in `GET /api/status` rewritten (`mode`, `why`, the spread and the idle countdown; the
@@ -87,11 +93,12 @@ only (Rev N, retired, had no dashboard).
 A refused request gets an HTTP status and this body:
 
 ```json
-{"api":4,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5 °C.","min":15,"max":22,"step":0.5}
+{"api":5,"error":"off_step","field":"target_temp_c","message":"Target temperature goes in steps of 0.5°C.","min":15,"max":22,"step":0.5}
 ```
 
 `field` is present when the refusal is about one field; `min`, `max` and `step` with
-`out_of_bounds` and `off_step`. `message` is a plain sentence for the page. `error` is one of:
+`out_of_bounds` and `off_step`. `message` is a plain sentence for the page, in spec 5.5's form: what
+happened, then what to do ("Too soon. Try again in 7 s."). `error` is one of:
 
 | `error` | Status | When |
 |---|---|---|
@@ -138,7 +145,7 @@ Who the board is. Small: for tools, and for the Update page to see the new versi
 restart.
 
 ```json
-{"api":4,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
+{"api":5,"name":"openHumidor","build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},"uptime_s":3725,"boot_reason":"POWERON"}
 ```
 
 - `build.board`: `"rev-q"`. `build.profile`: `"real"` or `"bench"`. `build.test`: a test build
@@ -153,7 +160,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
 (spec 5.5).
 
 ```json
-{"api":4,
+{"api":5,
  "time":{"utc_s":1794573120,"uk":"12:32","uk_date":"2026-11-13","trusted":true},
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "uptime_s":7200,
@@ -167,7 +174,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
           "ion":{"on":false,"state":"waiting","why":null,"left_s":null,"next":"12:00","next_in_s":null,
                  "last_skipped":{"why":"boot hold","at":"00:00"}}},
  "guards":[{"load":"heater","reason":"crossover","left_s":120}],
- "alerts":[{"title":"Sensor excluded: mid_rear","since":"12:00","rank":3,"fault":false}],
+ "alerts":[{"title":"Excluded: Middle rear","since":"12:00","rank":3,"fault":false}],
  "sensors":[{"ch":0,"name":"top_front","probe":"09ED","role":"cabinet","state":"healthy","reason":null,
              "t":20.5,"rh":62,"rh_raw":63.4,"age_s":7,"crc_hour":0,"timeouts_hour":0}],
  "week":{"crossovers":2,"strips":1,"humid_runs":14,"disturbances":null,"ready":true},
@@ -202,7 +209,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
   speed, and it waits for 10 min of low spread), `"full"` (full speed: `why` is `"fault"`,
   `"no fresh reading"` or `"no reading yet since boot"`; otherwise `why` is null), `"updating"`
   (the idle duty during an OTA update, a fault included). `spread_t` (°C) and `spread_rh`
-  (points): highest minus lowest of the healthy cabinet sensors at the last sweep the rule judged.
+  (%): highest minus lowest of the healthy cabinet sensors at the last sweep the rule judged.
   `idle_in_s`: in boost with the spread low, seconds until idle if it stays low (null otherwise).
   `idle_is_full`: the idle duty is still full speed (until BP2 test 22 chooses it).
 - `loads.ion` (spec 4.6c): `on` the output now. `state`: `"running"` (`left_s` to go),
@@ -215,6 +222,13 @@ Everything the Overview and Sensors pages and every page's header show, in one r
   `at` its slot, UK local, null when it counted from boot), or null.
 - `guards`: each load that is asked for but held, why (`reason`, the guard's name as in the
   events), and how long until it may start (`left_s`, null if there is no countdown).
+- **Codes and words.** `reason` (guards and sensors), `name` (a sensor's position),
+  `restart_reason`, the blowers' and the ion generator's `why`, and an event's `type` are codes,
+  as the logs write them; the pages show a word for each (spec 5.5 "Words on screen": `"min-off"`
+  is "rest", `"mid_rear"` "Middle rear", `"POWERON"` "Power on or reset"). The words are defined
+  once in the firmware (`lib/core/src/wineador/words.cpp` and the sensor table) and reach the page
+  as `web/words.js`, made by `tools/make_web_words.py`; the native test `test_web_words` fails if
+  it is out of date. The alert titles, the messages and the event sentences are already words.
 - `alerts`: every active alert, most serious first — the LCD's alerts screen. `since`: `"14:32"`
   today, `"13 Nov 14:32"` earlier, `"for 12 min"` while the clock isn't trusted. `rank` 0 is a
   fault.
@@ -245,7 +259,7 @@ The graphs (spec 5.5): hour and day from the readings, week and month from the h
 Columns ready for uPlot: `t`, then one array per line, all the same length.
 
 ```json
-{"api":4,"range":"day","step_s":60,"now":1794573120,
+{"api":5,"range":"day","step_s":60,"now":1794573120,
  "duty":{"compressor":0.231,"heater":0,"humidifier":0.05},
  "t":[1794486780,1794486840,...],
  "cab_t":[19.82,19.85,...],"cab_t_min":[...],"cab_t_max":[...],"cab_rh":[...],
@@ -287,9 +301,9 @@ Columns ready for uPlot: `t`, then one array per line, all the same length.
 Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 
 ```json
-{"api":4,"source":"card","note":null,
+{"api":5,"source":"card","note":null,
  "events":[{"utc":"2026-11-13T14:32:05Z","uk":"13 Nov 2026 14:32:05","trusted":true,"type":"settings",
-            "sentence":"Settings changed from dashboard: target_temp_c 20.0 → 20.5",
+            "sentence":"Target temperature 20.0 → 20.5°C (dashboard)",
             "detail":"settings changed (dashboard): target_temp_c 20.0 -> 20.5"}],
  "older":"/logs/2026/2026-11-events-s2.csv@81234",
  "newest":"/logs/2026/2026-11-events-s2.csv@90412"}
@@ -302,9 +316,10 @@ Events (spec 5.4), newest first, 50 at a time (spec 5.5).
 - A cursor is a file and a byte offset, `"<path>@<offset>"`; pass it back unchanged
   (URL-encoded).
 - `trusted` false: the time was written while the clock wasn't trusted.
-- `sentence`: the event as a plain sentence (spec 5.5), e.g. "Humidifier called: RH 59.4%, below
-  60.0%", made by the board from `type` and `detail` (`lib/core/src/wineador/event_sentence.h`;
-  every event type has one). `detail` is the text as logged on the card, which tools read.
+- `sentence`: the event as a plain sentence (spec 5.5), e.g. "Humidifying started: humidity 59.4%,
+  below 60.0%", made by the board from `type` and `detail` (`lib/core/src/wineador/event_sentence.h`;
+  every event type has one). `detail` is the text as logged on the card, which tools read; the
+  page shows it on hover or tap.
 - `source`: `"card"` normally. **While the SD card is failed or out** the reply is the newest
   events kept in RAM since the boot (at most 50, newest first), with `"source":"ram"`,
   `"note":"card unavailable: recent events only"`, and `older` and `newest` null (there is
@@ -319,7 +334,7 @@ The settings page (spec 5.5): the user settings with their bounds and steps, and
 settings, read only. **Safety values are never sent** (spec 5.5).
 
 ```json
-{"api":4,
+{"api":5,
  "user":{"target_temp_c":{"value":20,"min":15,"max":22,"step":0.5,"unit":"°C"},
          "rh_setpoint_pct":{"value":62,"min":55,"max":70,"step":1,"unit":"%"},
          "heater_enable":{"value":true},
@@ -329,7 +344,7 @@ settings, read only. **Safety values are never sent** (spec 5.5).
          "ion_minutes_per_run":{"value":2,"min":0,"max":5,"step":1,"unit":"min"},
          "ion_minutes_per_day_max":10},
  "manual_exclude":[],
- "tuning":[{"name":"cooling_hysteresis_c","label":"Cooling hysteresis","value":0.5,"unit":"°C"}]}
+ "tuning":[{"name":"cooling_hysteresis_c","label":"Cooling starts at target +","value":0.5,"unit":"°C"}]}
 ```
 
 - `ion_enable`: the ion generator may run (spec 5.5, 4.6c "Switched off": off means no runs at
@@ -358,7 +373,7 @@ settings, read only. **Safety values are never sent** (spec 5.5).
 The Logs page: the card and every log file on it, newest first.
 
 ```json
-{"api":4,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
+{"api":5,"card":{"ok":true,"free_bytes":59000000000,"total_bytes":60000000000},
  "files":[{"path":"/logs/2026/2026-11-readings-s2.csv","name":"2026-11-readings-s2.csv","kind":"readings","month":"2026-11","schema":2,"part":1,"bytes":4567890},
           {"path":"/logs/hourly-s2.csv","name":"hourly-s2.csv","kind":"hourly","month":null,"schema":2,"part":1,"bytes":12345}]}
 ```
@@ -380,11 +395,11 @@ A long transfer (above). Not JSON.
 The Update page.
 
 ```json
-{"api":4,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"phase":"idle","pct":0,
+{"api":5,"window_open":true,"window_s":212,"compressor_running":false,"updating":false,"phase":"idle","pct":0,
  "slot_bytes":3342336,"check_bytes":352,
  "build":{"board":"rev-q","profile":"real","test":false,"version":"2.0.0"},
  "pending_verify":false,"verify_s":null,
- "last":{"result":"installed","detail":"2.0.0, replacing 1.9.0: started properly","utc_s":1794573120}}
+ "last":{"result":"installed","detail":"2.0.0 (was 1.9.0)","utc_s":1794573120}}
 ```
 
 - `window_open`, `window_s`: the LCD's Allow update window and its seconds left. The page counts
@@ -398,7 +413,9 @@ The Update page.
   be sent (to 60 s once only the 60 s are left, otherwise to the 4 min 30 s deadline); null otherwise.
 - `last.result`: `none`, `installed`, `refused`, `abandoned` (stalled or cut off), `rolled_back`,
   `failed` (corrupt, a flash write, or interrupted by a reset or power cut); `detail` says which,
-  with the versions; `utc_s` when (null if unknown). Kept across restarts (NVS).
+  with the versions, in the page's words (`"2.0.0 (was 1.9.0)"`, `"2.0.0: upload stalled"`,
+  `"2.0.0 didn't start; back on 1.9.0"`); `utc_s` when (null if unknown). Kept across restarts
+  (NVS), so a record written by older firmware keeps its older wording.
 
 ## Writes
 
@@ -438,7 +455,7 @@ setting).
 - `channel`: the number 0–5, or as on the serial console the position name (`"mid_rear"`),
   `"ch3"`, or the probe label (`"A1C5"`), any case.
 - The reply echoes what it acted on, as the serial console does:
-  `{"api":4,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
+  `{"api":5,"ch":3,"name":"mid_rear","probe":"A1C5","excluded":true}`.
 - Excluding enough sensors to leave fewer than 3 cabinet sensors causes a Fault (spec 4.3): the
   page asks first; the board doesn't refuse it.
 - Refused: `unknown_channel`, `wrong_type`, `unknown_field`, `empty`, `updating`, `too_soon` (it
@@ -454,7 +471,7 @@ Logs a "door test" event with an optional note (spec 5.5), for disturbance-detec
 
 `{}` logs it with no note. The note is text of at most 120 bytes (`too_long`), with no control
 characters such as newlines (`wrong_type`). Reply:
-`{"api":4,"logged":true}`.
+`{"api":5,"logged":true}`.
 
 ### `POST /api/update`
 
@@ -513,7 +530,7 @@ watchdog line changes between any two flash steps. Then:
   70 s, the loop ends the update by itself.
 - **The image's own check** (checksum and SHA-256) at the end: if it fails, `corrupt_image`,
   nothing changed. The window stays used up: press Allow update again.
-- **Installed:** the board replies `{"api":4,"installed":true,"version":"2.0.0","restarting":true}`
+- **Installed:** the board replies `{"api":5,"installed":true,"version":"2.0.0","restarting":true}`
   and restarts 1.5 s later. The page then asks `GET /api/info` every few seconds until it answers
   with the new version. The normal boot hold applies.
 - **The new image** must start properly (spec 5.2: 60 s of the loop, the settings check passed,

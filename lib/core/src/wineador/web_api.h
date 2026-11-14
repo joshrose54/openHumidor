@@ -16,7 +16,7 @@
 
 namespace wineador {
 
-constexpr int kApiVersion = 4;                 // docs/api.md "API version 4"; changes with any endpoint
+constexpr int kApiVersion = 5;                 // docs/api.md "API version 5"; changes with any endpoint
 constexpr int kMaxBrowserConnections = 2;      // spec 5.5
 constexpr size_t kMaxDoorNote = 120;           // the door-test note, in bytes (docs/api.md)
 

@@ -53,6 +53,7 @@ class OtaPacer {
 
 enum class OtaOutcome : uint8_t { Installed, Stalled, CutOff, Corrupt, FlashFailed, Cancelled };
 const char* otaOutcomeText(OtaOutcome o);   // "installed", "no data for 60 s" ...
+const char* otaOutcomeWords(OtaOutcome o);  // the page's words (spec 5.5): "upload stalled" ... (the logs keep the text)
 
 // Writes the image: head (the first bytes, already read for the identity check) then the rest of
 // the body, `total` bytes in all, in pieces of exactly kOtaPiece (the last may be shorter).

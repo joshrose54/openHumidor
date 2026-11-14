@@ -55,7 +55,7 @@ static void applyLimit(MailAnswer* a, const MailContext& ctx) {
   const uint32_t w = ctx.limit->waitS(ctx.nowMs);
   if (w == 0) return;
   char m[120];
-  snprintf(m, sizeof(m), "Changes from the dashboard are saved at most once every 10 s. Try again in %lu s.",
+  snprintf(m, sizeof(m), "Too soon. Try again in %lu s.",
            (unsigned long)w);
   a->result = refuse(Refusal::TooSoon, nullptr, m);
   a->result.retryS = w;

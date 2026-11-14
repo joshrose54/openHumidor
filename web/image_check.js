@@ -14,13 +14,13 @@ const IDENTITY_MAGIC = "openHumidor-ID";
 function judgeImage(b) {
   let version = "";
   const say = (code, text) => ({ ok: code === "accept", code, text, version });
-  if (b.length < IMAGE_CHECK_BYTES) return say("too_short", "The file is too short to be a firmware image.");
-  if (b[0] !== 0xE9) return say("not_firmware", "That file isn't a firmware image (use firmware.bin from the revq build).");
+  if (b.length < IMAGE_CHECK_BYTES) return say("too_short", "Not a firmware file.");
+  if (b[0] !== 0xE9) return say("not_firmware", "Not a firmware file. Choose firmware.bin.");
   const chip = b[12] | (b[13] << 8);
-  if (chip === 0) return say("rev_n_image", "That is a Rev N image (ESP32): it can't run on this board.");
-  if (chip !== 9) return say("wrong_chip", "That image is for another kind of chip.");
+  if (chip === 0) return say("rev_n_image", "Built for another board.");
+  if (chip !== 9) return say("wrong_chip", "Built for another board.");
   if (!(b[0x20] === 0x32 && b[0x21] === 0x54 && b[0x22] === 0xCD && b[0x23] === 0xAB)) {
-    return say("no_app_description", "That image isn't firmware built for this project.");
+    return say("no_app_description", "Not openHumidor firmware.");
   }
   const txt = (o, n) => { let s = ""; for (let i = o; i < o + n && b[i] !== 0; i++) s += String.fromCharCode(b[i]); return s; };
   const id = IDENTITY_OFFSET;
@@ -28,14 +28,14 @@ function judgeImage(b) {
   let magic = true;
   for (let i = 0; i < IDENTITY_MAGIC.length; i++) if (b[id + i] !== IDENTITY_MAGIC.charCodeAt(i)) magic = false;
   if (!magic || b[id + IDENTITY_MAGIC.length] !== 0) {
-    return say("no_identity", "That image carries no openHumidor identity: a BP2 test sketch, or firmware from before stage Q5.");
+    return say("no_identity", "Not a cabinet build: a test sketch or old firmware.");
   }
-  if (b[id + 33] !== 1) return say("unknown_identity_layout", "That image's identity is in a newer layout this page can't read.");
+  if (b[id + 33] !== 1) return say("unknown_identity_layout", "Too new for this page. Reload it, then try again.");
   version = txt(id + 36, 28);
-  if (txt(id + 16, 8) !== "rev-q") return say("wrong_board", "That image is built for another board.");
-  if (txt(id + 24, 8) !== "real") return say("bench_build", "That is a bench build (short timers): never for the cabinet.");
-  if (b[id + 32] !== 0) return say("test_build", "That is a test build (scripted readings): never for the cabinet.");
-  return say("accept", `A Rev Q cabinet build, version ${version}.`);
+  if (txt(id + 16, 8) !== "rev-q") return say("wrong_board", "Built for another board.");
+  if (txt(id + 24, 8) !== "real") return say("bench_build", "Bench build: not for the cabinet.");
+  if (b[id + 32] !== 0) return say("test_build", "Test build: not for the cabinet.");
+  return say("accept", `Cabinet build ${version}.`);
 }
 
 if (typeof module !== "undefined") module.exports = { judgeImage, IMAGE_CHECK_BYTES };

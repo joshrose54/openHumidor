@@ -90,7 +90,7 @@ void test_alert_order_and_leaving() {
   TEST_ASSERT_TRUE(t.at(3).slot == AlertSlot::SdFailed);
   TEST_ASSERT_TRUE(t.at(4).slot == AlertSlot::ClockBad);
   TEST_ASSERT_EQUAL_UINT64(1000, t.at(3).sinceMs);
-  TEST_ASSERT_EQUAL_STRING("Excluded: mid_rear", t.at(2).title);
+  TEST_ASSERT_EQUAL_STRING("Excluded: Middle rear", t.at(2).title);
   // resolved: leaves by itself; back again: a new start time
   in.sdFailed = false;
   t.update(in, 5000);
@@ -111,7 +111,7 @@ void test_alerts_oldest_first_within_a_rank() {
   t.update(in, 2000);
   TEST_ASSERT_TRUE(t.at(0).slot == AlertSlot::Sensor5);
   TEST_ASSERT_TRUE(t.at(1).slot == AlertSlot::Sensor0);
-  TEST_ASSERT_EQUAL_STRING("Excluded: top_front (manual)", t.at(1).title);
+  TEST_ASSERT_EQUAL_STRING("Excluded: Top front", t.at(1).title);
 }
 
 void test_fault_causes_named() {
@@ -123,11 +123,11 @@ void test_fault_causes_named() {
   TEST_ASSERT_EQUAL_STRING("Fault: chamber sensor", t.at(0).title);
   in.sensorFault = SensorFault::Cabinet;
   t.update(in, 2);
-  TEST_ASSERT_EQUAL_STRING("Fault: cabinet sensors", t.at(0).title);
+  TEST_ASSERT_EQUAL_STRING("Fault: too few sensors", t.at(0).title);
   TEST_ASSERT_EQUAL_UINT64(1, t.at(0).sinceMs);       // the same fault: still from when it started
   in.sensorFault = SensorFault::RecoveryHold;
   t.update(in, 3);
-  TEST_ASSERT_EQUAL_STRING("Fault: sensor recovery", t.at(0).title);
+  TEST_ASSERT_EQUAL_STRING("Fault: sensors recovering", t.at(0).title);
   in.settingsBad = true;
   t.update(in, 4);
   TEST_ASSERT_EQUAL_INT(2, t.count());
@@ -157,6 +157,10 @@ void test_alert_when() {
   TEST_ASSERT_EQUAL_STRING("for 3 h 5 min", s);
   formatFor(s, sizeof(s), (2 * 24 + 4) * 3600000ull);
   TEST_ASSERT_EQUAL_STRING("for 2 d 4 h", s);
+  formatFor(s, sizeof(s), 3 * 3600000ull);                             // rule 8: a zero part dropped
+  TEST_ASSERT_EQUAL_STRING("for 3 h", s);
+  formatFor(s, sizeof(s), 31 * 24 * 3600000ull);
+  TEST_ASSERT_EQUAL_STRING("for 31 d", s);
 }
 
 // The boot sequence: no Fault for the pass between a good first sweep and the gate seeing it;
@@ -283,12 +287,18 @@ void test_mode_icons_and_priority() {
   ui.update(in);
   TEST_ASSERT_EQUAL_UINT8(1, ui.view().nModes);
   TEST_ASSERT_TRUE(ui.view().modes[0] == ModeIcon::Fault);
+  // 5.5 "once": the mode row says Fault, so the alert line beneath drops the prefix
+  TEST_ASSERT_EQUAL_STRING("Fault", ui.view().modeText[0]);
+  TEST_ASSERT_EQUAL_STRING("Plenum fan stalled", ui.view().alertText);
+  // the readings' targets
+  TEST_ASSERT_EQUAL_STRING("Target 20.0\xC2\xB0" "C", ui.view().setTempText);
+  TEST_ASSERT_EQUAL_STRING("Target 62%", ui.view().setRhText);
   // a non-fault alert doesn't make it Fault
   in = base();
   in.alerts.sdFailed = true;
   ui.update(in);
   TEST_ASSERT_TRUE(ui.view().modes[0] == ModeIcon::Standby);
-  TEST_ASSERT_EQUAL_STRING("SD card failure", ui.view().alertText);
+  TEST_ASSERT_EQUAL_STRING("SD card failed", ui.view().alertText);
 }
 
 void test_alert_line_more() {
@@ -407,7 +417,7 @@ void test_allow_update_window() {
   TEST_ASSERT_EQUAL_STRING("5:00", ui.view().allowSub);
   tap(ui, in, layout::kCancel);
   later(ui, in, 48000);
-  TEST_ASSERT_EQUAL_STRING("Update allowed - 4:12 left", ui.view().updateText);
+  TEST_ASSERT_EQUAL_STRING("Update allowed \xC2\xB7 4:12", ui.view().updateText);
   // pressing again restarts the 5 minutes
   tap(ui, in, layout::kSettingsPill);
   tap(ui, in, layout::kAllowUpdate);
@@ -469,7 +479,7 @@ void test_alert_pages() {
   tap(ui, in, layout::kPageDown);
   tap(ui, in, layout::kPageDown);                          // already last
   TEST_ASSERT_EQUAL_UINT8(2, ui.view().page);
-  TEST_ASSERT_EQUAL_STRING("Clock lost or not set", ui.view().row[4].title);
+  TEST_ASSERT_EQUAL_STRING("Clock not set", ui.view().row[4].title);
   // alerts clear: the page stays inside the list
   in.alerts = AlertInputs{};
   in.alerts.sensorsKnown = true;

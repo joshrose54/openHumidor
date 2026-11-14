@@ -27,7 +27,7 @@
     <span class="modes" id="hdr-modes"></span>
     <span class="tag" id="hdr-tag" hidden></span>
     <time id="hdr-time">--:--</time>
-    <span class="fresh" id="hdr-fresh">connecting</span>
+    <span class="fresh" id="hdr-fresh">Connecting</span>
   </div>
 </header>
 <div class="board-note" id="board-note" hidden></div>
@@ -39,21 +39,16 @@
   <div class="ov">
     <div class="ov-main">
       <article class="reading" id="ov-temp">
-        <h2>Cabinet temperature</h2>
-        <div class="reading-top">
-          <p class="big"><span class="v" data-k="t">--</span><span class="u">°C</span></p>
-          <p class="why" data-k="why"></p>
-        </div>
+        <h2>Temperature</h2>
+        <p class="big"><span class="v" data-k="t">--</span><span class="u">°C</span></p>
         <div class="band" data-k="band" role="img"></div>
         <p class="spread" data-k="spread"></p>
       </article>
       <article class="reading" id="ov-rh">
-        <h2>Cabinet humidity</h2>
-        <div class="reading-top">
-          <p class="big"><span class="v" data-k="rh">--</span><span class="u">%</span></p>
-          <p class="why" data-k="why"></p>
-        </div>
+        <h2>Humidity</h2>
+        <p class="big"><span class="v" data-k="rh">--</span><span class="u">%</span></p>
         <div class="band" data-k="band" role="img"></div>
+        <p class="spread" data-k="spread"></p>
       </article>
     </div>
     <aside class="ov-side">
@@ -91,10 +86,10 @@
   </div>
   <dl class="g-sum" id="g-sum"></dl>
   <p class="empty" id="g-empty" hidden></p>
-  <figure class="chart"><figcaption>Temperature, °C <span class="key"><i class="k-line"></i>cabinet mean <i class="k-band"></i>coldest to warmest sensor <i class="k-set"></i>setpoint</span></figcaption><div id="g-temp"></div></figure>
-  <figure class="chart"><figcaption>Humidity, % <span class="key"><i class="k-line k-humid"></i>cabinet mean <i class="k-set"></i>setpoint</span></figcaption><div id="g-rh"></div></figure>
-  <figure class="chart"><figcaption>What ran <span class="key"><i class="k-sw k-cool"></i>compressor <i class="k-sw k-heat"></i>heater <i class="k-sw k-humid"></i>humidifier</span></figcaption><div id="g-loads"></div></figure>
-  <fieldset class="chips" id="g-sensors"><legend>Each sensor</legend></fieldset>
+  <figure class="chart"><figcaption>Temperature, °C <span class="key"><i class="k-line"></i>Mean <i class="k-band"></i>Sensor range <i class="k-set"></i>Target</span></figcaption><div id="g-temp"></div></figure>
+  <figure class="chart"><figcaption>Humidity, % <span class="key"><i class="k-line k-humid"></i>Mean <i class="k-set"></i>Target</span></figcaption><div id="g-rh"></div></figure>
+  <figure class="chart"><figcaption>What ran <span class="key"><i class="k-sw k-cool"></i>Compressor <i class="k-sw k-heat"></i>Heater <i class="k-sw k-humid"></i>Humidifier</span></figcaption><div id="g-loads"></div></figure>
+  <fieldset class="chips" id="g-sensors"><legend>Sensors</legend></fieldset>
 </section>
 
 <!-- ======================================================== Sensors -->
@@ -102,7 +97,7 @@
   <div class="page-head"><h1 id="h-sensors">Sensors</h1><p class="sub" id="s-sub"></p></div>
   <div class="table-wrap">
     <table class="tbl" id="s-table">
-      <thead><tr><th>Channel</th><th>Where</th><th>State</th><th class="n">Temp</th><th class="n">RH</th><th class="n">Raw RH</th><th class="n">Read</th><th class="n">CRC / timeouts this hour</th><th><span class="sr">Exclude</span></th></tr></thead>
+      <thead><tr><th>Channel</th><th>Position</th><th>State</th><th class="n">Temperature</th><th class="n">Humidity</th><th class="n">Raw humidity</th><th class="n">Last read</th><th class="n">Bad reads / no answers, this hour</th><th><span class="sr">Exclude</span></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -113,15 +108,16 @@
 <section class="page" id="page-events" aria-labelledby="h-events" hidden>
   <div class="page-head">
     <h1 id="h-events">Events</h1>
-    <label class="field-inline">Show <select id="e-type"><option value="">all types</option></select></label>
+    <label class="field-inline">Show <select id="e-type"><option value="">All</option></select></label>
   </div>
   <p class="board-note inline" id="e-ram" hidden></p>
   <ol class="events" id="e-list"></ol>
   <div class="row-actions"><button class="btn" id="e-older" hidden>Older events</button></div>
   <form class="door" id="e-door">
     <h2>Door test</h2>
-    <p>Logs a "door test" event now, for the disturbance-detection tests.</p>
-    <div class="door-row"><label for="e-note" class="sr">Note</label><input id="e-note" maxlength="120" placeholder="Note (optional), e.g. door open 30 s"><button class="btn" type="submit">Log door test</button></div>
+    <p>Marks a door opening in the events.</p>
+    <label for="e-note" class="door-label">Note (optional)</label>
+    <div class="door-row"><input id="e-note" maxlength="120" placeholder="e.g. door open 30 s"><button class="btn" type="submit">Log door test</button></div>
     <p class="msg" id="e-door-msg" role="status"></p>
   </form>
 </section>
@@ -135,26 +131,26 @@
       <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Lower"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Higher"><svg><use href="#i-add"/></svg></button></div>
     </div>
     <div class="stepper" data-field="rh_setpoint_pct">
-      <div><label>RH setpoint</label><p class="hint" data-k="hint"></p></div>
+      <div><label>Target humidity</label><p class="hint" data-k="hint"></p></div>
       <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Lower"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Higher"><svg><use href="#i-add"/></svg></button></div>
     </div>
-    <label class="switch"><span><b>Heater</b><small>The heater may run when the cabinet is cold</small></span><input type="checkbox" data-field="heater_enable"><i></i></label>
-    <label class="switch"><span><b>Humidifier</b><small>The humidifier may run when the cabinet is dry</small></span><input type="checkbox" data-field="humidifier_enable"><i></i></label>
-    <label class="switch"><span><b>Ion generator</b><small>Off means no runs at all; its run settings are kept for when it is switched back on.</small></span><input type="checkbox" data-field="ion_enable"><i></i></label>
-    <div class="stepper" data-field="ion_runs_per_day">
-      <div><label>Ion generator runs per day</label><p class="hint" data-k="hint"></p></div>
+    <label class="switch"><span><b>Heater</b></span><input type="checkbox" data-field="heater_enable"><i></i></label>
+    <label class="switch"><span><b>Humidifier</b></span><input type="checkbox" data-field="humidifier_enable"><i></i></label>
+    <label class="switch"><span><b>Ion generator</b></span><input type="checkbox" data-field="ion_enable"><i></i></label>
+    <div class="stepper sub-setting" data-field="ion_runs_per_day">
+      <div><label>Runs per day</label><p class="hint" data-k="hint"></p></div>
       <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Fewer"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="More"><svg><use href="#i-add"/></svg></button></div>
     </div>
-    <div class="stepper" data-field="ion_minutes_per_run">
-      <div><label>Ion generator minutes per run</label><p class="hint" data-k="hint"></p></div>
+    <div class="stepper sub-setting" data-field="ion_minutes_per_run">
+      <div><label>Minutes per run</label><p class="hint" data-k="hint"></p></div>
       <div class="step-ctl"><button type="button" class="btn icon" data-d="-1" aria-label="Shorter"><svg><use href="#i-remove"/></svg></button><output data-k="v">--</output><button type="button" class="btn icon" data-d="1" aria-label="Longer"><svg><use href="#i-add"/></svg></button></div>
     </div>
-    <p class="ion-total" id="st-ion-total" role="status"></p>
+    <p class="ion-total sub-setting" id="st-ion-total" role="status"></p>
     <div class="form-actions"><p class="msg" id="st-msg" role="status"></p><button type="button" class="btn" id="st-cancel" disabled>Cancel</button><button type="submit" class="btn primary" id="st-save" disabled>Save</button></div>
   </form>
   <section class="block tuning" aria-labelledby="h-tuning">
     <h2 id="h-tuning">Tuning</h2>
-    <p class="sub">Set once from measurements of this cabinet. Shown here for reference; they can't be changed from this page.</p>
+    <p class="sub">Set from this cabinet's tests. Read only.</p>
     <dl class="kv" id="st-tuning"></dl>
   </section>
 </section>
@@ -168,7 +164,7 @@
       <tbody></tbody>
     </table>
   </div>
-  <p class="note" id="l-note">Downloads run at the card's own pace: a month of readings takes a few minutes. One download at a time.</p>
+  <p class="note" id="l-note">A month of readings takes a few minutes. One download at a time.</p>
 </section>
 
 <!-- ======================================================== Update -->
@@ -179,8 +175,8 @@
     <dl class="kv" id="u-facts"></dl>
     <form class="upd-send" id="u-form">
       <h2>Send firmware</h2>
-      <p>Only the <b>revq</b> cabinet build is accepted: <code>.pio.nosync/build/revq/firmware.bin</code>. The board checks it before anything is written.</p>
-      <label class="file"><input type="file" id="u-file" accept=".bin,application/octet-stream"><span id="u-file-name">Choose firmware.bin</span></label>
+      <p>Cabinet build only.</p>
+      <label class="file"><input type="file" id="u-file" accept=".bin,application/octet-stream"><span id="u-file-name">Choose file</span></label>
       <p class="msg" id="u-check" role="status"></p>
       <div class="progress" id="u-progress" hidden><div></div></div>
       <button type="submit" class="btn primary" id="u-send" disabled>Send update</button>
@@ -190,6 +186,7 @@
 </main>
 
 <script src="vendor/uplot-1.6.32/uPlot.iife.min.js"></script>
+<script src="words.js"></script>
 <script src="image_check.js"></script>
 <script src="app.js"></script>
 </body>

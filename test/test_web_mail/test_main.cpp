@@ -169,7 +169,7 @@ void test_one_saved_dashboard_change_every_ten_seconds() {
   a = decideMail(r, c);
   TEST_ASSERT_TRUE(a.result.refusal == Refusal::TooSoon);
   TEST_ASSERT_EQUAL_INT(429, httpStatus(a.result.refusal));
-  TEST_ASSERT_EQUAL_STRING("Changes from the dashboard are saved at most once every 10 s. Try again in 7 s.", a.result.message);
+  TEST_ASSERT_EQUAL_STRING("Too soon. Try again in 7 s.", a.result.message);
   TEST_ASSERT_EQUAL_UINT32(7, a.result.retryS);           // the Retry-After header's number
   TEST_ASSERT_EQUAL_FLOAT(20.5f, a.user.targetTempC);
   // the manual exclude is limited too
@@ -196,7 +196,7 @@ void test_one_saved_dashboard_change_every_ten_seconds() {
   // the wait rounds up, and at 10 s it is allowed again
   c.nowMs = 59999;
   r.json = &t2;
-  TEST_ASSERT_EQUAL_STRING("Changes from the dashboard are saved at most once every 10 s. Try again in 1 s.",
+  TEST_ASSERT_EQUAL_STRING("Too soon. Try again in 1 s.",
                            decideMail(r, c).result.message);
   c.nowMs = 60000;
   TEST_ASSERT_TRUE(decideMail(r, c).result.ok());

@@ -37,20 +37,20 @@ void alertTitle(char* out, size_t n, AlertSlot s, const AlertInputs& in) {
   switch (s) {
     case AlertSlot::FaultSensors:
       snprintf(out, n, "%s", in.sensorFault == SensorFault::Chamber   ? "Fault: chamber sensor"
-                             : in.sensorFault == SensorFault::Cabinet ? "Fault: cabinet sensors"
-                                                                      : "Fault: sensor recovery");
+                             : in.sensorFault == SensorFault::Cabinet ? "Fault: too few sensors"
+                                                                      : "Fault: sensors recovering");
       break;
-    case AlertSlot::FaultFan: snprintf(out, n, "Fault: plenum fan stall"); break;
-    case AlertSlot::FaultSettings: snprintf(out, n, "Fault: settings check"); break;
+    case AlertSlot::FaultFan: snprintf(out, n, "Fault: plenum fan stalled"); break;
+    case AlertSlot::FaultSettings: snprintf(out, n, "Fault: settings error"); break;
     case AlertSlot::Dip12v: snprintf(out, n, "12V supply dip"); break;
-    case AlertSlot::HeaterIneffective: snprintf(out, n, "Heater ineffective"); break;
-    case AlertSlot::CoolingIneffective: snprintf(out, n, "Cooling ineffective"); break;
-    case AlertSlot::HumidIneffective: snprintf(out, n, "Humidifier ineffective"); break;
-    case AlertSlot::SdFailed: snprintf(out, n, "SD card failure"); break;
-    case AlertSlot::ClockBad: snprintf(out, n, "Clock lost or not set"); break;
+    case AlertSlot::HeaterIneffective: snprintf(out, n, "Heater not working"); break;
+    case AlertSlot::CoolingIneffective: snprintf(out, n, "Cooling not working"); break;
+    case AlertSlot::HumidIneffective: snprintf(out, n, "Humidifier not working"); break;
+    case AlertSlot::SdFailed: snprintf(out, n, "SD card failed"); break;
+    case AlertSlot::ClockBad: snprintf(out, n, "Clock not set"); break;
     default:
       if (i >= 0 && i < kNumSensors)
-        snprintf(out, n, "Excluded: %s%s", kSensors[i].position, (in.manualMask & (1u << i)) ? " (manual)" : "");
+        snprintf(out, n, "Excluded: %s", kSensors[i].name);   // by hand or not: the Sensors page says which
       else snprintf(out, n, "?");
       break;
   }
@@ -94,8 +94,12 @@ void formatFor(char* out, size_t n, uint64_t ms) {
   const uint64_t min = ms / 60000;
   if (min < 1) snprintf(out, n, "for <1 min");
   else if (min < 60) snprintf(out, n, "for %u min", (unsigned)min);
-  else if (min < 24 * 60) snprintf(out, n, "for %u h %u min", (unsigned)(min / 60), (unsigned)(min % 60));
-  else snprintf(out, n, "for %u d %u h", (unsigned)(min / 1440), (unsigned)(min / 60 % 24));
+  // rule 8 (spec 5.5): a zero second part is dropped ("for 3 h", "for 2 d")
+  else if (min < 24 * 60) {
+    if (min % 60) snprintf(out, n, "for %u h %u min", (unsigned)(min / 60), (unsigned)(min % 60));
+    else snprintf(out, n, "for %u h", (unsigned)(min / 60));
+  } else if (min / 60 % 24) snprintf(out, n, "for %u d %u h", (unsigned)(min / 1440), (unsigned)(min / 60 % 24));
+  else snprintf(out, n, "for %u d", (unsigned)(min / 1440));
 }
 
 void formatAlertWhen(char* out, size_t n, uint64_t sinceMs, uint64_t nowMs, bool clockOk, int64_t nowUtcS) {

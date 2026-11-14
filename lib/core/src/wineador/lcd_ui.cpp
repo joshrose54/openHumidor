@@ -186,8 +186,8 @@ void LcdUi::update(const UiInputs& in) {
     snprintf(v.tempText, sizeof(v.tempText), "%.1f", (double)in.meanC);
     snprintf(v.rhText, sizeof(v.rhText), "%.0f", (double)in.meanRhPct);
   }
-  snprintf(v.setTempText, sizeof(v.setTempText), "Set %.1f %sC", (double)in.targetC, kDeg);
-  snprintf(v.setRhText, sizeof(v.setRhText), "Set %.0f%%", (double)in.rhSetPct);
+  snprintf(v.setTempText, sizeof(v.setTempText), "Target %.1f%sC", (double)in.targetC, kDeg);
+  snprintf(v.setRhText, sizeof(v.setRhText), "Target %.0f%%", (double)in.rhSetPct);
 
   // Mode icons.
   const bool fault = alerts_.count() > 0 && alerts_.at(0).rank == 0;
@@ -218,7 +218,7 @@ void LcdUi::update(const UiInputs& in) {
     char c[12];
     formatMss(c, sizeof(c), window_.remainingMs(now));
     v.updateWindow = true;
-    snprintf(v.updateText, sizeof(v.updateText), "Update allowed - %s left", c);
+    snprintf(v.updateText, sizeof(v.updateText), "Update allowed \xC2\xB7 %s", c);
     snprintf(v.allowText, sizeof(v.allowText), "Update allowed");
     snprintf(v.allowSub, sizeof(v.allowSub), "%s", c);
   }
@@ -227,7 +227,14 @@ void LcdUi::update(const UiInputs& in) {
   v.alertCount = (uint8_t)alerts_.count();
   if (alerts_.any()) {
     v.alertLine = true;
-    snprintf(v.alertText, sizeof(v.alertText), "%s", alerts_.at(0).title);
+    // While Fault shows, the mode row says "Fault" just above: the line drops the prefix (5.5: once).
+    const char* title = alerts_.at(0).title;
+    if (fault && strncmp(title, "Fault: ", 7) == 0) {
+      snprintf(v.alertText, sizeof(v.alertText), "%s", title + 7);
+      if (v.alertText[0] >= 'a' && v.alertText[0] <= 'z') v.alertText[0] = (char)(v.alertText[0] - 'a' + 'A');
+    } else {
+      snprintf(v.alertText, sizeof(v.alertText), "%s", title);
+    }
     v.alertRank = alerts_.at(0).rank;
     if (alerts_.count() > 1) snprintf(v.moreText, sizeof(v.moreText), "+%u more", (unsigned)(alerts_.count() - 1) % 100u);
   }

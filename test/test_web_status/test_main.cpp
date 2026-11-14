@@ -181,7 +181,8 @@ void test_modes_and_alerts_are_the_lcds() {
   TEST_ASSERT_TRUE(s.nAlerts >= 4);
   TEST_ASSERT_TRUE(has(w, "\"fault\":\""));
   TEST_ASSERT_EQUAL_INT(0, s.alerts[0].rank);
-  TEST_ASSERT_EQUAL_STRING(ui.view().alertText, s.alerts[0].title);   // the LCD's alert line
+  TEST_ASSERT_EQUAL_STRING(ui.alerts().at(0).title, s.alerts[0].title);   // the LCD's alert list
+  TEST_ASSERT_EQUAL_STRING("Too few sensors", ui.view().alertText);         // its line, without "Fault: "
   // every alert slot at once still fits, and in pieces
   in.alerts.excludedMask = 0x3F;
   in.alerts.fanStalled = true;

@@ -308,13 +308,17 @@ void test_the_spread_leaves_out_excluded_sensors() {
 void test_the_events_read_as_sentences() {
   char o[200];
   eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS BOOST: spread 1.20 C, 2.0 points (above 1.0 C or 3 points)");
-  TEST_ASSERT_EQUAL_STRING("Blowers to boost (full speed): spread 1.20\xC2\xA0\xC2\xB0" "C, 2.0 points (above 1.0\xC2\xA0\xC2\xB0" "C or 3 points)", o);
+  TEST_ASSERT_EQUAL_STRING("Blowers to boost: spread 1.2\xC2\xB0" "C, 2.0%", o);
   eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS FULL SPEED: fault");
   TEST_ASSERT_EQUAL_STRING("Blowers at full speed: fault", o);
+  eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS FULL SPEED: no reading yet since boot");
+  TEST_ASSERT_EQUAL_STRING("Blowers at full speed: no reading yet", o);
+  eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS BOOST: after boot; idle after 10 min of low spread");
+  TEST_ASSERT_EQUAL_STRING("Blowers to boost after start", o);
   eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS FULL SPEED ENDED (fault)");
-  TEST_ASSERT_EQUAL_STRING("Blowers' full speed ended (fault)", o);
+  TEST_ASSERT_EQUAL_STRING("Blowers' full speed ended", o);
   eventSentence(o, sizeof(o), kEvTypeBlowers, "BLOWERS IDLE: spread below 0.5 C and 2 points for 10 min; 100%");
-  TEST_ASSERT_EQUAL_STRING("Blowers back to idle: spread below 0.5\xC2\xA0\xC2\xB0" "C and 2 points for 10 min; 100%", o);
+  TEST_ASSERT_EQUAL_STRING("Blowers back to idle", o);
 }
 
 void test_the_state_line() {

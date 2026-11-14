@@ -11,7 +11,9 @@ struct SensorInfo {
   uint8_t channel;
   uint32_t serial;
   const char* label;      // last four hex digits, written on the probe
-  const char* position;
+  const char* position;   // the code the logs, the API and the serial console use ("mid_rear")
+  const char* name;       // what the LCD and the dashboard say ("Middle rear"; spec 5.5 word list).
+                          // The one source: web/words.js is made from it (tools/make_web_words.py)
   float rhGain;           // corrected RH = gain x raw + offset
   float rhOffset;
 };

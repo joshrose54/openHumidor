@@ -180,8 +180,8 @@ void test_a_wrong_image_says_why() {
   TEST_ASSERT_TRUE(r.refusal == Refusal::WrongImage);
   char out[400];
   TEST_ASSERT_TRUE(formatError(out, sizeof(out), r) > 0);
-  TEST_ASSERT_EQUAL_STRING("{\"api\":4,\"error\":\"wrong_image\",\"message\":\"That is a bench build (short timers): "
-                           "never for the cabinet.\",\"image\":\"bench_build\"}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"api\":5,\"error\":\"wrong_image\",\"message\":\"Bench build: not for the cabinet.\","
+                           "\"image\":\"bench_build\"}", out);
 }
 
 // ---------------------------------------------------------------- the stall

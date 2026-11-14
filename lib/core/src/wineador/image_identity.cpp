@@ -68,17 +68,17 @@ const char* imageVerdictCode(ImageVerdict v) {
 
 const char* imageVerdictText(ImageVerdict v) {
   switch (v) {
-    case ImageVerdict::Accept:        return "A Rev Q cabinet build.";
-    case ImageVerdict::TooShort:      return "The file is too short to be a firmware image.";
-    case ImageVerdict::NotFirmware:   return "That file isn't a firmware image (use firmware.bin from the revq build).";
-    case ImageVerdict::RevNImage:     return "That is a Rev N image (ESP32): it can't run on this board.";
-    case ImageVerdict::WrongChip:     return "That image is for another kind of chip.";
-    case ImageVerdict::NoAppDesc:     return "That image isn't firmware built for this project.";
-    case ImageVerdict::NoIdentity:    return "That image carries no openHumidor identity: a BP2 test sketch, or firmware from before stage Q5.";
-    case ImageVerdict::UnknownLayout: return "That image's identity is in a newer layout this firmware can't read.";
-    case ImageVerdict::WrongBoard:    return "That image is built for another board.";
-    case ImageVerdict::BenchBuild:    return "That is a bench build (short timers): never for the cabinet.";
-    case ImageVerdict::TestBuild:     return "That is a test build (scripted readings): never for the cabinet.";
+    case ImageVerdict::Accept:        return "Cabinet build.";
+    case ImageVerdict::TooShort:      return "Not a firmware file.";
+    case ImageVerdict::NotFirmware:   return "Not a firmware file. Choose firmware.bin.";
+    case ImageVerdict::RevNImage:     return "Built for another board.";
+    case ImageVerdict::WrongChip:     return "Built for another board.";
+    case ImageVerdict::NoAppDesc:     return "Not openHumidor firmware.";
+    case ImageVerdict::NoIdentity:    return "Not a cabinet build: a test sketch or old firmware.";
+    case ImageVerdict::UnknownLayout: return "Too new for this firmware.";
+    case ImageVerdict::WrongBoard:    return "Built for another board.";
+    case ImageVerdict::BenchBuild:    return "Bench build: not for the cabinet.";
+    case ImageVerdict::TestBuild:     return "Test build: not for the cabinet.";
   }
   return "?";
 }

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "lcdgfx/palette.h"
+#include "wineador/settings.h"
 
 namespace lcdgfx {
 
@@ -192,7 +193,7 @@ void paintElement(Canvas& c, const UiView& v, Element e) {
       break;
     case Element::Temp: {
       snprintf(buf, sizeof(buf), "%sC", kDeg);
-      paintReading(c, r, "Cabinet", v.tempText, buf, v.readingsOk);
+      paintReading(c, r, "Temperature", v.tempText, buf, v.readingsOk);
       break;
     }
     case Element::Rh: paintReading(c, r, "Humidity", v.rhText, "%", v.readingsOk); break;
@@ -241,16 +242,16 @@ void paintElement(Canvas& c, const UiView& v, Element e) {
     // ---- settings
     case Element::SetTitle:
       c.text(kFontMedium, 16, midBaseline(kFontMedium, r), "Settings", pal::kText);
-      if (v.draftChanged) textRight(c, kFontSmall, 464, midBaseline(kFontSmall, r), "Not saved yet", pal::kAccent);
+      if (v.draftChanged) textRight(c, kFontSmall, 464, midBaseline(kFontSmall, r), "Not saved", pal::kAccent);
       break;
     case Element::TempLabel:
     case Element::RhLabel: {
       const bool temp = e == Element::TempLabel;
-      c.text(kFontMedium, 16, (int16_t)(r.y + 32), temp ? "Temperature" : "Humidity", pal::kText);
-      if (temp) snprintf(buf, sizeof(buf), "15%s22 %sC", kDash, kDeg);
-      else snprintf(buf, sizeof(buf), "55%s70%%", kDash);
-      c.text(kFontSmall, 16, (int16_t)(r.y + 56), buf, pal::kMuted);
-      c.text(kFontSmall, 16, (int16_t)(r.y + 78), temp ? "steps of 0.5" : "steps of 1", pal::kMuted);
+      // the name and the range (from settings.h); the - and + buttons say the steps
+      c.text(kFontMedium, 16, (int16_t)(r.y + 40), temp ? "Temperature" : "Humidity", pal::kText);
+      if (temp) snprintf(buf, sizeof(buf), "%.0f%s%.0f%sC", (double)kTargetTempMinC, kDash, (double)kTargetTempMaxC, kDeg);
+      else snprintf(buf, sizeof(buf), "%.0f%s%.0f%%", (double)kRhSetpointMinPct, kDash, (double)kRhSetpointMaxPct);
+      c.text(kFontSmall, 16, (int16_t)(r.y + 66), buf, pal::kMuted);
       break;
     }
     case Element::TempControl:

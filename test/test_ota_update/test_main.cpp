@@ -123,7 +123,7 @@ void test_the_loop_starts_it_watches_it_and_restarts() {
   const ApiResult c = L.begin(2000, 1385360, "2.0.1", false, w, 42);
   TEST_ASSERT_TRUE(c.refusal == Refusal::BeingChecked);
   TEST_ASSERT_EQUAL_UINT32(42, c.retryS);
-  TEST_ASSERT_EQUAL_STRING("The last update is still being checked: try again in 42 s.", c.message);
+  TEST_ASSERT_EQUAL_STRING("Last update still being checked. Try again in 42 s.", c.message);
   TEST_ASSERT_TRUE(w.active(2000));
   // started: Updating, the window used up
   TEST_ASSERT_TRUE(L.begin(3000, 1385360, "2.0.1", false, w, 0).ok());
@@ -170,6 +170,7 @@ void test_the_boot_record_tells_what_happened() {
   TEST_ASSERT_FALSE(b.pendingVerify);
   TEST_ASSERT_TRUE(b.last == UpdateResult::RolledBack);
   TEST_ASSERT_EQUAL_STRING("OTA ROLLED BACK from 2.0.1 to 2.0.0: it didn't start properly", b.event);
+  TEST_ASSERT_EQUAL_STRING("2.0.1 didn't start; back on 2.0.0", b.lastDetail);   // the page's words
   TEST_ASSERT_TRUE(b.saveRecord);
   TEST_ASSERT_EQUAL_UINT8(OtaRecord::Done, b.record.step);
   // ... and the next boot logs nothing more
@@ -182,13 +183,13 @@ void test_the_boot_record_tells_what_happened() {
   b = readOtaBoot(started, f);
   TEST_ASSERT_TRUE(b.last == UpdateResult::Failed);
   TEST_ASSERT_TRUE(strstr(b.event, kEvOtaInterrupted) == b.event);
-  TEST_ASSERT_TRUE(strstr(b.lastDetail, "interrupted") != nullptr);
+  TEST_ASSERT_EQUAL_STRING("2.0.1: cut off by a restart; still 2.0.0", b.lastDetail);
   // marked good, then restarted before the record said so: quietly done
   f.runningVersion = "2.0.1";
   b = readOtaBoot(installed, f);
   TEST_ASSERT_FALSE(b.logEvent);
   TEST_ASSERT_TRUE(b.last == UpdateResult::Installed);
-  TEST_ASSERT_TRUE(strstr(b.lastDetail, "started properly") != nullptr);
+  TEST_ASSERT_EQUAL_STRING("2.0.1 (was 2.0.0)", b.lastDetail);
   // the same version over itself (B7 step 4): told apart by slot, not by version
   OtaRecord same = otaRecordEnded(otaRecordStarted("2.0.0", "2.0.0", 1794571200, 1), OtaOutcome::Installed, 1794571260);
   OtaBootFacts s;
