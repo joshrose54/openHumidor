@@ -1,6 +1,27 @@
 # Where we're up to
 
-*Updated 2026-11-13.* **Stages Q1–Q6 done.** Next: BP2 on the bench when Rev Q arrives.
+*Updated 2026-11-14.* **Stages Q1–Q6 done; Rev N retired.** Next: BP2 on the bench when Rev Q arrives.
+
+## Rev N retired (2026-11-14)
+
+Rev N's last firmware is git tag **`rev-n-last`** (09bb2fe); its last real image is kept in
+`~/wineador-logs/rev-n-last/` (with a README: commit, SHA-256) for B7 test 6. Rev Q only from here.
+- **Step 1:** the five Rev N environments and `[esp32_common]` gone (`default_envs = revq_bench_test`);
+  `board.h` / `pins.h` Rev Q only, Rev N's no-PSRAM sizes kept as `board_revq::kNoPsram*`; every
+  Rev N `#else` branch and stub gone (18 files). `tools/make_bad_image.py --esp32-chip` makes a
+  made-up Rev N image (ESP32 chip ID); `check_identity.py` makes it and `revq-corrupt.bin` after
+  each `revq` build; the image tests use it. Proven: all 20 Rev Q images identical apart from the
+  build bytes (`revq_bench_test_boot` lands on one of two layouts 16 bytes apart on any one source
+  - a toolchain quirk; both reproduced).
+- **Step 2:** the NTP-only radio task, the SD pause while WiFi is on, and `ntpsync` gone; the
+  no-PSRAM event and texts per spec 5.4; comments reworded. Kept: `NtpWindow`, the
+  `NtpWifiOn/Off` texts (reading Rev N logs), the Rev N image refusal, schema 1, the sample card.
+- **Step 3:** `docs/b7-test6-commands.md` uploads the kept image; `docs/api.md`; `set_rtc.py`
+  (Rev N's CP2102 port) moved to `archive/`.
+- **Proof each step:** builds, native tests, and the build log's four B4 baseline `check_logs.py`
+  runs identical line for line to before.
+- **Builds:** 26 → 21 (clean, all: 7 min 32 s → 5 min 34 s). Native tests 500 → **497/497** (4 Rev N
+  cases gone, the fallback sizes' test added). revq flash 1,413,978 bytes (−296), static RAM 83,584 (−16).
 
 ## After Q6: the boot splash and the walk-past wordmark (accepted 2026-11-13)
 

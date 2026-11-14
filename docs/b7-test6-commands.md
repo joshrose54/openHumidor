@@ -8,15 +8,19 @@ the same WiFi as the board.
 ## 0. Build the images
 
 ```sh
-~/.platformio/penv/bin/pio run -e revq -e revq_bench -e revq_real_test -e esp32dev -e revq_rollback_test
-python3 tools/make_bad_image.py
+~/.platformio/penv/bin/pio run -e revq -e revq_bench -e revq_real_test -e revq_rollback_test
 ```
 
 Every board build runs `tools/check_identity.py`: it must print `Identity check: revq block at
 0x120: 2.0.0` (and the matching line for each build); a wrong or missing block fails the build.
 The images are copied to `.pio.nosync/images/`: `revq.bin`, `revq_bench.bin`,
-`revq_real_test.bin`, `esp32dev.bin`, `revq_rollback_test.bin`, and `revq-corrupt.bin` from
-`make_bad_image.py`.
+`revq_real_test.bin`, `revq_rollback_test.bin`, and - made from `revq.bin` by
+`tools/make_bad_image.py`, which the revq build runs - `revq-corrupt.bin` (and
+`revq-esp32-chip.bin`, the native tests' made-up Rev N image; not used here).
+
+**The Rev N image** is the last real one, kept outside the project: `~/wineador-logs/rev-n-last/esp32dev.bin`
+(built from git tag `rev-n-last`; its `README.md` there gives the commit and SHA-256). Rev N is
+retired and can't be built from `main`.
 
 Start the cabinet build by USB first (Josh's go): `~/.platformio/penv/bin/pio run -e revq -t upload`.
 Then every case below is sent from the dashboard (the Update page) or with `curl`. `up` is short for:
@@ -36,7 +40,7 @@ the serial monitor's status line (`loop max`) for the worst loop pass during an 
 | Outside the window | (don't press Allow update) `up .pio.nosync/images/revq.bin` | `403 window_closed` |
 | Bench build | Allow update on the LCD, then `up .pio.nosync/images/revq_bench.bin` | `422 wrong_image`, `"image":"bench_build"` |
 | Test build | `up .pio.nosync/images/revq_real_test.bin` | `422`, `"image":"test_build"` |
-| Rev N image | `up .pio.nosync/images/esp32dev.bin` | `422`, `"image":"rev_n_image"` |
+| Rev N image | `up ~/wineador-logs/rev-n-last/esp32dev.bin` | `422`, `"image":"rev_n_image"` |
 | Compressor running | flash the bench test build by USB (`~/.platformio/penv/bin/pio run -e revq_bench_test -t upload`, loads unplugged), type `run 3` in the monitor; when it prints `COOLING ON` (the compressor is held on for 60 s), press Allow update and `up .pio.nosync/images/revq.bin` | `409 compressor_running`; then `stop`, and flash `revq` again by USB |
 
 Each refusal leaves the window open (5.5) and is logged ("Update refused: ...", at most 10 an hour).

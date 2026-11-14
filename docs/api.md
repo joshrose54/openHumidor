@@ -29,7 +29,7 @@ new endpoint, a changed meaning. Every JSON reply carries it as `"api": 3`, so a
 check it and stop with a clear message rather than misread a newer reply.
 
 The board answers on the home network only, as `http://wineador.local/` (plain http). Rev Q
-only: Rev N has no dashboard.
+only (Rev N, retired, had no dashboard).
 
 ## General rules
 
@@ -196,7 +196,7 @@ Everything the Overview and Sensors pages and every page's header show, in one r
 - `loads`: what is actually running (the outputs, not the calls). `compressor.for_s` while it
   runs; `stopped_ago_s` since its last stop (null before its first stop since boot).
   `heater.duty_pct` is its PWM cap while on. `interlock`: the side K1 feeds. `blowers` and
-  `ion` are null on a board without them (Rev N).
+  `ion` are null on a board without them (none now; Rev N, retired, had neither).
 - `loads.blowers` (spec 4.6b): `pwm` the duty driven now (100 = full speed). `mode`: `"idle"` (the
   idle duty), `"boost"` (full speed: the spread was wide, or the rule has just come back from full
   speed, and it waits for 10 min of low spread), `"full"` (full speed: `why` is `"fault"`,
