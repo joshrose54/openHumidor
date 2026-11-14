@@ -1364,7 +1364,7 @@ little ozone, which cigars must not be exposed to for long.
 |---|---|
 | Runs per day | **2**, evenly spaced: **24/N hours apart in fixed UTC slots from 00:00** (2 a day: 00:00 and 12:00 UTC). If the time is not trusted, every 24/N hours from boot, the first one 24/N hours after boot; once the clock is trusted, the next run follows the clock. A run missed while the board was off is not caught up. **Each slot runs once:** a run starts only when the clock reaches its slot by normal running; a clock stepped forward past a slot's start skips it as missed, and a clock stepped back never repeats a slot already run |
 | Minutes per run | **2**, timed by uptime |
-| Settings over 10 minutes a day | **Refused**: runs × minutes must be 10 or less ("at most 10 minutes a day in total") |
+| Settings over 10 minutes a day | **Refused**: runs × minutes must be 10 or less ("12 min a day. The limit is 10 min.") |
 | Hard cap | **10 minutes in any 24 hours** of actual on-time — never exceeded, whatever the settings; a backstop. **Kept across reboots** in NVS (each run's start and on-time); **every stored run counts as recent until 24 hours of uptime have passed since it started, added up across reboots, whatever the clock says** (a wrong clock can't age runs away; time with the board off only makes a run older); a reboot during a run counts its whole planned length. At the default 2 × 2 min this changes nothing; at the maximum, a reboot can mean no runs for up to a day. **If the record can't be saved, no new run starts** until a save works again (logged; shown as held) |
 | Not during | The boot hold, an OTA update, or a **Fault** (5.5). A run due then is **skipped**, not moved, and logged; one cut short is not resumed, and its on-time counts towards the cap |
 | Switched off | **Ion generator enable** (user setting, 5.5) off: no runs at all; the run settings keep their values for when it is switched back on. Off mid-run (or runs or minutes set to 0): off at once, logged; switching back on waits for the next slot. A settings change mid-run leaves that run's length as it started |
@@ -1893,8 +1893,8 @@ normal and the LCD still works.
     so); the runs-per-day and minutes settings appear once 4.6c is built.
   - **Board** section on Overview: firmware version, uptime, the last restart reason, 12V now and
     its lowest today, WiFi signal strength, free internal memory, card space.
-  - **Events** read as a plain sentence (e.g. "Humidifier called: RH 59.4%, below 60%"), with the
-    logged text in small print beneath; the card keeps the logged text, which tools read.
+  - **Events** read as a plain sentence (e.g. "Humidifying started: humidity 59.4%, below 60.0%"),
+    with the logged text shown on tap or hover; the card keeps the logged text, which tools read.
   - **Door test:** a button on the Events page logs a "door test" event, with an optional note.
   - **Allow update window, at the edges:** a refused upload (wrong build, compressor running)
     doesn't use the window up, but one that started and then failed (its image check at the end)
@@ -1950,8 +1950,14 @@ in the card's files, which tools read and which stays as it is (5.4).
 6. **One word per thing, the same on the LCD and the dashboard** (the word list below).
 7. **House style:** British English; sentence case; no full stop on a label or a single phrase,
    full stops only on whole sentences; "you" only in an instruction.
-8. **Numbers:** temperature one decimal, "20.0°C"; humidity whole, "62%" (no space before ° or %);
-   UK local time, 24-hour, "14:32"; countdowns "m:ss"; durations "7 min", "3 h 5 min", "31 d".
+8. **Numbers:** temperature one decimal, "20.0°C"; humidity whole, "62%"; volts "12.1V" — no space
+   before °C, % or V; a space before word units ("7 min", "5 s", "1,060 rpm", "58 GB"). Humidity
+   differences in "%", never "points". UK local time, 24-hour, "14:32"; countdowns "m:ss";
+   durations "7 min", "3 h 5 min", "31 d 4 h" (a zero second part dropped: "31 d"). **Exceptions:**
+   the Sensors page keeps its diagnostic decimals ("20.53°C", "62.0%"); event sentences give both
+   temperature and humidity to one decimal, so a rounded figure never contradicts its threshold.
+   The ion generator's runs keep their UTC slots (4.6c) and are shown in UK time (01:00 and 13:00
+   in summer).
 9. Colour or an icon is never the only signal (as now).
 
 **Word list** (proposed at the words sweep; the sweep may suggest changes, agreed before use):
@@ -1969,6 +1975,23 @@ in the card's files, which tools read and which stays as it is (5.4).
 | Cabinet build · Bench build · Test build | rev-q · real | What is running |
 | Speed | PWM | Fans and blowers |
 | Off | Detection not switched on | A feature that is switched off |
+| Not working | Ineffective | Heater, cooling or humidifier failing its check |
+| Rest · Run limit | Min-off, max-run | A load waiting after its minimum off time or longest run |
+| Relay check | Relay exercise | |
+| Fan run-on | Harvest | The fan after a cooling or heating run |
+| Bad read · No answer | CRC failure, timeout | Sensor reads |
+| Room | Ambient | The ambient sensor's position |
+| Drying runs | RH strips | The count of drying runs |
+| Cabinet screen | LCD | |
+| Bench test build | | A bench build that is also a test build |
+| Software restart · Crash · Watchdog · Power dip · Reset · Other | SOFTWARE, PANIC … | Restart reasons, beside "Power on or reset" |
+| Settings error | Settings check | The stored settings failing their check (a Fault) |
+| Storage error | Cap record can't be saved | The ion generator's run record not saving |
+| Temperature · Humidity | Target temperature … | Allowed bare on a screen only about the targets (LCD settings) |
+
+**Sensor position names** ("Top front", "Middle rear", "Room" …) have **one source**: the
+firmware's sensor table. The dashboard's copy is generated from it and checked by a test, so the
+LCD and the dashboard can't disagree.
 
 ### Settings — three tiers
 
