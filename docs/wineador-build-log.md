@@ -822,6 +822,21 @@ clock 1 MHz.
 
 ---
 
+### B4 baseline check — the card copies
+
+`tools/check_logs.py` on the B4 card copies in `~/wineador-logs/` — the commands to repeat whenever
+the log tools change, so the baseline is always checked the same way. All four copies are schema 1
+(no board line).
+
+| Card | Command | Result |
+|---|---|---|
+| B4 soak | `check_logs.py <soak>/card-logs --profile real --soak` (that copy's `card-logs` is the logs folder itself: point the checker at it through a link named `logs` if it expects one) | 36 PASS, 1 FAIL (the two known SD flush failures) |
+| B4 SD proof | `check_logs.py ~/wineador-logs/B4-sd-proof-2026-11-11/card --profile real --stress` | 27 PASS, 1 FAIL (one bench file on a real card: expected with any `--profile`) |
+| SD investigation | `check_logs.py …/sd-investigation/card-new-2026-11-11 --profile bench` | 14 PASS |
+| Rev N sample card (generated) | `check_logs.py .pio.nosync/sample-cards/revn --profile bench` | 20 PASS |
+
+The last real Rev N firmware is git tag `rev-n-last`; its image is kept in `~/wineador-logs/`.
+
 ## 3. Track A — cabinet findings and data
 
 Inkbird-controlled, before the controller. Moisture as vapour pressure (kPa) where stated, which

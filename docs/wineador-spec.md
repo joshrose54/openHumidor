@@ -780,7 +780,10 @@ BT1 ML-2020/H1CN (4167439), J23 Multicomp Pro 2211S-05G 1×5 header (1593414). *
 twelve Keystone through-hole test points, the DIP-14 socket. Not fitted: R95–R98 (spare-connector pull-ups, 3A.7).
 
 **Monitor cable:** a USB-serial cable for J23 (3A.5) with **3.3V logic on TX and RX** — a 3.3V VCC
-pin alone is not enough. Female 2.54mm ends; its VCC wire is insulated and never used.
+pin alone is not enough. Female 2.54mm ends; its VCC wire is insulated and never used. **Chosen: a
+CP2102 USB-to-TTL module** (pins +5V, GND, RXD, TXD, 3V3; USB-A plug, so a USB-C adapter on the Mac),
+wired with three female–female jumpers: GND → J23 GND, module TXD → J23 RX, module RXD → J23 TX;
++5V and 3V3 not connected. Metered before first use: TXD to GND about 3.3V.
 
 ## 3A.3 Power
 
@@ -1530,30 +1533,11 @@ Apple Silicon Mac, macOS 26.
 | Editor | VS Code |
 | Extension | **pioarduino IDE**, not PlatformIO IDE (deprecated for ESP32, stuck on core 2.0.17). Never install both |
 | Platform | pioarduino, pinned release 55.03.311 |
-| Board | `esp32dev` (Rev N/P). Rev Q: `esp32-s3-devkitc1-n8r2` (8MB quad flash, 2MB quad PSRAM), console on UART0 (J23), flashing over native USB — environment below |
+| Board | `esp32-s3-devkitc1-n8r2` (Rev Q: 8MB quad flash, 2MB quad PSRAM), console on UART0 (J23), flashing over native USB — environment below. Rev N/P (`esp32dev`) is retired: its last firmware is git tag `rev-n-last` |
 | Framework | Arduino |
 | Core | Arduino-ESP32 3.3.11 on ESP-IDF 5.5.5 |
 | Toolchain | xtensa-esp-elf 14.2.0 |
-| Serial driver | **Silicon Labs CP210x VCP driver** — Apple's built-in driver rejects every `tcsetattr` on macOS 26. Port `/dev/cu.SLAB_USBtoUART`; ignore `/dev/cu.usbserial-0001`. Not the WCH CH34x driver |
-
-```ini
-[env:esp32dev]
-platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
-board = esp32dev
-framework = arduino
-monitor_speed = 115200
-upload_port = /dev/cu.SLAB_USBtoUART
-monitor_port = /dev/cu.SLAB_USBtoUART
-monitor_filters = time
-monitor_rts = 1
-monitor_dtr = 1
-board_build.partitions = min_spiffs.csv
-```
-
-`min_spiffs`: ~1.9 MB for firmware with two app slots, so wireless (OTA) updates stay possible;
-logs live on the SD card, so flash file storage is not needed.
-
-**Rev Q:**
+| Serial driver | **Silicon Labs CP210x VCP driver**, for the J23 module's CP2102 (3A.2) — on Rev N, Apple's built-in driver rejected every `tcsetattr` on macOS 26. The port name is settled at BP2 test 15 |
 
 ```ini
 [revq_common]
@@ -1576,13 +1560,14 @@ holding up the loop. `ARDUINO_USB_CDC_ON_BOOT=0` puts `Serial` (and the boot mes
 `default_8MB.csv`: two 3.2 MB app slots for OTA; NVS at the same address and size as Rev N.
 `monitor_rts`/`monitor_dtr` at 0: J23 has no RTS/DTR wires; on the native USB, both off is the state
 that neither resets the chip nor sets download mode — but never monitor on the native USB (3A.5).
-Rev N builds carry `-DWINEADOR_BOARD_REVN`; a build with neither or both flags stops with an error.
+A build without `-DWINEADOR_BOARD_REVQ` stops with an error. **The default environment is
+`revq_bench_test`**, so a plain upload never flashes the cabinet build.
 **Heap:** the prebuilt S3 framework keeps WiFi and network-stack buffers in internal RAM (PSRAM is on,
 but not for WiFi/lwIP). Outage buffers go in PSRAM. If the 30 KB floor (5.2) is not met at all
 times on the board, the fix is pioarduino's `custom_sdkconfig` to move WiFi/lwIP buffers to PSRAM —
 decided on measurement (BP2 test 39).
 
-`monitor_rts` and `monitor_dtr` at **1** stop the monitor resetting the board when opened or closed —
+**Rev N/P (DevKit, retired) — history:** `monitor_rts` and `monitor_dtr` at **1** stopped the monitor resetting the board when opened or closed —
 essential for long runs. On the DevKit, EN is pulled low only when RTS is on and DTR off; at 0 the
 monitor turns DTR off first, leaving RTS on alone for a moment, which resets the board. A custom
 serial script must likewise clear RTS before DTR. Pin the platform to a release tag so a rebuild years later matches. Use a
@@ -1593,7 +1578,7 @@ order (2.4). **Rev N** has no D7: **keep 12V on whenever USB is connected** — 
 The CP210x driver and the DevKit's RTS/DTR behaviour do not apply. **Monitor on J23** with a 3.3V
 USB-serial cable (3A.5); the native USB only for flashing.
 
-**With the DevKit pull-ups fitted (3.3)**, USB can be plugged into or unplugged from a running
+**Rev N/P history:** with the DevKit pull-ups fitted (3.3), USB could be plugged into or unplugged from a running
 board without restarting it, and the board runs with no USB at all.
 
 ## 5.2 Non-blocking architecture
@@ -1628,15 +1613,13 @@ on a sensor read, a log write or the network.
 
 **Free internal heap never below 30 KB** (internal RAM only — on Rev Q the framework's ordinary free-heap calls include PSRAM, so the
 internal-only calls are used; PSRAM's lowest free is logged separately, 5.4), including during WiFi bursts and SD writes; the lowest seen is
-logged in the readings. On **Rev N** the floor applies outside NTP windows: while WiFi connects its
-own buffers dip it to ~29 KB, which is logged (card writes are paused). **Rev Q must meet
-it at all times.**
+logged in the readings. **Rev Q must meet it at all times.**
 
 **OTA updates** (from B6/B7): on Rev Q only inside the LCD's Allow update window, and only a Rev Q cabinet build (5.5); a new image that fails to start properly rolls
 back to the previous one. **Started properly** = the control loop has run 60s with the settings
 check passed, the hardware watchdog toggling and the first full sensor read done; only then is the
 new image marked good, and a reset before that rolls back. A rollback is logged and shown on the
-Update page (two app slots: `min_spiffs` on Rev N, `default_8MB` on Rev Q); after any update the normal boot hold
+Update page (two app slots, `default_8MB`); after any update the normal boot hold
 applies.
 - **Starts only when the compressor is not running** — otherwise it is refused with a message, so
   an update never cuts a cooling run short.
@@ -1764,10 +1747,9 @@ after a remount** — a permanent requirement, not a workaround; a recovered ret
 sets SD FAIL. **SD SPI clock: 1 MHz**, from one constant used by every mount and remount —
 logging needs very little bandwidth. **During a card outage,** events, readings rows and pending hourly
 rows are kept in RAM and written in order when the card returns; beyond that the oldest are dropped
-and counted. Buffer sizes are set per board — **Rev N: 60 events, 30 readings rows, 24 hourly rows**
-(heap); **Rev Q: 1,000 events, 1,440 readings rows (24 hours at the steady rate), 168 hourly rows
-(a week), in PSRAM** (about 0.94 MB). If PSRAM is not found at boot: an event, and Rev N's sizes in
-internal RAM.
+and counted. Buffer sizes: **1,000 events, 1,440 readings rows (24 hours at the steady rate), 168 hourly rows
+(a week), in PSRAM** (about 0.94 MB). If PSRAM is not found at boot: an event, and a **no-PSRAM
+fallback of 60 events, 30 readings rows, 24 hourly rows** (the sizes Rev N ran) in internal RAM.
 
 **Self-describing headers** — comment lines then a column header. A file keeps the header of the build
 that created it; each boot event names its build, so later rows are still traceable.
@@ -1799,11 +1781,9 @@ never deleted. The Mac is the real archive — pull the card or download every f
 month. **At boot, set the ESP32 system clock from the DS3231 with `settimeofday`, TZ UTC** — the SD
 library dates files from the system clock, and left unset every file is dated 1 January 1980.
 **NTP** (pool.ntp.org, time.google.com) at boot and every 24 h, in the background; control never
-waits for it; after a missed sync, the next try is 1 h later. **WiFi, per board:** on Rev N it connects only for the NTP sync and turns off once the
-sync has worked or after 2 minutes (it caused the SD errors and most of the heap use); on Rev Q
-it stays connected and reconnects by itself, for the dashboard and OTA. **On Rev N, card writes
-pause while WiFi is on**; rows and events wait in the outage buffers and are written once it is
-off, so WiFi and card writes never overlap. Each sync sets the system clock and
+waits for it; after a missed sync, the next try is 1 h later. **WiFi stays connected** and reconnects by itself, for the dashboard and OTA; card writes are not
+paused for it. (Rev N, retired, connected only for the NTP sync and paused card writes while WiFi
+was on — the B4 SD findings, build log.) Each sync sets the system clock and
 writes the DS3231 if it is more than 2 s out; the correction is logged. Until NTP has corrected a
 clock that lost time (OSF, 5.6), timestamps are marked untrusted. Local time only on the dashboard.
 
@@ -1888,7 +1868,7 @@ normal and the LCD still works.
   - **No password.** Anything on the home network can read and change user settings; every value
     is clamped to its bounds and safety values are never exposed. **OTA only inside the LCD's
     Allow update window** (above), and only per the OTA rules (5.2). Plain http — no https.
-  - **Rev Q only:** the dashboard and OTA. Rev N builds stay as they are (WiFi for NTP only).
+  - **Rev Q only** (the only board built now).
   - **One page file** holding all seven pages.
   - **Fetch only what the open page shows, and only while it is visible** (nothing while the tab
     is hidden or the phone screen is off; it catches up on return):
@@ -2596,7 +2576,7 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 | 3 | Defaults | NVS defaults against the B6 findings | Match | Pending |
 | 4 | Persistence | Change settings, cut power, restore | Settings survive | Pending |
 | 5 | Final soak | One week unattended | Comparable to the B6 baseline | Pending |
-| 6 | OTA (Rev Q) | **Loads unplugged; Josh's go before each flash** (the cabinet build switches loads by itself). Allow update on the LCD, then from the dashboard: a cabinet build; a bench, a test and a Rev N image; an upload outside the window; one with the compressor running (cabinet model, or a forced state in a test build); an upload stopped part way (a curl command that sends part of an image, then waits); a corrupt image (`tools/make_bad_image.py`); the **rollback test image** — its own build only (`revq_rollback_test`, version `2.0.0-ROLLBACK-TEST`, never the default), which holds the loads off and stops toggling so it resets before it is marked good. **Sent by OTA only**: if it finds no older image to fall back to (e.g. flashed by USB by mistake), it holds every load off and says so rather than resetting over and over. Record the worst loop pass during an update | The cabinet build installs, restarts, passes the boot hold and is marked good. Every other case refused with its reason and nothing written; the stopped upload abandoned after 60s; the corrupt image refused at its check, nothing changed; the rollback test image rolls back by itself to the previous image, logged and shown on the Update page | Pending |
+| 6 | OTA (Rev Q) | **Loads unplugged; Josh's go before each flash** (the cabinet build switches loads by itself). Allow update on the LCD, then from the dashboard: a cabinet build; a bench, a test and a Rev N image (the last real Rev N image, `esp32dev.bin` from tag `rev-n-last`, kept in `~/wineador-logs/`); an upload outside the window; one with the compressor running (cabinet model, or a forced state in a test build); an upload stopped part way (a curl command that sends part of an image, then waits); a corrupt image (`tools/make_bad_image.py`); the **rollback test image** — its own build only (`revq_rollback_test`, version `2.0.0-ROLLBACK-TEST`, never the default), which holds the loads off and stops toggling so it resets before it is marked good. **Sent by OTA only**: if it finds no older image to fall back to (e.g. flashed by USB by mistake), it holds every load off and says so rather than resetting over and over. Record the worst loop pass during an update | The cabinet build installs, restarts, passes the boot hold and is marked good. Every other case refused with its reason and nothing written; the stopped upload abandoned after 60s; the corrupt image refused at its check, nothing changed; the rollback test image rolls back by itself to the previous image, logged and shown on the Update page | Pending |
 
 ---
 
@@ -2607,7 +2587,7 @@ Production dashboard per 5.5; B6 settings become NVS defaults. The control logic
 | Rev Q PCB, JLCPCB Standard assembly (file set B4, **parts list as of 13 Nov with U5 MAX823SEUK+T**) | At order: in the placement preview check U5's pin-1 marker at the printed triangle; recheck stock and Basic/Extended of the 40 part numbers; edge rails added by JLCPCB on the **left and right edges only**, the right rail not joined beside J22 (8–24mm from the top) — remark and drawing in `jlcpcb/ORDER-NOTES.md`; **ENIG** finish; vias plugged ("Tented" not offered; every via is covered by mask in the files); select "Confirm Parts Placement"; layer order F_Cu, In1 (ground), In2 (12V/ground), B_Cu |
 | Spare LCD ribbons, 14-way 0.5mm, 30cm: one "reverse", one "same-side" | With the board order |
 | Rev Q hand-soldered parts, Farnell UK (3A.2) | **K1 now — low stock**; the rest with the board order |
-| USB-serial cable for J23, 3.3V logic (3A.2) | With the board order |
+| USB-serial cable for J23, 3.3V logic (3A.2) | **Ordered:** CP2102 module (USB-A). Also needed: a USB-A to USB-C adapter, and three female–female jumpers if the module's wires aren't |
 | Enclosure | To Rev Q's final layout (3A.12) |
 | Trays | After final chamber depth is confirmed |
 

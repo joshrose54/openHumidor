@@ -1,10 +1,11 @@
 # Wineador controller firmware
 
 ESP32 firmware for Josh's wineador: an electriQ wine cooler converted into a cigar humidor, with a
-custom controller board. The production firmware was built stage by stage on the **Rev N** bench
-board and has passed **B3** (all 24 tests) and **B4** (soak). Rev N is no longer available: until
-Rev Q arrives there is **no board to flash** — build and native tests only. The job now is the **port to Rev Q**,
-the cabinet board (ESP32-S3), and the **BP2** test sketches for its bring-up.
+custom controller board. The firmware was built stage by stage on the **Rev N** bench board, passed
+**B3** and **B4**, and is now **Rev Q only** (ESP32-S3, the cabinet board). **Rev N is retired**: its
+last firmware is git tag `rev-n-last`. Until Rev Q arrives there is **no board to flash** — builds and
+native tests only. Stages Q1–Q6 (port, drivers, BP2 sketches, LCD, dashboard, blowers and ion) are
+done; next is BP2 on the board.
 
 Josh is not a professional developer. Explain plainly, keep code readable, and ask when unsure:
 don't guess and don't answer with false confidence.
@@ -14,7 +15,7 @@ don't guess and don't answer with false confidence.
 | File | What it is | You may |
 |---|---|---|
 | `docs/wineador-spec.md` | **The design.** Chapter **3A** is Rev Q (parts, pin map 3A.4, circuits, firmware rules **3A.11**); 4 control rules; 5 firmware; **BP2** is Rev Q's bring-up test list. 2.3–2.4 and 3.1–3.3 are Rev P/N | Read only |
-| `docs/wineador-build-log.md` | **Measured facts** from Rev N: sensor serials and RH calibration, fan duty curve, board values, gotchas | Read only |
+| `docs/wineador-build-log.md` | **Measured facts** (so far from Rev N): sensor serials and RH calibration, fan duty curve, board values, the B4 baseline check commands, gotchas | Read only |
 | `docs/wineador-project-instructions.md` | How Josh likes to work | Read only |
 | `docs/revq/6-revQ-design-report.md` | Rev Q board notes from the PCB engineer: every part and connection | Read only |
 | `docs/revq/7-revQ-netlist-report.md` | Every Rev Q net and its pins | Read only |
@@ -28,22 +29,19 @@ report disagree, the spec wins; report the difference.
 
 ## Boards
 
-| | Rev N (**no longer available** — build only) | Rev Q (ordered, not yet arrived) |
-|---|---|---|
-| Module | ESP32 DevKit (ESP-WROOM-32D, CP2102), modified with 2.2kΩ 3V3–EN and 3V3–P0 | **ESP32-S3-WROOM-1-N8R2** on the board: 8MB flash, 2MB quad PSRAM |
-| Pins | Spec 3.1 | **Spec 3A.4** |
-| Console | CP2102 USB, `/dev/cu.SLAB_USBtoUART` | **UART0 on J23** (GPIO43 TX, GPIO44 RX) through a 3.3V USB-serial cable. **Native USB (GPIO19/20) is for flashing only** — a monitor on it can reset the chip (3A.5) |
-| Sensor mux channels | Wired to mux 2–7 | Wired to mux 0–5 |
+**Rev Q** (not yet arrived):
+- **Module:** ESP32-S3-WROOM-1-N8R2 on the board: 8MB flash, 2MB quad PSRAM.
+- **Pins:** spec 3A.4.
+- **Console:** UART0 on J23 (GPIO43 TX, GPIO44 RX) through a 3.3V USB-serial cable. **Native USB
+  (GPIO19/20) is for flashing only** — a monitor on it can reset the chip (3A.5).
+- **Sensors:** channel n on mux channel n, **numbered 0–5 everywhere** (spec 2.3).
 
-**Sensor channels are numbered 0–5 everywhere** (spec 2.3): control rules, settings, log columns
-(`ch0_t` …), tools. Rev Q wires channel n to mux channel n. Rev N's board settings map 0–5 to its
-mux 2–7. The firmware currently uses 2–7: renumbering is part of the port, with a **log schema
-bump** and `tools/check_logs.py` updated to match.
+**Old logs:** `tools/check_logs.py` must keep reading Rev N cards (schema 1, and the
+`rev-n (channel n = mux n+2)` header) — the B4 cards are the baseline. Check with the build log's
+B4 baseline commands whenever the log tools change.
 
 ## Power rules
 
-- **Rev N:** keep 12V on whenever USB is connected — 12V on before USB in, USB out before 12V off.
-  Any test that cuts the 12V runs with USB unplugged first. The 12V bulb only with USB connected.
 - **Rev Q:** USB powers nothing. **Any order is safe**; flashing and the monitor need **12V on**.
   The monitor cable on J23 uses three wires only — GND, TX, RX — **never its VCC wire**.
 - Bench instructions to Josh always state the power-up order for the board in use.
@@ -62,15 +60,14 @@ bump** and `tools/check_logs.py` updated to match.
 
 ## Build environment (spec 5.1)
 
-- pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5) for both boards.
-  Keep the existing `esp32dev` environment (Rev N) building, and the `native` environment for the
-  Mac-side tests.
-- **Rev Q environment: spec 5.1** (`[revq_common]` and the builds on it).
-- Rev N: `monitor_rts = 1`, `monitor_dtr = 1`. Rev Q: the monitor is on J23 (no RTS/DTR wires), so
-  it cannot reset the board.
+- pioarduino platform **pinned to 55.03.311** (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5). Keep the
+  `native` environment for the Mac-side tests.
+- **Rev Q environment: spec 5.1** (`[revq_common]` and the builds on it). **The default environment
+  is `revq_bench_test`**, so a plain upload never flashes the cabinet build.
+- The monitor is on J23 (no RTS/DTR wires), so it cannot reset the board.
 - `pio` is not on the shell path: use `~/.platformio/penv/bin/pio`.
 - Arduino-ESP32 3.x attaches PWM by pin: `ledcAttach(pin, freq, bits)`, `ledcWrite(pin, duty)`.
-- **Build both board environments and run the native tests before every hand-over.**
+- **Build every environment and run the native tests before every hand-over.**
 
 ## WiFi credentials
 
@@ -116,7 +113,7 @@ them.** It is in `.gitignore`. Never overwrite it.
 
 | Stage | Adds | Proven by |
 |---|---|---|
-| Q1 | Rev Q build environment and board files; pins per 3A.4; channels renumbered 0–5 everywhere, log schema bump, `check_logs.py`; Rev N still builds and behaves as before | Both builds; native tests; `check_logs.py` on the B4 card copies |
+| Q1 | Rev Q build environment and board files; pins per 3A.4; channels renumbered 0–5 everywhere, log schema bump, `check_logs.py` | Both builds; native tests; `check_logs.py` on the B4 card copies |
 | Q2 | Rev Q drivers: hardware watchdog, SD power switch and SPI3, both I²C buses, 12V sense, blower PWM (full speed), ion output (off), backlight, minimal LCD and touch for test 29, UART0 console, WiFi always on with PSRAM buffers | Native tests; builds |
 | Q3 | BP2 test sketches for tests 15–30, and the test-build commands BP2 needs (`stall`, the DS3231 EOSC lost-time command for B3 test 16) | Builds; Josh's review of each sketch's steps |
 | Q4 | The LCD screens (spec 5.5): walk-past, settings and alerts, touch, backlight dimming, the **Allow update** window. **What the screen shows** — modes, alerts and their order, the countdown, local time, settings steps and bounds, timeouts — **is plain C++ in lib/core with native tests**; drawing and touch are the driver side. Rev Q builds only | Native tests; builds; **every screen rendered to a PNG on the Mac by the same drawing code** for Josh's review; checked on the board at BP2 |
